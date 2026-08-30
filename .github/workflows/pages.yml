@@ -1,11 +1,13 @@
 # GitHub Pages に配信する。
-# 使う前にリポジトリの Settings → Pages → Source を "GitHub Actions" にしてください。
 # 公開されたページは誰でも見られる状態になります。
 name: Deploy to GitHub Pages
 
 on:
+  # 既定ブランチの名前を on: に直接書けないので、いったん全ブランチで受けて
+  # job 側で絞る。このリポジトリにはまだ main が無く、既定ブランチを
+  # 付け替えてもこの workflow を直さずに済ませたい
   push:
-    branches: [main]
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -15,10 +17,14 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # 配信の途中で止めると中途半端な状態が残るので、待たせる（キャンセルしない）
+  cancel-in-progress: false
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +34,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+      # Pages の配信元が「ブランチ」のままだと、ビルドしていないソースがそのまま
+      # 公開されて動かない（index.html が /src/main.ts を読みにいくため）。
+      # この workflow からの配信に切り替える。すでに切り替わっていれば何も変わらない。
+      # configure-pages の enablement では直らない（未設定のときに作るだけで、
+      # すでにある設定の build_type は変えない）
+      - name: Serve Pages from this workflow
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
