@@ -109,14 +109,61 @@ npm run dev
 
 ### 3. GitHub Pages に置く（ホーム画面に入れるならこれ）
 
-1. リポジトリの **Settings → Pages → Source** を `GitHub Actions` にする
-2. `main` に push すると `.github/workflows/pages.yml` が動いて配信される
-3. iPhone の Safari で開く → 共有ボタン → **ホーム画面に追加**
+既定ブランチに push すると `.github/workflows/pages.yml` が動いて配信されます
+（手動で流すこともできます: **Actions → Deploy to GitHub Pages → Run workflow**）。
+配信されたら iPhone の Safari で開く → 共有ボタン → **ホーム画面に追加**。
 
 追加したアイコンから起動すると、アドレスバーのない全画面になります。
-Service Worker が入っているので、一度開けば電波がなくても遊べます。
 
 > Pages で公開したページは誰でも見られる状態になります。
+
+配信元は workflow の中で `GitHub Actions` に切り替えています。ここが `Deploy from
+a branch` のままだと、ビルドしていないソースがそのまま公開されて動きません
+（`index.html` が TypeScript の `/src/main.ts` を読みにいくため）。
+権限の都合でこの切り替えに失敗した場合は、**Settings → Pages → Source** を
+`GitHub Actions` にしてから流し直してください。
+
+## PWA について
+
+ホーム画面に追加してアプリのように使うために、次の 2つを置いています。
+
+| ファイル | 役割 |
+| --- | --- |
+| `public/manifest.json` | アプリの名前・アイコン・起動時の見た目 |
+| `public/sw.js` | オフライン用の Service Worker |
+
+### オフライン
+
+`sw.js` は install の時点でアプリ一式（HTML / JS / CSS / アイコン / manifest）を
+まとめてキャッシュします。「一度読んだものを残す」方式では足りません
+——Service Worker は自分を登録したページの読みこみを横取りできないので、
+初回訪問ぶんがキャッシュに入らず、その直後に圏外になると起動できなくなります。
+
+ファイル名にはビルドごとのハッシュが付くため、一覧は `vite.config.ts` の
+`sw-precache` プラグインがビルド時に `sw.js` へ埋めこみます。キャッシュ名にも
+中身のハッシュが入るので、配信するたびに古い版はまとめて捨てられます。
+
+プリキャッシュは `cache.addAll` で丸ごと入れています。1つでも失敗すると
+install ごと失敗しますが、それでかまいません。中途半端に入ったまま先に進むと
+古いキャッシュを消してしまい、「更新したら圏外で遊べなくなった」が起きます。
+install に失敗した新しい Service Worker は破棄され、いま動いている版が残ります。
+
+### 更新
+
+HTML はネットワーク優先、それ以外はキャッシュ優先です。ファイル名にハッシュが
+付くので、キャッシュ優先でも古い版を掴み続けることはありません。
+
+更新の確認はアプリ側から明示的に呼んでいます（`src/main.ts`）。画面を開いた
+だけでは `sw.js` を取りにいかないことがあり、ホーム画面から起動したアプリには
+再読みこみの手段がない（引っぱって更新は `overscroll-behavior: none` で
+止めてある）ので、放っておくと古い版のまま何日も動きます。
+起動時と、1時間以上あけて前面に戻ってきたときに確認します。
+
+### アイコン
+
+`icons/icon-maskable-512.png` は絵を内側 80% に寄せた maskable 版です。
+Android はアイコンを端末ごとの形（丸・角丸・雫）で切り抜くので、フチいっぱいに
+描いた絵だと「＋」の先が欠けます。空と地面は切り抜かれる前提でフチまで塗っています。
 
 ## 開発
 
@@ -146,7 +193,9 @@ src/
   sprites.ts          キャラ・ぼうし・障害物の描画
   style.css           見た目と iOS 向けの調整
 public/
-  manifest.webmanifest, sw.js, icons/
+  manifest.json         PWA の設定（名前・アイコン・起動時の見た目）
+  sw.js                 オフライン用 Service Worker（一覧はビルド時に埋める）
+  icons/                アイコン。maskable 版は絵を内側に寄せてある
 tools/make-icons.mjs   アイコンの生成（絵を変えたいときだけ実行）
 tools/build-single.mjs dist/ を 1枚の HTML にまとめる
 .github/workflows/pages.yml  GitHub Pages への配信

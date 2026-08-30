@@ -636,8 +636,37 @@ if (
   !embedded &&
   !import.meta.env.DEV
 ) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register(new URL('./sw.js', document.baseURI).href).catch(() => undefined);
+  window.addEventListener('load', async () => {
+    let reg: ServiceWorkerRegistration;
+    try {
+      reg = await navigator.serviceWorker.register(
+        // updateViaCache: 'none' が無いと、sw.js 自体が HTTP キャッシュから返って
+        // 更新に気づかないことがある（GitHub Pages は max-age=600 を付ける）
+        new URL('./sw.js', document.baseURI).href,
+        { updateViaCache: 'none' },
+      );
+    } catch {
+      return; // Service Worker が使えなくても、ふつうに遊べる
+    }
+
+    // 画面を開いただけでは更新の確認が走らないことがある（実測で、新しい
+    // sw.js を置いても取りにこなかった）。ホーム画面から起動したアプリには
+    // 再読みこみの手段が無く（引っぱって更新は overscroll-behavior で
+    // 止めてある）、放っておくと古い版のまま何日も動く。自分で確認しにいく。
+    const check = () => void reg.update().catch(() => undefined);
+    check();
+
+    // iOS はアプリを何日も宙づりにしたまま復帰させる。戻ってきたら見にいく。
+    // 遊んでいる最中に入れ替わっても、読みこみ後は何も取りにいかない作りなので
+    // 画面は壊れない（新しい版になるのは次に開いたとき）
+    const HOUR = 60 * 60 * 1000;
+    let checkedAt = Date.now();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - checkedAt < HOUR) return;
+      checkedAt = Date.now();
+      check();
+    });
   });
 }
 
