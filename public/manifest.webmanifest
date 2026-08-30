@@ -1,0 +1,17 @@
+{
+  "name": "たしざんジャンプ",
+  "short_name": "たしざん",
+  "description": "こたえをタップしてジャンプ！ 子ども向けのたしざんランナー。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#e2f4fd",
+  "theme_color": "#8fd0ef",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
