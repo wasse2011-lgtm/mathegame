@@ -57,6 +57,7 @@ function itemButton(item: Item): HTMLButtonElement {
 export function renderShop(): void {
   const p = profile();
   $('shop-coins').textContent = String(p.coins);
+  $('egg-cost').textContent = String(EGG_COST);
   $('shop-desc').textContent = `あつめた ${ownedCount()} / ${ITEMS.length}`;
 
   const skins = $('skin-grid');

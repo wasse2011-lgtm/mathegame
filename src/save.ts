@@ -1,9 +1,17 @@
 /**
  * セーブデータ。localStorage は private ブラウズや容量超過で必ず失敗しうるので、
  * 読み書きは全部 try/catch で包み、失敗しても遊べる状態を返す。
+ *
+ * きろく（セーブデータ）は 3枠。きょうだいで 1台を使いまわしても、
+ * 星もコインも図鑑も混ざらない。枠は「名前が入っているか」で使用中を判断する。
  */
 
+import { COIN_SCALE } from './rewards';
+
 export type SkinId = 'cat' | 'dog' | 'robo' | 'usa' | 'pen' | 'kuma';
+
+/** きろくの枠の数 */
+export const SLOTS = 3;
 
 /** 式ごとの習熟度。m=0..5、ms=平均解答時間、miss=誤答回数、seen=出題回数 */
 export interface FactStat {
@@ -40,6 +48,8 @@ export interface Profile {
   unlocked: string[];
   daily: Daily;
   play: PlayTime;
+  /** 最後に遊んだ日（YYYY-MM-DD）。きろくを選ぶ画面で出す */
+  seen: string;
 }
 
 export interface Settings {
@@ -55,7 +65,14 @@ export interface SaveData {
   players: Profile[];
   active: number;
   settings: Settings;
+  /**
+   * コインのレート版。2 になる前のセーブは 1問1枚で貯めたものなので、
+   * 読みこむときに COIN_SCALE を掛けて、買えるものの数を合わせる。
+   */
+  econ: number;
 }
+
+export const ECON_REV = 2;
 
 /** 保存先のキー。ここを直接書かず、必ずこの定数を使う */
 export const SAVE_KEY = 'tj.save.v1';
@@ -87,6 +104,7 @@ function freshProfile(): Profile {
     unlocked: [],
     daily: { date: '', streak: 0, done: false },
     play: { date: '', sec: 0 },
+    seen: '',
   };
 }
 
@@ -129,6 +147,7 @@ export function addPlayTime(sec: number): void {
   const now = today();
   if (p.play.date !== now) p.play = { date: now, sec: 0 };
   p.play.sec += Math.round(sec);
+  p.seen = now;
   persist();
 }
 
@@ -143,9 +162,10 @@ export function overDailyLimit(): boolean {
 function freshSave(): SaveData {
   return {
     v: 1,
-    players: [freshProfile()],
+    players: Array.from({ length: SLOTS }, freshProfile),
     active: 0,
     settings: { sound: true, slow: false, leftHanded: false, dailyLimitMin: 0 },
+    econ: ECON_REV,
   };
 }
 
@@ -161,19 +181,27 @@ function read(): SaveData {
     // 古いセーブに新しいフィールドが無くても壊れないよう、既定値の上に重ねる。
     // ネストしたオブジェクトは浅いマージだと欠けるので個別に埋める。
     const blank = freshProfile();
+    const scale = parsed.econ === ECON_REV ? 1 : COIN_SCALE;
+    const players = parsed.players.map((p) => ({
+      ...blank,
+      ...p,
+      coins: Math.round((p?.coins ?? 0) * scale),
+      daily: { ...blank.daily, ...(p?.daily ?? {}) },
+      play: { ...blank.play, ...(p?.play ?? {}) },
+      stars: p?.stars ?? {},
+      facts: p?.facts ?? {},
+      unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
+    }));
+    // 枠の数は増える方向にしか変えない。減らすと、増やしたあとで戻したときに
+    // 3人目のきろくが黙って消える
+    while (players.length < SLOTS) players.push(freshProfile());
+
     return {
       v: 1,
-      players: parsed.players.map((p) => ({
-        ...blank,
-        ...p,
-        daily: { ...blank.daily, ...(p?.daily ?? {}) },
-        play: { ...blank.play, ...(p?.play ?? {}) },
-        stars: p?.stars ?? {},
-        facts: p?.facts ?? {},
-        unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
-      })),
-      active: Math.min(Math.max(parsed.active ?? 0, 0), parsed.players.length - 1),
+      players,
+      active: Math.min(Math.max(parsed.active ?? 0, 0), players.length - 1),
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
+      econ: ECON_REV,
     };
   } catch {
     return freshSave();
@@ -238,6 +266,43 @@ export function resetAll(): void {
   save.players = fresh.players;
   save.active = 0;
   save.settings = fresh.settings;
+  save.econ = fresh.econ;
+  persist();
+}
+
+// ------------------------------------------------------------------ きろく（セーブ枠）
+
+/** 3枠ぶんのきろく。名前が空の枠は「まだ使っていない」 */
+export function slots(): Profile[] {
+  return save.players.slice(0, SLOTS);
+}
+
+export function isEmptySlot(p: Profile): boolean {
+  return p.name === '';
+}
+
+/** 使っているきろくの数 */
+export function usedSlots(): number {
+  return slots().filter((p) => !isEmptySlot(p)).length;
+}
+
+/** きろくを切りかえる。名前が空の枠を選んだ場合は、そのまま「はじめる」に入る */
+export function selectSlot(i: number): void {
+  if (i < 0 || i >= save.players.length) return;
+  save.active = i;
+  persist();
+}
+
+/** きろくを消す。枠は残し、中身だけまっさらにする */
+export function clearSlot(i: number): void {
+  if (i < 0 || i >= save.players.length) return;
+  save.players[i] = freshProfile();
+  // いま遊んでいるきろくを消したら、残っているきろくに移る。
+  // 空の枠を選んだままにすると、ホームがいきなり「はじめる」に戻る
+  if (save.active === i) {
+    const next = save.players.findIndex((p) => p.name !== '');
+    if (next >= 0) save.active = next;
+  }
   persist();
 }
 
