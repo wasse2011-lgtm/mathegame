@@ -55,6 +55,8 @@
             <span class="bar"><i id="zukan-bar"></i></span>
             <b id="zukan-count">0 / 81</b>
           </div>
+
+          <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかんと きせかえは みられるよ。</p>
         </div>
 
         <button class="btn btn-primary btn-xl" id="btn-start">あそぶ</button>
@@ -95,6 +97,12 @@
       </header>
 
       <p class="question" id="question" aria-live="polite">　</p>
+
+      <!-- さくらんぼ分解のヒント。詰まったときだけ出る -->
+      <div class="hint" id="hint" hidden aria-live="polite">
+        <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true"></svg>
+        <p class="hint-text" id="hint-text"></p>
+      </div>
 
       <div class="world-wrap">
         <canvas id="world"></canvas>
@@ -171,6 +179,56 @@
       </div>
     </section>
 
+    <!-- ===== おうちのかた ===== -->
+    <section class="screen" id="screen-parent" data-screen="parent" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="parent-back" type="button" aria-label="ホームへ">←</button>
+        <div class="map-title">
+          <p class="map-world">おうちのかたへ</p>
+          <p class="map-desc" id="parent-sub">きょうの ようす</p>
+        </div>
+      </header>
+
+      <div class="parent-scroll">
+        <div class="p-cards">
+          <div class="p-card"><span>きょう あそんだ</span><b id="p-time">0 分</b></div>
+          <div class="p-card"><span>おぼえた式</span><b id="p-zukan">0 / 81</b></div>
+          <div class="p-card"><span>連続ログイン</span><b id="p-streak">0 日</b></div>
+          <div class="p-card"><span>集めた★</span><b id="p-stars">0</b></div>
+        </div>
+
+        <h3 class="p-h">つまずいている計算</h3>
+        <table class="p-table">
+          <thead><tr><th>しき</th><th>まちがい</th><th>回数</th><th>平均</th></tr></thead>
+          <tbody id="p-weak"></tbody>
+        </table>
+        <p class="p-note" id="p-weak-note"></p>
+
+        <h3 class="p-h">せってい</h3>
+        <label class="p-row">
+          <span>1日にあそべる時間</span>
+          <select id="p-limit">
+            <option value="0">せいげんなし</option>
+            <option value="10">10分</option>
+            <option value="15">15分</option>
+            <option value="20">20分</option>
+            <option value="30">30分</option>
+          </select>
+        </label>
+        <label class="toggle"><input type="checkbox" id="p-slow" /><span>ゆっくりモード（障害物を遅く）</span></label>
+        <p class="p-note">上限に達しても途中で止めることはしません。ステージの切れ目でおしまいの画面になります。</p>
+
+        <h3 class="p-h">セーブデータ</h3>
+        <p class="p-note">機種変更のときは、この文字列をコピーして新しい端末に貼り付けてください。</p>
+        <textarea id="p-data" class="p-data" rows="3" spellcheck="false"></textarea>
+        <div class="p-btns">
+          <button class="btn btn-ghost" id="p-copy" type="button">コピー</button>
+          <button class="btn btn-ghost" id="p-load" type="button">貼り付けた内容を読みこむ</button>
+        </div>
+        <p class="p-note" id="p-data-msg"></p>
+      </div>
+    </section>
+
     <!-- ===== オーバーレイ ===== -->
     <div class="overlay" id="overlay-pause" hidden>
       <div class="sheet">
@@ -196,8 +254,21 @@
         <label class="toggle"><input type="checkbox" id="set-slow" /><span>ゆっくりモード</span></label>
         <label class="toggle"><input type="checkbox" id="set-left" /><span>ひだりきき</span></label>
         <button class="btn btn-primary" id="set-close" type="button">とじる</button>
+        <button class="btn btn-ghost" id="btn-parent" type="button">おうちのかたへ</button>
         <button class="btn btn-ghost" id="btn-switch" type="button">なまえを かえる</button>
         <button class="btn btn-danger-ghost" id="set-reset" type="button">さいしょから やりなおす</button>
+      </div>
+    </div>
+
+    <!-- おとなだけが通れるようにする簡単な関門 -->
+    <div class="overlay" id="overlay-gate" hidden>
+      <div class="sheet">
+        <p class="sheet-head">おうちのかた だけ</p>
+        <p class="gate-q" id="gate-q">47 + 68 = ?</p>
+        <input class="gate-input" id="gate-input" type="text" inputmode="numeric" autocomplete="off" />
+        <p class="p-note" id="gate-msg"></p>
+        <button class="btn btn-primary" id="gate-ok" type="button">すすむ</button>
+        <button class="btn btn-ghost" id="gate-cancel" type="button">やめる</button>
       </div>
     </div>
 

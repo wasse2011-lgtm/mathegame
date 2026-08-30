@@ -9,9 +9,9 @@
  */
 
 import { sfx } from './audio';
-import { answerTimeFor, factKey, type Fact, type World } from './curriculum';
+import { answerTimeFor, cherry, factKey, type Fact, type World } from './curriculum';
 import { QuestionPicker, recordAnswer, type Question } from './questions';
-import { profile, save, setStageStars, persist } from './save';
+import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawChar, drawObstacle, roundRect, type CharState } from './sprites';
 
 /** 1回の走りの設定。通常ステージもボスもデイリーもこれで表す */
@@ -61,6 +61,9 @@ export class Runner {
   private elCombo = document.getElementById('hud-combo') as HTMLElement;
   private elPips = document.getElementById('pips') as HTMLElement;
   private elStage = document.getElementById('hud-stage') as HTMLElement;
+  private elHint = document.getElementById('hint') as HTMLElement;
+  private elCherry = document.getElementById('cherry') as unknown as SVGElement;
+  private elHintText = document.getElementById('hint-text') as HTMLElement;
 
   private buttons: HTMLButtonElement[] = [];
   private raf = 0;
@@ -91,6 +94,9 @@ export class Runner {
   private wrongThisQ = false;
   private phase: Phase = 'ask';
   private hold = 0;
+  private hintShown = false;
+  /** この走りで遊んだ秒数。ステージが終わるかやめたときに保存する */
+  private elapsed = 0;
 
   // 見た目の状態
   private t = 0;
@@ -146,6 +152,7 @@ export class Runner {
     this.learned = [];
     this.best = null;
     this.onDone = onDone;
+    this.elapsed = 0;
     this.particles = [];
     this.py = 0;
     this.vy = 0;
@@ -165,10 +172,14 @@ export class Runner {
     this.raf = requestAnimationFrame(this.frame);
   }
 
+  /** 走るのをやめる。遊んだ時間はここで必ず記録する（途中でやめても数える） */
   stop(): void {
     this.running = false;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
+    addPlayTime(this.elapsed);
+    this.elapsed = 0;
+    this.hideHint();
   }
 
   setPaused(p: boolean): void {
@@ -227,11 +238,44 @@ export class Runner {
     pip?.classList.add(ok ? 'done' : 'miss');
   }
 
+  /**
+   * さくらんぼ分解のヒント。詰まったとき（一度まちがえた／障害物が近づいた）だけ出す。
+   * 最初から出すと考えなくなるので、出すタイミングがすべて。
+   */
+  private showHint(): void {
+    const q = this.q;
+    if (!q || this.hintShown) return;
+    const c = cherry(q.fact);
+    if (!c) return;
+    this.hintShown = true;
+
+    const circle = (cx: number, cy: number, r: number, cls: string, text: string) =>
+      `<circle cx="${cx}" cy="${cy}" r="${r}" class="${cls}" />` +
+      `<text x="${cx}" y="${cy}" class="cn">${text}</text>`;
+
+    this.elCherry.innerHTML =
+      `<line x1="100" y1="30" x2="62" y2="50" class="branch" />` +
+      `<line x1="100" y1="30" x2="138" y2="50" class="branch" />` +
+      circle(100, 18, 16, 'top', String(q.fact.b)) +
+      circle(62, 60, 16, 'leaf need', String(c.need)) +
+      circle(138, 60, 16, 'leaf', String(c.rest));
+
+    this.elHintText.textContent = `${q.fact.a} に ${c.need} を あげて 10！`;
+    this.elHint.hidden = false;
+    // レイアウトが縮むぶんは ResizeObserver が拾って canvas を測りなおす
+  }
+
+  private hideHint(): void {
+    this.elHint.hidden = true;
+    this.hintShown = false;
+  }
+
   private nextQuestion(): void {
     this.q = this.picker.next();
     this.wrongThisQ = false;
     this.phase = 'ask';
     this.askedAt = performance.now();
+    this.hideHint();
 
     this.elQuestion.textContent = `${this.q.fact.a} + ${this.q.fact.b} = ?`;
 
@@ -310,6 +354,7 @@ export class Runner {
       }
       this.combo = 0;
       this.char.hurt = 0.35;
+      this.showHint();
       if (!this.char.air) {
         this.vy = this.jumpV * 0.36;
         this.char.air = true;
@@ -421,6 +466,7 @@ export class Runner {
 
   private update(dt: number): void {
     this.t += dt;
+    this.elapsed += dt;
     this.char.t = this.t;
     if (this.char.hurt > 0) this.char.hurt -= dt;
     if (this.shake > 0) this.shake -= dt;
@@ -442,8 +488,11 @@ export class Runner {
     this.ob.x -= this.ob.v * dt;
     this.scroll += Math.min(Math.max(this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
 
-    if (this.phase === 'ask' && this.ob.x < this.playerX - 4 * this.s) {
-      this.timeout();
+    if (this.phase === 'ask') {
+      // 障害物が 3分の2 まで来ても答えが出ていなければヒントを出す
+      const gone = (this.spawnX() - this.ob.x) / (this.spawnX() - this.playerX);
+      if (gone > 0.66) this.showHint();
+      if (this.ob.x < this.playerX - 4 * this.s) this.timeout();
     }
 
     if ((this.phase === 'clear' || this.phase === 'reveal') && this.hold > 0) {

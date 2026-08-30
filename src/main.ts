@@ -11,10 +11,12 @@ import {
   type Fact,
   type World,
 } from './curriculum';
+import { initParent, makeGate, renderParent } from './parent';
 import { initShop, onShopChange, renderShop } from './shop';
 import { weakestFacts } from './questions';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
+  overDailyLimit,
   persist,
   profile,
   refreshDaily,
@@ -26,7 +28,7 @@ import {
 import { SKINS, drawChar, paintSkinIcon } from './sprites';
 import { renderZukan, zukanProgress } from './zukan';
 
-type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop';
+type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'parent';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
@@ -35,6 +37,7 @@ const screens: Record<ScreenName, HTMLElement> = {
   result: document.getElementById('screen-result') as HTMLElement,
   zukan: document.getElementById('screen-zukan') as HTMLElement,
   shop: document.getElementById('screen-shop') as HTMLElement,
+  parent: document.getElementById('screen-parent') as HTMLElement,
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -166,9 +169,21 @@ function renderTitle(): void {
   $('hello').textContent = `${p.name} の ぼうけん`;
   $('home-coins').textContent = String(p.coins);
 
+  // 1日の上限に達したら、遊ぶ導線だけ閉じる（図鑑ときせかえは見られる）
+  const over = overDailyLimit();
+  const startBtn = $<HTMLButtonElement>('btn-start');
   const daily = $<HTMLButtonElement>('daily-card');
+  startBtn.disabled = over;
+  daily.disabled = over;
+  startBtn.textContent = over ? 'きょうは おしまい' : 'あそぶ';
+  $('over-note').hidden = !over;
+
   daily.classList.toggle('done', p.daily.done);
-  $('daily-state').textContent = p.daily.done ? 'きょうは クリア！' : '＋20 コイン';
+  $('daily-state').textContent = over
+    ? 'また あした'
+    : p.daily.done
+      ? 'きょうは クリア！'
+      : '＋20 コイン';
   const streak = $('home-streak');
   streak.hidden = p.daily.streak < 1;
   const sb = streak.querySelector('b');
@@ -273,7 +288,7 @@ function renderMap(): void {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = `stage-btn${boss ? ' boss' : ''}`;
-    b.disabled = !open;
+    b.disabled = !open || overDailyLimit();
 
     const label = document.createElement('span');
     label.textContent = boss ? '👑' : String(stage);
@@ -291,7 +306,9 @@ function renderMap(): void {
     grid.appendChild(b);
   }
 
-  $('map-hint').textContent = `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
+  $('map-hint').textContent = overDailyLimit()
+    ? 'きょうの ぼうけんは ここまで。また あした！'
+    : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
 }
 
 $('map-back').addEventListener('click', () => {
@@ -315,6 +332,12 @@ function startStage(world: World, stage: number): void {
 }
 
 function startRun(cfg: RunConfig): void {
+  // 上限に達していたら新しいステージは始めない（走っている途中では止めない）
+  if (overDailyLimit()) {
+    renderTitle();
+    show('title');
+    return;
+  }
   lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
   show('play');
@@ -403,7 +426,15 @@ function renderResult(r: StageResult): void {
     }
   });
 
-  $('result-next').textContent = nextStageOf(r.worldId, r.stage) ? 'つぎへ' : daily ? 'ホームへ' : 'マップへ';
+  const over = overDailyLimit();
+  $('result-retry').hidden = over;
+  $('result-next').textContent = over
+    ? 'きょうは おしまい'
+    : nextStageOf(r.worldId, r.stage)
+      ? 'つぎへ'
+      : daily
+        ? 'ホームへ'
+        : 'マップへ';
 }
 
 $('result-retry').addEventListener('click', () => {
@@ -415,6 +446,11 @@ $('result-retry').addEventListener('click', () => {
 $('result-next').addEventListener('click', () => {
   if (!lastResult) return;
   sfx.tap();
+  if (overDailyLimit()) {
+    renderTitle();
+    show('title');
+    return;
+  }
   const next = nextStageOf(lastResult.worldId, lastResult.stage);
   if (next) {
     startStage(next.world, next.stage);
@@ -464,6 +500,40 @@ $('set-close').addEventListener('click', () => {
   $('overlay-settings').hidden = true;
 });
 
+// ------------------------------------------------------------------ おうちのかた
+
+let gateAnswer = 0;
+
+$('btn-parent').addEventListener('click', () => {
+  const gate = makeGate();
+  gateAnswer = gate.answer;
+  $('gate-q').textContent = gate.text;
+  $<HTMLInputElement>('gate-input').value = '';
+  $('gate-msg').textContent = '';
+  $('overlay-settings').hidden = true;
+  $('overlay-gate').hidden = false;
+});
+
+$('gate-cancel').addEventListener('click', () => {
+  $('overlay-gate').hidden = true;
+});
+
+$('gate-ok').addEventListener('click', () => {
+  const value = Number($<HTMLInputElement>('gate-input').value.trim());
+  if (value !== gateAnswer) {
+    $('gate-msg').textContent = 'こたえが ちがいます。';
+    return;
+  }
+  $('overlay-gate').hidden = true;
+  renderParent();
+  show('parent');
+});
+
+$('parent-back').addEventListener('click', () => {
+  renderTitle();
+  show('title');
+});
+
 $('btn-switch').addEventListener('click', () => {
   profile().name = '';
   persist();
@@ -506,6 +576,10 @@ document.addEventListener('visibilitychange', () => {
 requestPersistentStorage();
 initShop();
 onShopChange(renderTitle);
+initParent(() => {
+  syncSettings();
+  renderTitle();
+});
 syncSettings();
 renderTitle();
 show('title');

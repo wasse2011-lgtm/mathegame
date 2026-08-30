@@ -115,6 +115,27 @@ export const WORLDS: World[] = [
   },
 ];
 
+export interface Cherry {
+  /** 10 にするために足す数 */
+  need: number;
+  /** 残り */
+  rest: number;
+}
+
+/**
+ * 繰り上がりの式を「10 をつくる」形に分解する（さくらんぼ計算）。
+ *   9 + 4 → 9 に 1 を あげて 10、のこり 3
+ * 繰り上がらない式と、答えがちょうど 10 の式（ヒントが答えそのものになる）は null。
+ */
+export function cherry(f: Fact): Cherry | null {
+  const ones = f.a % 10;
+  if (ones === 0) return null;
+  const need = 10 - ones;
+  const rest = f.b - need;
+  if (rest <= 0) return null;
+  return { need, rest };
+}
+
 /**
  * たしざん図鑑のマス。1〜9 どうしの 81 通り。
  * W1・W2・W3・W5 を合わせるとちょうどこの 81 枚が埋まる。

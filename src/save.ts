@@ -20,6 +20,12 @@ export interface Daily {
   done: boolean;
 }
 
+/** その日に遊んだ時間（秒）。日付が変わると 0 に戻る */
+export interface PlayTime {
+  date: string;
+  sec: number;
+}
+
 export interface Profile {
   name: string;
   skin: SkinId;
@@ -33,12 +39,15 @@ export interface Profile {
   /** ガチャで手に入れたアイテムID */
   unlocked: string[];
   daily: Daily;
+  play: PlayTime;
 }
 
 export interface Settings {
   sound: boolean;
   slow: boolean;
   leftHanded: boolean;
+  /** 1日に遊べる時間（分）。0 は制限なし */
+  dailyLimitMin: number;
 }
 
 export interface SaveData {
@@ -60,6 +69,7 @@ function freshProfile(): Profile {
     facts: {},
     unlocked: [],
     daily: { date: '', streak: 0, done: false },
+    play: { date: '', sec: 0 },
   };
 }
 
@@ -76,18 +86,41 @@ function yesterday(): string {
 }
 
 /**
- * 日付が変わっていたらデイリーを繰り越す。
+ * 日付が変わっていたらデイリーと遊んだ時間を繰り越す。
  * 昨日やっていれば連続記録を保ち、1日でも空いたら 0 に戻す。
  */
 export function refreshDaily(p: Profile): void {
   const now = today();
-  if (p.daily.date === now) return;
-  p.daily = {
-    date: now,
-    streak: p.daily.date === yesterday() ? p.daily.streak : 0,
-    done: false,
-  };
+  if (p.daily.date === now && p.play.date === now) return;
+
+  if (p.daily.date !== now) {
+    p.daily = {
+      date: now,
+      // 未プレイの初日は「昨日やっていない」ので 0 のままでよい
+      streak: p.daily.date === yesterday() && p.daily.done ? p.daily.streak : 0,
+      done: false,
+    };
+  }
+  if (p.play.date !== now) p.play = { date: now, sec: 0 };
   persist();
+}
+
+/** 遊んだ時間を足す。日付をまたいだ場合は今日ぶんから数えなおす */
+export function addPlayTime(sec: number): void {
+  if (sec <= 0) return;
+  const p = profile();
+  const now = today();
+  if (p.play.date !== now) p.play = { date: now, sec: 0 };
+  p.play.sec += Math.round(sec);
+  persist();
+}
+
+/** 今日の上限に達したか（上限なしなら常に false） */
+export function overDailyLimit(): boolean {
+  const limit = save.settings.dailyLimitMin;
+  if (!limit) return false;
+  const p = profile();
+  return p.play.date === today() && p.play.sec >= limit * 60;
 }
 
 function freshSave(): SaveData {
@@ -95,7 +128,7 @@ function freshSave(): SaveData {
     v: 1,
     players: [freshProfile()],
     active: 0,
-    settings: { sound: true, slow: false, leftHanded: false },
+    settings: { sound: true, slow: false, leftHanded: false, dailyLimitMin: 0 },
   };
 }
 
@@ -108,9 +141,20 @@ function read(): SaveData {
     if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.players) || parsed.players.length === 0) {
       return base;
     }
+    // 古いセーブに新しいフィールドが無くても壊れないよう、既定値の上に重ねる。
+    // ネストしたオブジェクトは浅いマージだと欠けるので個別に埋める。
+    const blank = freshProfile();
     return {
       v: 1,
-      players: parsed.players.map((p) => ({ ...freshProfile(), ...p })),
+      players: parsed.players.map((p) => ({
+        ...blank,
+        ...p,
+        daily: { ...blank.daily, ...(p?.daily ?? {}) },
+        play: { ...blank.play, ...(p?.play ?? {}) },
+        stars: p?.stars ?? {},
+        facts: p?.facts ?? {},
+        unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
+      })),
       active: Math.min(Math.max(parsed.active ?? 0, 0), parsed.players.length - 1),
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
     };

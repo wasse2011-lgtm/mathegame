@@ -285,6 +285,33 @@ body {
 .question.shake { animation: q-shake .3s; }
 @keyframes q-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
+/* さくらんぼ分解のヒント */
+.hint {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; gap: .6rem;
+  background: rgba(255,255,255,.9); border: 2px solid var(--amber);
+  border-radius: var(--r-md); padding: .35rem .7rem; margin: .3rem .2rem 0;
+  animation: hint-in .3s ease-out;
+}
+.hint[hidden] { display: none !important; }
+@keyframes hint-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hint { animation: none; } }
+.cherry { width: 142px; height: 55px; flex: 0 0 auto; }
+.cherry .branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
+.cherry .top { fill: #fff; stroke: var(--ink-2); stroke-width: 3; }
+.cherry .leaf { fill: #fff; stroke: var(--amber); stroke-width: 3; }
+.cherry .leaf.need { fill: var(--amber); }
+.cherry .cn {
+  font-family: var(--font); font-weight: 700; font-size: 19px; fill: var(--ink);
+  text-anchor: middle; dominant-baseline: central;
+}
+.hint-text { margin: 0; font-size: 1rem; font-weight: 700; color: var(--ink); line-height: 1.4; }
+@media (max-height: 480px) {
+  .cherry { width: 84px; height: 32px; }
+  .hint-text { font-size: .85rem; }
+  .hint { padding: .2rem .5rem; }
+}
+
 /* 走る場所。高すぎると空ばかりになるので上限を決める。 */
 .world-wrap { flex: 0 1 auto; height: min(46vh, 380px); min-height: 120px; position: relative; }
 #world { display: block; width: 100%; height: 100%; }
@@ -449,6 +476,65 @@ body {
 .egg-got-head { margin: 0; font-size: 1rem; font-weight: 700; color: var(--amber-dark); }
 .egg-got { margin: 0 0 .4rem; font-size: 1.5rem; font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .egg-sheet canvas { animation: none; } }
+
+.over-note {
+  margin: 0; font-size: .88rem; font-weight: 700; color: var(--ink-2); text-align: center;
+  background: rgba(255,255,255,.85); border-radius: var(--r-md); padding: .55rem .7rem; line-height: 1.6;
+}
+.over-note[hidden] { display: none; }
+
+/* ---------------- おうちのかた ---------------- */
+#screen-parent {
+  background: var(--paper-2);
+  padding: calc(var(--safe-t) + .6rem) calc(var(--safe-r) + .9rem) calc(var(--safe-b) + .9rem) calc(var(--safe-l) + .9rem);
+  gap: .6rem;
+  /* 子ども向けの丸ゴシックではなく、情報が読みやすい素直な字にする */
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
+#screen-parent .map-world { font-size: 1.15rem; }
+.parent-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.p-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: .5rem; }
+.p-card {
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+  padding: .6rem .7rem; display: flex; flex-direction: column; gap: .15rem;
+}
+.p-card span { font-size: .76rem; color: var(--ink-2); }
+.p-card b { font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.p-h { margin: 1.1rem 0 .5rem; font-size: .92rem; color: var(--ink-2); }
+.p-table {
+  width: 100%; border-collapse: collapse; background: var(--paper);
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: .9rem;
+}
+.p-table th, .p-table td { padding: .5rem .6rem; text-align: left; border-bottom: 1px solid var(--line); }
+.p-table th { font-size: .72rem; color: var(--ink-2); font-weight: 600; background: var(--paper-2); }
+.p-table td { font-variant-numeric: tabular-nums; }
+.p-table td:first-child { font-weight: 700; }
+.p-table tbody tr:last-child td { border-bottom: 0; }
+.p-note { margin: .5rem 0 0; font-size: .8rem; color: var(--ink-2); line-height: 1.6; }
+.p-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
+  padding: .6rem .8rem; min-height: 52px; font-size: .95rem; margin-bottom: .5rem;
+}
+.p-row select {
+  font-family: inherit; font-size: .95rem; padding: .35rem .5rem; min-height: 40px;
+  border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
+}
+#screen-parent .toggle { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: .5rem .8rem; font-size: .95rem; }
+.p-data {
+  width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem;
+  border: 1px solid var(--line); border-radius: 10px; padding: .5rem; background: #fff; color: var(--ink-2);
+  resize: vertical; -webkit-user-select: text; user-select: text;
+}
+.p-btns { display: flex; gap: .5rem; margin-top: .4rem; }
+.p-btns .btn { flex: 1; min-height: 44px; font-size: .9rem; border: 1px solid var(--line); background: var(--paper); }
+
+.gate-q { margin: 0; text-align: center; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gate-input {
+  font-family: inherit; font-size: 1.3rem; text-align: center; min-height: 52px;
+  border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
+  -webkit-user-select: text; user-select: text;
+}
 
 /* ---------------- オーバーレイ ---------------- */
 .overlay {
