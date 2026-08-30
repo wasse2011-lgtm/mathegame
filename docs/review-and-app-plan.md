@@ -175,6 +175,19 @@ Pages のワークフローは `npm run build` だけ。出題の偏りは `ques
 `verify` は終了コードまで用意されている（`process.exit(failed ? 1 : 0)`）。
 このリポジトリで最も CI に置く価値があるのはここ。
 
+**やったこと（2段階）**:
+
+1. まず `pages.yml` のビルド前に `npm run verify` を足した。
+2. **ところがこれだけでは足りなかった。** `pages.yml` のトリガーは `push: branches: [main]`
+   だけなので、プルリクエストには何のチェックも付かない（PR #1 のチェックは実際 0 件だった）。
+   `pull_request` で回る `ci.yml` を分けて、`npm ci → verify → build` を通すようにした。
+   `build` は `tsc --noEmit` を含むので型チェックもここで通る。配信の直前にも通しておきたいので、
+   `pages.yml` 側の `verify` はそのまま残してある。
+
+なお `esbuild` を `devDependencies` に足した（F8）ぶん、`package-lock.json` も更新しないと
+CI の `npm ci` が「package.json と lock が一致しない」で落ちる。ローカルで
+`npm ci → verify → build` を通して確認済み。
+
 ### F8【運用】`esbuild` が `package.json` に無い
 
 `tools/verify-questions.mjs:10`, `package.json`
