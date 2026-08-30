@@ -5,7 +5,7 @@
  * ・正解が毎回いちばん大きい数にならないよう、上と下に必ず散らす
  */
 
-import { type Fact, type World, factKey } from './curriculum';
+import { type Fact, factKey } from './curriculum';
 import { factStat } from './save';
 
 export interface Question {
@@ -92,7 +92,7 @@ export class QuestionPicker {
   /** 正解が同じ位置に並び続けないようにする */
   private lastSlots: number[] = [];
 
-  constructor(private world: World) {}
+  constructor(private pool: Fact[], private choiceCount: number) {}
 
   private weight(f: Fact): number {
     const s = factStat(factKey(f));
@@ -108,8 +108,8 @@ export class QuestionPicker {
       return item.fact;
     }
 
-    const pool = this.world.facts.filter((f) => !this.recent.includes(factKey(f)));
-    const candidates = pool.length ? pool : this.world.facts;
+    const fresh = this.pool.filter((f) => !this.recent.includes(factKey(f)));
+    const candidates = fresh.length ? fresh : this.pool;
 
     let total = 0;
     const weights = candidates.map((f) => {
@@ -129,7 +129,7 @@ export class QuestionPicker {
   next(): Question {
     const fact = this.pickFact();
     const answer = fact.a + fact.b;
-    const choices = buildChoices(answer, distractorPool(fact.a, fact.b, answer), this.world.choices);
+    const choices = buildChoices(answer, distractorPool(fact.a, fact.b, answer), this.choiceCount);
 
     shuffle(choices);
     // 3回続けて同じ位置に正解が来たら、隣と入れ替える
@@ -156,9 +156,13 @@ export class QuestionPicker {
   }
 }
 
-/** 正解／不正解を習熟度に反映する */
-export function recordAnswer(fact: Fact, ok: boolean, ms: number): void {
+/** 習熟度 4 以上を「おぼえた」とみなす（図鑑のカードが光る境目） */
+export const MASTERED = 4;
+
+/** 正解／不正解を習熟度に反映する。戻り値は「いま初めておぼえた」かどうか */
+export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
   const s = factStat(factKey(fact));
+  const before = s.m;
   s.seen++;
   if (ok) {
     s.m = Math.min(5, s.m + (ms <= 3000 ? 2 : 1));
@@ -167,4 +171,27 @@ export function recordAnswer(fact: Fact, ok: boolean, ms: number): void {
     s.m = Math.max(0, s.m - 2);
     s.miss++;
   }
+  return before < MASTERED && s.m >= MASTERED;
+}
+
+/**
+ * デイリーチャレンジ用に「いま苦手な式」を選ぶ。
+ * 一度でも出した式を習熟度の低い順に取り、足りなければ未出題から埋める。
+ */
+export function weakestFacts(pool: Fact[], n: number): Fact[] {
+  const seen: { f: Fact; score: number }[] = [];
+  const unseen: Fact[] = [];
+
+  for (const f of pool) {
+    const s = factStat(factKey(f));
+    if (s.seen > 0) seen.push({ f, score: s.m * 10 - Math.min(s.miss, 5) });
+    else unseen.push(f);
+  }
+
+  seen.sort((a, b) => a.score - b.score);
+  const out = seen.slice(0, n).map((x) => x.f);
+  while (out.length < n && unseen.length) {
+    out.push(unseen.splice(Math.floor(Math.random() * unseen.length), 1)[0]);
+  }
+  return out;
 }

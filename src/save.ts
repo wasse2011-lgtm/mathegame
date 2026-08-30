@@ -3,7 +3,7 @@
  * 読み書きは全部 try/catch で包み、失敗しても遊べる状態を返す。
  */
 
-export type SkinId = 'cat' | 'dog' | 'robo';
+export type SkinId = 'cat' | 'dog' | 'robo' | 'usa' | 'pen' | 'kuma';
 
 /** 式ごとの習熟度。m=0..5、ms=平均解答時間、miss=誤答回数、seen=出題回数 */
 export interface FactStat {
@@ -13,14 +13,26 @@ export interface FactStat {
   seen: number;
 }
 
+/** デイリーチャレンジ。date はローカル時間の YYYY-MM-DD */
+export interface Daily {
+  date: string;
+  streak: number;
+  done: boolean;
+}
+
 export interface Profile {
   name: string;
   skin: SkinId;
+  /** ぼうしのアイテムID。'' はかぶらない */
+  hat: string;
   coins: number;
   /** "1-3" → 星の数 (1..3) */
   stars: Record<string, number>;
   /** "7+5" → 習熟度 */
   facts: Record<string, FactStat>;
+  /** ガチャで手に入れたアイテムID */
+  unlocked: string[];
+  daily: Daily;
 }
 
 export interface Settings {
@@ -39,7 +51,43 @@ export interface SaveData {
 const KEY = 'tj.save.v1';
 
 function freshProfile(): Profile {
-  return { name: '', skin: 'cat', coins: 0, stars: {}, facts: {} };
+  return {
+    name: '',
+    skin: 'cat',
+    hat: '',
+    coins: 0,
+    stars: {},
+    facts: {},
+    unlocked: [],
+    daily: { date: '', streak: 0, done: false },
+  };
+}
+
+/** ローカル時間の YYYY-MM-DD。UTC で切ると日付が1日ずれる */
+export function today(d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function yesterday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return today(d);
+}
+
+/**
+ * 日付が変わっていたらデイリーを繰り越す。
+ * 昨日やっていれば連続記録を保ち、1日でも空いたら 0 に戻す。
+ */
+export function refreshDaily(p: Profile): void {
+  const now = today();
+  if (p.daily.date === now) return;
+  p.daily = {
+    date: now,
+    streak: p.daily.date === yesterday() ? p.daily.streak : 0,
+    done: false,
+  };
+  persist();
 }
 
 function freshSave(): SaveData {

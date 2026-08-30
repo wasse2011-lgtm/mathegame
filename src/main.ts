@@ -1,25 +1,40 @@
 import './style.css';
 
 import { sfx, unlockAudio } from './audio';
-import { WORLDS, bossStage, isBoss, worldById, type World } from './curriculum';
-import { Runner, type StageResult } from './runner';
+import {
+  WORLDS,
+  answerTimeFor,
+  bossStage,
+  isBoss,
+  questionCount,
+  worldById,
+  type Fact,
+  type World,
+} from './curriculum';
+import { initShop, onShopChange, renderShop } from './shop';
+import { weakestFacts } from './questions';
+import { Runner, type RunConfig, type StageResult } from './runner';
 import {
   persist,
   profile,
+  refreshDaily,
   requestPersistentStorage,
   resetAll,
   save,
   stageStars,
 } from './save';
-import { SKINS, paintSkinIcon } from './sprites';
+import { SKINS, drawChar, paintSkinIcon } from './sprites';
+import { renderZukan, zukanProgress } from './zukan';
 
-type ScreenName = 'title' | 'map' | 'play' | 'result';
+type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
   map: document.getElementById('screen-map') as HTMLElement,
   play: document.getElementById('screen-play') as HTMLElement,
   result: document.getElementById('screen-result') as HTMLElement,
+  zukan: document.getElementById('screen-zukan') as HTMLElement,
+  shop: document.getElementById('screen-shop') as HTMLElement,
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -27,6 +42,7 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 const runner = new Runner();
 let current: ScreenName = 'title';
 let mapWorld = 1;
+let lastRun: RunConfig | null = null;
 let lastResult: StageResult | null = null;
 
 function show(name: ScreenName): void {
@@ -34,6 +50,44 @@ function show(name: ScreenName): void {
   (Object.keys(screens) as ScreenName[]).forEach((k) => {
     screens[k].hidden = k !== name;
   });
+  if (name === 'title') startHomeIdle();
+}
+
+// ------------------------------------------------------------------ ホームのキャラ
+
+const homeCanvas = $<HTMLCanvasElement>('home-char');
+let homeRaf = 0;
+
+/** ホーム画面で、いま着せているキャラがその場で走っている */
+function paintHome(ts: number): void {
+  if (screens.title.hidden || homeCanvas.hidden) {
+    homeRaf = 0;
+    return;
+  }
+  const g = homeCanvas.getContext('2d');
+  if (g) {
+    const size = 120;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (homeCanvas.width !== Math.round(size * dpr)) {
+      homeCanvas.width = Math.round(size * dpr);
+      homeCanvas.height = Math.round(size * dpr);
+    }
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, size, size);
+    const t = ts / 1000;
+    const p = profile();
+    const bob = Math.abs(Math.sin(t * 6)) * 3;
+    g.fillStyle = 'rgba(40,70,40,.16)';
+    g.beginPath();
+    g.ellipse(size / 2, size - 12, 26, 6, 0, 0, Math.PI * 2);
+    g.fill();
+    drawChar(g, size / 2, size - 14 - bob, 52, p.skin, { t, air: false, hurt: 0, squash: 1 }, p.hat);
+  }
+  homeRaf = requestAnimationFrame(paintHome);
+}
+
+function startHomeIdle(): void {
+  if (!homeRaf) homeRaf = requestAnimationFrame(paintHome);
 }
 
 // ------------------------------------------------------------------ 進行状況
@@ -51,6 +105,7 @@ function worldUnlocked(id: number): boolean {
 }
 
 function nextStageOf(worldId: number, stage: number): { world: World; stage: number } | null {
+  if (stage < 1) return null; // デイリーには「つぎ」がない
   const w = worldById(worldId);
   if (stage < bossStage(w)) return { world: w, stage: stage + 1 };
   const nw = WORLDS.find((x) => x.id === worldId + 1);
@@ -63,19 +118,29 @@ function starsInWorld(w: World): number {
   return n;
 }
 
-// ------------------------------------------------------------------ タイトル
+/** 解放済みの一番奥のワールド */
+function lastPlayedWorld(): number {
+  let id = 1;
+  for (const w of WORLDS) if (worldUnlocked(w.id)) id = w.id;
+  return id;
+}
+
+// ------------------------------------------------------------------ ホーム
 
 function renderTitle(): void {
   const p = profile();
   const needsSetup = !p.name;
   $('skin-pick').hidden = !needsSetup;
-  $('hello').hidden = needsSetup;
-  $('btn-switch').hidden = needsSetup;
+  $('home').hidden = needsSetup;
+  $('title-sub').hidden = needsSetup;
+  homeCanvas.hidden = needsSetup;
+  $('btn-start').textContent = needsSetup ? 'はじめる' : 'あそぶ';
+  if (!needsSetup) startHomeIdle();
 
   if (needsSetup) {
     const row = $('skin-row');
     row.replaceChildren();
-    for (const skin of SKINS) {
+    for (const skin of SKINS.slice(0, 3)) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'skin-btn';
@@ -91,21 +156,35 @@ function renderTitle(): void {
         renderTitle();
       });
       row.appendChild(b);
-      paintSkinIcon(c, skin.id);
+      paintSkinIcon(c, skin.id, '', 56);
     }
-    const input = $<HTMLInputElement>('name-input');
-    input.value = p.name;
-  } else {
-    $('hello').textContent = `${p.name} の ぼうけん`;
+    $<HTMLInputElement>('name-input').value = p.name;
+    return;
   }
+
+  refreshDaily(p);
+  $('hello').textContent = `${p.name} の ぼうけん`;
+  $('home-coins').textContent = String(p.coins);
+
+  const daily = $<HTMLButtonElement>('daily-card');
+  daily.classList.toggle('done', p.daily.done);
+  $('daily-state').textContent = p.daily.done ? 'きょうは クリア！' : '＋20 コイン';
+  const streak = $('home-streak');
+  streak.hidden = p.daily.streak < 1;
+  const sb = streak.querySelector('b');
+  if (sb) sb.textContent = String(p.daily.streak);
+
+  const { done, total } = zukanProgress();
+  $('zukan-count').textContent = `${done} / ${total}`;
+  $('zukan-bar').style.width = `${(done / total) * 100}%`;
 }
 
 $('btn-start').addEventListener('click', () => {
   const p = profile();
   if (!p.name) {
-    const input = $<HTMLInputElement>('name-input');
-    p.name = (input.value || 'きみ').trim().slice(0, 6);
+    p.name = ($<HTMLInputElement>('name-input').value || 'きみ').trim().slice(0, 6);
     persist();
+    renderTitle(); // 戻ってきたときのホームを先に作っておく
   }
   sfx.tap();
   mapWorld = lastPlayedWorld();
@@ -113,19 +192,50 @@ $('btn-start').addEventListener('click', () => {
   show('map');
 });
 
-$('btn-switch').addEventListener('click', () => {
-  profile().name = '';
-  persist();
+$('btn-zukan').addEventListener('click', () => {
   sfx.tap();
-  renderTitle();
+  renderZukan();
+  show('zukan');
 });
 
-/** 最後に触っていたワールド（＝解放済みの一番奥） */
-function lastPlayedWorld(): number {
-  let id = 1;
-  for (const w of WORLDS) if (worldUnlocked(w.id)) id = w.id;
-  return id;
-}
+$('btn-shop').addEventListener('click', () => {
+  sfx.tap();
+  renderShop();
+  show('shop');
+});
+
+$('zukan-back').addEventListener('click', () => {
+  sfx.tap();
+  renderTitle();
+  show('title');
+});
+
+$('shop-back').addEventListener('click', () => {
+  sfx.tap();
+  renderTitle();
+  show('title');
+});
+
+// ------------------------------------------------------------------ デイリー
+
+$('daily-card').addEventListener('click', () => {
+  unlockAudio();
+  sfx.tap();
+  const p = profile();
+  const w = worldById(lastPlayedWorld());
+  const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => x.facts);
+  startRun({
+    world: w,
+    stage: 0,
+    total: 5,
+    boss: false,
+    label: 'きょうの 5もん',
+    facts: weakestFacts(pool, 5),
+    // すでに今日クリアしていれば、遊べるがコインのおまけはつかない
+    bonusCoins: p.daily.done ? 0 : 20,
+    saveStars: false,
+  });
+});
 
 // ------------------------------------------------------------------ マップ
 
@@ -141,11 +251,10 @@ function renderMap(): void {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'world-tab';
-    b.textContent = `W${world.id}`;
     b.setAttribute('aria-selected', String(world.id === mapWorld));
     const open = worldUnlocked(world.id);
+    b.textContent = open ? `W${world.id}` : '🔒';
     b.disabled = !open;
-    if (!open) b.textContent = '🔒';
     b.addEventListener('click', () => {
       mapWorld = world.id;
       sfx.tap();
@@ -182,8 +291,7 @@ function renderMap(): void {
     grid.appendChild(b);
   }
 
-  const total = bossStage(w) * 3;
-  $('map-hint').textContent = `★ ${starsInWorld(w)} / ${total}`;
+  $('map-hint').textContent = `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
 }
 
 $('map-back').addEventListener('click', () => {
@@ -195,11 +303,32 @@ $('map-back').addEventListener('click', () => {
 // ------------------------------------------------------------------ プレイ
 
 function startStage(world: World, stage: number): void {
+  const boss = isBoss(world, stage);
+  startRun({
+    world,
+    stage,
+    total: questionCount(world, stage),
+    boss,
+    label: boss ? `${world.id}-ボス` : `${world.id}-${stage}`,
+    bonusCoins: boss ? 30 : 0,
+  });
+}
+
+function startRun(cfg: RunConfig): void {
+  lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
   show('play');
   // 画面を出してからレイアウトが確定するので、次のフレームで開始する
   requestAnimationFrame(() => {
-    runner.start(world, stage, (r) => {
+    runner.start(cfg, (r) => {
+      if (cfg.stage === 0) {
+        const p = profile();
+        if (!p.daily.done) {
+          p.daily.done = true;
+          p.daily.streak += 1;
+          persist();
+        }
+      }
       lastResult = r;
       renderResult(r);
       show('result');
@@ -220,8 +349,13 @@ $('pause-resume').addEventListener('click', () => {
 $('pause-quit').addEventListener('click', () => {
   $('overlay-pause').hidden = true;
   runner.stop();
-  renderMap();
-  show('map');
+  if (lastRun && lastRun.stage === 0) {
+    renderTitle();
+    show('title');
+  } else {
+    renderMap();
+    show('map');
+  }
 });
 
 // ------------------------------------------------------------------ リザルト
@@ -229,8 +363,13 @@ $('pause-quit').addEventListener('click', () => {
 const STAR_SVG = `<svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9z" fill="#ffc53d" stroke="#d99a10" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
 
 function renderResult(r: StageResult): void {
+  const daily = r.stage === 0;
   const w = worldById(r.worldId);
-  $('result-stage').textContent = isBoss(w, r.stage) ? `${w.id}-ボス  ${w.name}` : `${w.id}-${r.stage}  ${w.name}`;
+  $('result-stage').textContent = daily
+    ? 'きょうの 5もん'
+    : isBoss(w, r.stage)
+      ? `${w.id}-ボス  ${w.name}`
+      : `${w.id}-${r.stage}  ${w.name}`;
   $('result-head').textContent = r.stars === 3 ? 'パーフェクト！' : r.stars === 2 ? 'クリア！' : 'ゴール！';
   $('result-correct').textContent = `${r.correct} / ${r.total}`;
   $('result-coins').textContent = `+${r.coins}`;
@@ -238,9 +377,17 @@ function renderResult(r: StageResult): void {
   const bestRow = $('result-best-row');
   if (r.bestKey) {
     bestRow.hidden = false;
-    $('result-best').textContent = `${r.bestKey.replace('+', ' + ')} を ${(r.bestMs / 1000).toFixed(1)}びょう`;
+    $('result-best').textContent = `${r.bestKey}　${(r.bestMs / 1000).toFixed(1)}びょう`;
   } else {
     bestRow.hidden = true;
+  }
+
+  const learned = $('result-learned');
+  if (r.learned.length) {
+    learned.hidden = false;
+    learned.textContent = `あたらしく おぼえた！  ${r.learned.map((k) => k.replace('+', ' + ')).join('、')}`;
+  } else {
+    learned.hidden = true;
   }
 
   const box = $('result-stars');
@@ -256,14 +403,13 @@ function renderResult(r: StageResult): void {
     }
   });
 
-  const next = nextStageOf(r.worldId, r.stage);
-  $('result-next').textContent = next ? 'つぎへ' : 'マップへ';
+  $('result-next').textContent = nextStageOf(r.worldId, r.stage) ? 'つぎへ' : daily ? 'ホームへ' : 'マップへ';
 }
 
 $('result-retry').addEventListener('click', () => {
-  if (!lastResult) return;
+  if (!lastRun) return;
   sfx.tap();
-  startStage(worldById(lastResult.worldId), lastResult.stage);
+  startRun(lastRun);
 });
 
 $('result-next').addEventListener('click', () => {
@@ -272,6 +418,9 @@ $('result-next').addEventListener('click', () => {
   const next = nextStageOf(lastResult.worldId, lastResult.stage);
   if (next) {
     startStage(next.world, next.stage);
+  } else if (lastResult.stage === 0) {
+    renderTitle();
+    show('title');
   } else {
     mapWorld = lastResult.worldId;
     renderMap();
@@ -315,6 +464,15 @@ $('set-close').addEventListener('click', () => {
   $('overlay-settings').hidden = true;
 });
 
+$('btn-switch').addEventListener('click', () => {
+  profile().name = '';
+  persist();
+  sfx.tap();
+  $('overlay-settings').hidden = true;
+  renderTitle();
+  show('title');
+});
+
 $('set-reset').addEventListener('click', () => {
   if (!window.confirm('ぜんぶ さいしょから やりなおします。いいですか？')) return;
   resetAll();
@@ -346,6 +504,8 @@ document.addEventListener('visibilitychange', () => {
 });
 
 requestPersistentStorage();
+initShop();
+onShopChange(renderTitle);
 syncSettings();
 renderTitle();
 show('title');
@@ -356,4 +516,12 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !emb
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(new URL('./sw.js', document.baseURI).href).catch(() => undefined);
   });
+}
+
+// 制限時間の目安をコンソールに出しておく（数値を詰めるときの手がかり）
+if (import.meta.env.DEV) {
+  console.info(
+    'answerTime:',
+    WORLDS.map((w) => `W${w.id} ${answerTimeFor(w, 1, false).toFixed(1)}s → ${answerTimeFor(w, 8, false).toFixed(1)}s`).join(' / '),
+  );
 }

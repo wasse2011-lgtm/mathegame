@@ -115,6 +115,12 @@ export const WORLDS: World[] = [
   },
 ];
 
+/**
+ * たしざん図鑑のマス。1〜9 どうしの 81 通り。
+ * W1・W2・W3・W5 を合わせるとちょうどこの 81 枚が埋まる。
+ */
+export const BASIC_FACTS: Fact[] = build(() => true, 9, 9, 1, 1);
+
 export function worldById(id: number): World {
   return WORLDS.find((w) => w.id === id) ?? WORLDS[0];
 }

@@ -7,13 +7,18 @@ export interface SkinDef {
   label: string;
   body: string;
   shade: string;
-  ear: 'cat' | 'dog' | 'robo';
+  ear: 'cat' | 'dog' | 'robo' | 'rabbit' | 'round' | 'none';
+  /** おなかの白い部分（ぺんぎん） */
+  belly?: boolean;
 }
 
 export const SKINS: SkinDef[] = [
   { id: 'cat', label: 'ねこ', body: '#f7ab4e', shade: '#e08a29', ear: 'cat' },
   { id: 'dog', label: 'いぬ', body: '#c08b5c', shade: '#9d6c41', ear: 'dog' },
   { id: 'robo', label: 'ロボ', body: '#93b4c9', shade: '#6d90a8', ear: 'robo' },
+  { id: 'usa', label: 'うさぎ', body: '#f4f0e8', shade: '#f0b7bd', ear: 'rabbit' },
+  { id: 'kuma', label: 'くま', body: '#b1815a', shade: '#8e6242', ear: 'round' },
+  { id: 'pen', label: 'ぺんぎん', body: '#546a80', shade: '#3b4d5e', ear: 'none', belly: true },
 ];
 
 export function skinDef(id: SkinId): SkinDef {
@@ -43,6 +48,105 @@ export interface CharState {
 
 const INK = '#2b3440';
 
+function star(g: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI / 5) * i - Math.PI / 2;
+    const rad = i % 2 ? r * 0.45 : r;
+    const px = cx + Math.cos(a) * rad;
+    const py = cy + Math.sin(a) * rad;
+    if (i === 0) g.moveTo(px, py);
+    else g.lineTo(px, py);
+  }
+  g.closePath();
+}
+
+/** ぼうし。頭のてっぺん (headY) を基準に描く */
+export function drawHat(g: CanvasRenderingContext2D, cx: number, headY: number, s: number, hat: string): void {
+  switch (hat) {
+    case 'hat-cap': {
+      g.fillStyle = '#4a90d9';
+      g.beginPath();
+      g.arc(cx, headY + s * 0.04, s * 0.34, Math.PI, 0);
+      g.closePath();
+      g.fill();
+      roundRect(g, cx - s * 0.06, headY - s * 0.02, s * 0.48, s * 0.1, s * 0.05);
+      g.fill();
+      g.fillStyle = '#2f6ba8';
+      g.beginPath();
+      g.arc(cx, headY - s * 0.28, s * 0.05, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'hat-ribbon': {
+      g.fillStyle = '#ec7fa4';
+      const rx = cx - s * 0.3;
+      const ry = headY + s * 0.02;
+      g.beginPath();
+      g.moveTo(rx, ry);
+      g.lineTo(rx - s * 0.24, ry - s * 0.16);
+      g.lineTo(rx - s * 0.24, ry + s * 0.14);
+      g.closePath();
+      g.fill();
+      g.beginPath();
+      g.moveTo(rx, ry);
+      g.lineTo(rx + s * 0.24, ry - s * 0.16);
+      g.lineTo(rx + s * 0.24, ry + s * 0.14);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#d55c86';
+      g.beginPath();
+      g.arc(rx, ry, s * 0.08, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'hat-leaf': {
+      g.strokeStyle = '#5f8f3f';
+      g.lineWidth = Math.max(2, s * 0.05);
+      g.beginPath();
+      g.moveTo(cx, headY + s * 0.06);
+      g.lineTo(cx, headY - s * 0.16);
+      g.stroke();
+      g.fillStyle = '#7cc05a';
+      g.beginPath();
+      g.ellipse(cx + s * 0.16, headY - s * 0.22, s * 0.19, s * 0.1, -0.5, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'hat-star': {
+      g.fillStyle = '#ffc53d';
+      g.strokeStyle = '#d99a10';
+      g.lineWidth = Math.max(1.5, s * 0.035);
+      star(g, cx, headY - s * 0.14, s * 0.22);
+      g.fill();
+      g.stroke();
+      break;
+    }
+    case 'hat-crown': {
+      g.fillStyle = '#ffc53d';
+      g.strokeStyle = '#d99a10';
+      g.lineWidth = Math.max(1.5, s * 0.035);
+      const w = s * 0.56;
+      const l = cx - w / 2;
+      const b = headY + s * 0.04;
+      g.beginPath();
+      g.moveTo(l, b);
+      g.lineTo(l, b - s * 0.3);
+      g.lineTo(l + w * 0.25, b - s * 0.12);
+      g.lineTo(l + w * 0.5, b - s * 0.36);
+      g.lineTo(l + w * 0.75, b - s * 0.12);
+      g.lineTo(l + w, b - s * 0.3);
+      g.lineTo(l + w, b);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 export function drawChar(
   g: CanvasRenderingContext2D,
   cx: number,
@@ -50,6 +154,7 @@ export function drawChar(
   size: number,
   skin: SkinId,
   st: CharState,
+  hat = '',
 ): void {
   const def = skinDef(skin);
   const s = size;
@@ -90,7 +195,19 @@ export function drawChar(
     g.fill();
     roundRect(g, x + s * 0.84, y + s * 0.02, s * 0.24, s * 0.44, s * 0.11);
     g.fill();
-  } else {
+  } else if (def.ear === 'rabbit') {
+    roundRect(g, x + s * 0.16, y - s * 0.52, s * 0.17, s * 0.66, s * 0.085);
+    g.fill();
+    roundRect(g, x + s * 0.67, y - s * 0.52, s * 0.17, s * 0.66, s * 0.085);
+    g.fill();
+  } else if (def.ear === 'round') {
+    g.beginPath();
+    g.arc(x + s * 0.16, y + s * 0.04, s * 0.19, 0, Math.PI * 2);
+    g.fill();
+    g.beginPath();
+    g.arc(x + s * 0.84, y + s * 0.04, s * 0.19, 0, Math.PI * 2);
+    g.fill();
+  } else if (def.ear === 'robo') {
     g.fillRect(x + s * 0.47, y - s * 0.24, s * 0.06, s * 0.26);
     g.beginPath();
     g.arc(cx, y - s * 0.28, s * 0.11, 0, Math.PI * 2);
@@ -101,6 +218,12 @@ export function drawChar(
   g.fillStyle = st.hurt > 0 ? '#e4675c' : def.body;
   roundRect(g, x, y, s, s, s * 0.3);
   g.fill();
+
+  if (def.belly && st.hurt <= 0) {
+    g.fillStyle = '#f7f4ee';
+    roundRect(g, x + s * 0.17, y + s * 0.3, s * 0.66, s * 0.7, s * 0.26);
+    g.fill();
+  }
 
   // かお
   g.fillStyle = INK;
@@ -146,6 +269,8 @@ export function drawChar(
     g.arc(x + s * 0.83, y + s * 0.6, s * 0.08, 0, Math.PI * 2);
     g.fill();
   }
+
+  if (hat) drawHat(g, cx, y, s, hat);
 
   g.restore();
 }
@@ -202,15 +327,31 @@ export function drawObstacle(
   g.stroke();
 }
 
-/** キャラ選択のアイコン用 */
-export function paintSkinIcon(canvas: HTMLCanvasElement, skin: SkinId): void {
+/** キャラ選択・きせかえのアイコン用 */
+export function paintSkinIcon(canvas: HTMLCanvasElement, skin: SkinId, hat = '', size = 60): void {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const size = 56;
   canvas.width = size * dpr;
   canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
   const g = canvas.getContext('2d');
   if (!g) return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, size, size);
-  drawChar(g, size / 2, size - 6, 34, skin, { t: 0.4, air: false, hurt: 0, squash: 1 });
+  // うさぎの耳とぼうしが入るよう、上下に余白をとる
+  drawChar(g, size / 2, size - size * 0.14, size * 0.5, skin, { t: 0.4, air: false, hurt: 0, squash: 1 }, hat);
+}
+
+/** ぼうし単体のアイコン用 */
+export function paintHatIcon(canvas: HTMLCanvasElement, hat: string, size = 60): void {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = `${size}px`;
+  canvas.style.height = `${size}px`;
+  const g = canvas.getContext('2d');
+  if (!g) return;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, size, size);
+  if (hat) drawHat(g, size / 2, size * 0.62, size * 0.78, hat);
 }

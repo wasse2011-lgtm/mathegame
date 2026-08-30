@@ -9,16 +9,24 @@
  */
 
 import { sfx } from './audio';
-import {
-  answerTimeFor,
-  factKey,
-  isBoss,
-  questionCount,
-  type World,
-} from './curriculum';
+import { answerTimeFor, factKey, type Fact, type World } from './curriculum';
 import { QuestionPicker, recordAnswer, type Question } from './questions';
 import { profile, save, setStageStars, persist } from './save';
 import { drawChar, drawObstacle, roundRect, type CharState } from './sprites';
+
+/** 1回の走りの設定。通常ステージもボスもデイリーもこれで表す */
+export interface RunConfig {
+  world: World;
+  /** 0 はデイリーチャレンジ（星もマップも使わない） */
+  stage: number;
+  total: number;
+  boss: boolean;
+  label: string;
+  /** 指定するとワールドの式ではなくこの中から出す */
+  facts?: Fact[];
+  bonusCoins?: number;
+  saveStars?: boolean;
+}
 
 export interface StageResult {
   worldId: number;
@@ -29,6 +37,9 @@ export interface StageResult {
   coins: number;
   bestKey: string | null;
   bestMs: number;
+  /** この回で初めておぼえた式 */
+  learned: string[];
+  maxCombo: number;
 }
 
 type Phase = 'ask' | 'clear' | 'reveal' | 'over';
@@ -58,6 +69,7 @@ export class Runner {
   private paused = false;
 
   // ステージ状態
+  private cfg!: RunConfig;
   private world!: World;
   private stage = 1;
   private boss = false;
@@ -68,6 +80,8 @@ export class Runner {
   private misses = 0;
   private coins = 0;
   private combo = 0;
+  private maxCombo = 0;
+  private learned: string[] = [];
   private best: { key: string; ms: number } | null = null;
   private onDone: ((r: StageResult) => void) | null = null;
 
@@ -88,6 +102,8 @@ export class Runner {
   private particles: Particle[] = [];
   private shake = 0;
   private flash = 0;
+  /** 「ちょうぜつダッシュ」の帯を出している残り時間 */
+  private banner = 0;
 
   // 画面寸法（CSS ピクセル）
   private W = 320;
@@ -114,17 +130,20 @@ export class Runner {
 
   // ---------------------------------------------------------------- 開始・終了
 
-  start(world: World, stage: number, onDone: (r: StageResult) => void): void {
-    this.world = world;
-    this.stage = stage;
-    this.boss = isBoss(world, stage);
-    this.total = questionCount(world, stage);
-    this.picker = new QuestionPicker(world);
+  start(cfg: RunConfig, onDone: (r: StageResult) => void): void {
+    this.cfg = cfg;
+    this.world = cfg.world;
+    this.stage = cfg.stage;
+    this.boss = cfg.boss;
+    this.total = cfg.total;
+    this.picker = new QuestionPicker(cfg.facts ?? cfg.world.facts, cfg.world.choices);
     this.qIndex = 0;
     this.correct = 0;
     this.misses = 0;
     this.coins = 0;
     this.combo = 0;
+    this.maxCombo = 0;
+    this.learned = [];
     this.best = null;
     this.onDone = onDone;
     this.particles = [];
@@ -132,8 +151,8 @@ export class Runner {
     this.vy = 0;
     this.char = { t: 0, air: false, hurt: 0, squash: 1 };
 
-    this.elStage.textContent = this.boss ? `${world.id}-ボス` : `${world.id}-${stage}`;
-    this.elAnswers.style.setProperty('--cols', String(world.choices));
+    this.elStage.textContent = cfg.label;
+    this.elAnswers.style.setProperty('--cols', String(cfg.world.choices));
     this.buildPips();
     this.updateHud(false);
     this.resize();
@@ -178,7 +197,8 @@ export class Runner {
     // 画面が広いほどキャラも大きく。縦でも頭打ちにして、はみ出さないようにする。
     this.s = Math.min(Math.max(Math.min(this.W / 210, this.H / 135), 0.85), 2.8);
     this.groundY = this.H - 22 * this.s;
-    this.playerX = Math.max(46, this.W * 0.16);
+    // 左に寄せすぎるとコンボのトレイルが画面外に出るので 2割ほど内側に置く
+    this.playerX = Math.max(52, this.W * 0.2);
     this.runSpeed = 130 * this.s;
 
     // ジャンプは「頂点で障害物の上を通る」高さに合わせて逆算する
@@ -246,14 +266,19 @@ export class Runner {
       this.buttons.forEach((b) => { b.disabled = true; });
 
       if (firstTry) {
-        recordAnswer(q.fact, true, ms);
+        const key = factKey(q.fact);
+        if (recordAnswer(q.fact, true, ms)) this.learned.push(key);
         this.correct++;
         this.combo++;
+        this.maxCombo = Math.max(this.maxCombo, this.combo);
         this.coins += 1 + (this.combo >= 5 ? 1 : 0);
-        const key = factKey(q.fact);
         if (!this.best || ms < this.best.ms) this.best = { key, ms };
         sfx.correct(this.combo - 1);
         sfx.coin();
+        if (this.combo === 8) {
+          this.banner = 1.5;
+          sfx.fanfare();
+        }
       } else {
         sfx.correct(0);
       }
@@ -338,11 +363,11 @@ export class Runner {
 
     const stars = this.misses === 0 ? 3 : this.misses <= 2 ? 2 : 1;
     if (stars === 3) this.coins += 10;
-    if (this.boss) this.coins += 30;
+    this.coins += this.cfg.bonusCoins ?? 0;
 
     const p = profile();
     p.coins += this.coins;
-    setStageStars(this.world.id, this.stage, stars);
+    if (this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars);
     persist();
 
     this.onDone?.({
@@ -354,6 +379,8 @@ export class Runner {
       coins: this.coins,
       bestKey: this.best?.key ?? null,
       bestMs: this.best?.ms ?? 0,
+      learned: this.learned,
+      maxCombo: this.maxCombo,
     });
   }
 
@@ -398,6 +425,7 @@ export class Runner {
     if (this.char.hurt > 0) this.char.hurt -= dt;
     if (this.shake > 0) this.shake -= dt;
     if (this.flash > 0) this.flash -= dt;
+    if (this.banner > 0) this.banner -= dt;
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
 
     if (this.char.air) {
@@ -475,9 +503,12 @@ export class Runner {
       if (this.ob.v > this.runSpeed * 2.2) this.drawSpeedLines();
     }
 
+    if (this.combo >= 8) this.drawRushLines();
+    if (this.combo >= 5) this.drawAura();
     if (this.combo >= 3) this.drawTrail();
 
-    drawChar(g, this.playerX, this.groundY + this.py, 34 * s, profile().skin, this.char);
+    const p = profile();
+    drawChar(g, this.playerX, this.groundY + this.py, 34 * s, p.skin, this.char, p.hat);
 
     for (const p of this.particles) {
       g.globalAlpha = Math.max(0, p.life / p.max);
@@ -493,6 +524,59 @@ export class Runner {
       g.fillRect(0, 0, W, H);
     }
 
+    if (this.banner > 0) this.drawBanner();
+
+    g.restore();
+  }
+
+  /** 5連続からの光る輪 */
+  private drawAura(): void {
+    const g = this.g;
+    const s = this.s;
+    const y = this.groundY + this.py - 17 * s;
+    const r = (25 + Math.sin(this.t * 8) * 2) * s;
+    const grad = g.createRadialGradient(this.playerX, y, r * 0.62, this.playerX, y, r);
+    grad.addColorStop(0, 'rgba(255,213,90,0)');
+    grad.addColorStop(1, 'rgba(255,197,61,.42)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(this.playerX, y, r, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  /** 8連続。画面全体を流れる線で「速い」を出す（実際の速度は変えない） */
+  private drawRushLines(): void {
+    const g = this.g;
+    const { W, H, s } = this;
+    g.strokeStyle = 'rgba(255,255,255,.55)';
+    g.lineWidth = 2 * s;
+    g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i < 7; i++) {
+      const y = ((i * 53) % (H - 30)) + 14;
+      const len = (40 + ((i * 37) % 60)) * s;
+      const x = W - ((this.t * 720 * s + i * 180) % (W + len));
+      g.moveTo(x, y);
+      g.lineTo(x + len, y);
+    }
+    g.stroke();
+  }
+
+  private drawBanner(): void {
+    const g = this.g;
+    const { W, H, s } = this;
+    const t = Math.min(1, (1.5 - this.banner) * 5);
+    const alpha = Math.min(1, this.banner * 2.5);
+    const y = H * 0.34;
+    g.save();
+    g.globalAlpha = alpha;
+    g.fillStyle = 'rgba(255,197,61,.92)';
+    g.fillRect(0, y - 20 * s, W * t, 40 * s);
+    g.fillStyle = '#4a3400';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `700 ${20 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    if (t > 0.9) g.fillText('ちょうぜつダッシュ！', W / 2, y);
     g.restore();
   }
 
@@ -566,8 +650,8 @@ export class Runner {
     const s = this.s;
     g.fillStyle = '#ffc53d';
     for (let i = 1; i <= 4; i++) {
-      g.globalAlpha = 0.5 - i * 0.09;
-      const x = this.playerX - i * 13 * s;
+      g.globalAlpha = 0.55 - i * 0.1;
+      const x = this.playerX - (12 + i * 8) * s;
       const y = this.groundY + this.py - 16 * s + Math.sin(this.t * 9 + i) * 3 * s;
       g.beginPath();
       g.arc(x, y, (4 - i * 0.6) * s, 0, Math.PI * 2);

@@ -105,4 +105,17 @@ export const sfx = {
       tone(f, 0.22, { at: i * 0.09, wave: 'triangle', vol: 0.34 });
     });
   },
+  /** 8連続の「ちょうぜつダッシュ」 */
+  fanfare(): void {
+    [784, 988, 1175, 1568].forEach((f, i) => {
+      tone(f, 0.16, { at: i * 0.06, wave: 'square', vol: 0.26 });
+    });
+  },
+  /** ガチャのたまごが割れる */
+  crack(): void {
+    noise(0.14, 0.26);
+    [659.25, 880, 1174.7].forEach((f, i) => {
+      tone(f, 0.2, { at: 0.08 + i * 0.08, wave: 'triangle', vol: 0.34 });
+    });
+  },
 };

@@ -22,7 +22,7 @@
 <body>
   <div id="app">
 
-    <!-- ===== タイトル ===== -->
+    <!-- ===== ホーム ===== -->
     <section class="screen" id="screen-title" data-screen="title">
       <div class="title-inner">
         <h1 class="logo"><span class="logo-a">たしざん</span><span class="logo-b">ジャンプ</span></h1>
@@ -36,20 +36,43 @@
           </label>
         </div>
 
-        <p class="hello" id="hello" hidden></p>
+        <div class="home" id="home" hidden>
+          <div class="home-top">
+            <p class="hello" id="hello"></p>
+            <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
+          </div>
 
-        <button class="btn btn-primary btn-xl" id="btn-start" type="button">はじめる</button>
-        <div class="title-sub">
-          <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
-          <button class="btn btn-ghost" id="btn-switch" type="button" hidden>キャラをかえる</button>
+          <button class="daily-card" id="daily-card" type="button">
+            <span class="daily-main">
+              <span class="daily-title">きょうの 5もん</span>
+              <span class="daily-state" id="daily-state">＋20 コイン</span>
+            </span>
+            <span class="streak" id="home-streak" hidden><b>0</b>にち れんぞく</span>
+          </button>
+
+          <div class="zukan-mini" id="zukan-mini">
+            <span class="zm-label">ずかん</span>
+            <span class="bar"><i id="zukan-bar"></i></span>
+            <b id="zukan-count">0 / 81</b>
+          </div>
         </div>
+
+        <button class="btn btn-primary btn-xl" id="btn-start">あそぶ</button>
+
+        <div class="title-sub" id="title-sub">
+          <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ</button>
+          <button class="btn btn-ghost" id="btn-zukan" type="button">ずかん</button>
+          <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
+        </div>
+
+        <canvas id="home-char" aria-hidden="true"></canvas>
       </div>
     </section>
 
     <!-- ===== ステージマップ ===== -->
     <section class="screen" id="screen-map" data-screen="map" hidden>
       <header class="map-head">
-        <button class="btn btn-icon" id="map-back" type="button" aria-label="タイトルへ">←</button>
+        <button class="btn btn-icon" id="map-back" type="button" aria-label="ホームへ">←</button>
         <div class="map-title">
           <p class="map-world" id="map-world">ワールド 1</p>
           <p class="map-desc" id="map-desc"></p>
@@ -64,7 +87,7 @@
     <!-- ===== プレイ ===== -->
     <section class="screen screen-play" id="screen-play" data-screen="play" hidden>
       <header class="hud">
-        <button class="btn btn-icon" id="btn-pause" type="button" aria-label="ポーズ">॥</button>
+        <button class="btn btn-icon" id="btn-pause" type="button" aria-label="ポーズ">‖</button>
         <p class="hud-stage" id="hud-stage">1-1</p>
         <div class="pips" id="pips" aria-label="のこりの もんだい"></div>
         <p class="hud-combo" id="hud-combo" hidden><b>0</b>れんぞく</p>
@@ -89,12 +112,62 @@
         <ul class="result-rows">
           <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
           <li><span>コイン</span><b id="result-coins">+0</b></li>
-          <li id="result-best-row"><span>いちばん はやかった</span><b id="result-best">-</b></li>
+          <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
         </ul>
+        <p class="learned" id="result-learned" hidden></p>
         <div class="result-btns">
           <button class="btn btn-ghost" id="result-retry" type="button">もういちど</button>
           <button class="btn btn-primary" id="result-next" type="button">つぎへ</button>
         </div>
+      </div>
+    </section>
+
+    <!-- ===== たしざん図鑑 ===== -->
+    <section class="screen" id="screen-zukan" data-screen="zukan" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="zukan-back" type="button" aria-label="ホームへ">←</button>
+        <div class="map-title">
+          <p class="map-world">たしざん図鑑</p>
+          <p class="map-desc" id="zukan-desc">おぼえた カード 0 / 81</p>
+        </div>
+      </header>
+      <span class="bar big"><i id="zukan-bar2"></i></span>
+      <div class="zukan-scroll">
+        <div class="zukan-grid" id="zukan-grid"></div>
+      </div>
+      <p class="zukan-detail" id="zukan-detail">マスを タップすると くわしく みられます</p>
+      <p class="zukan-legend">
+        <span class="lg new"></span>まだ
+        <span class="lg mid"></span>れんしゅうちゅう
+        <span class="lg done"></span>おぼえた
+      </p>
+    </section>
+
+    <!-- ===== きせかえ ===== -->
+    <section class="screen" id="screen-shop" data-screen="shop" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="shop-back" type="button" aria-label="ホームへ">←</button>
+        <div class="map-title">
+          <p class="map-world">きせかえ</p>
+          <p class="map-desc" id="shop-desc">あつめた 3 / 11</p>
+        </div>
+        <p class="coin-badge"><span class="coin-dot"></span><b id="shop-coins">0</b></p>
+      </header>
+
+      <button class="egg-btn" id="egg-btn" type="button">
+        <span class="egg-emoji" aria-hidden="true">🥚</span>
+        <span class="egg-text">
+          <b id="egg-label">たまごを わる</b>
+          <span id="egg-sub">あたらしい なかま か ぼうし</span>
+        </span>
+        <span class="egg-cost"><span class="coin-dot"></span>30</span>
+      </button>
+
+      <div class="shop-scroll">
+        <h3 class="shop-h">キャラ</h3>
+        <div class="item-grid" id="skin-grid"></div>
+        <h3 class="shop-h">ぼうし</h3>
+        <div class="item-grid" id="hat-grid"></div>
       </div>
     </section>
 
@@ -103,7 +176,16 @@
       <div class="sheet">
         <p class="sheet-head">ちょっと きゅうけい</p>
         <button class="btn btn-primary btn-xl" id="pause-resume" type="button">つづける</button>
-        <button class="btn btn-ghost" id="pause-quit" type="button">マップに もどる</button>
+        <button class="btn btn-ghost" id="pause-quit" type="button">もどる</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="overlay-egg" hidden>
+      <div class="sheet egg-sheet">
+        <p class="egg-got-head" id="egg-got-head">あたらしい なかま！</p>
+        <canvas id="egg-result-canvas"></canvas>
+        <p class="egg-got" id="egg-got"></p>
+        <button class="btn btn-primary btn-xl" id="egg-close" type="button">やったー！</button>
       </div>
     </div>
 
@@ -114,6 +196,7 @@
         <label class="toggle"><input type="checkbox" id="set-slow" /><span>ゆっくりモード</span></label>
         <label class="toggle"><input type="checkbox" id="set-left" /><span>ひだりきき</span></label>
         <button class="btn btn-primary" id="set-close" type="button">とじる</button>
+        <button class="btn btn-ghost" id="btn-switch" type="button">なまえを かえる</button>
         <button class="btn btn-danger-ghost" id="set-reset" type="button">さいしょから やりなおす</button>
       </div>
     </div>
