@@ -174,15 +174,22 @@ export class Runner {
     this.nextQuestion();
 
     this.running = true;
-    this.paused = false;
     this.lastTs = 0;
     cancelAnimationFrame(this.raf);
-    this.raf = requestAnimationFrame(this.frame);
+    // paused はここで落とさない。start() は画面を出した「次のフレーム」で走るので、
+    // その隙間にアプリを裏へ回されると setPaused(true) のほうが先に来ている。
+    // ここで false に戻すと、ポーズ画面が出たままステージが進み、
+    // 戻ってきたときには時間切れでミスが付いている。解除は stop() と
+    // 「つづける」（setPaused(false)）だけがやる。
+    this.raf = this.paused ? 0 : requestAnimationFrame(this.frame);
   }
 
   /** 走るのをやめる。遊んだ時間はここで必ず記録する（途中でやめても数える） */
   stop(): void {
     this.running = false;
+    // ポーズを解除するのはここだけ。start() で落とすと、走り出す直前に
+    // 裏へ回されたときのポーズを打ち消してしまう（下の start() のコメント）。
+    this.paused = false;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     addPlayTime(this.elapsed);

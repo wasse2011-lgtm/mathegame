@@ -1,0 +1,34 @@
+# プルリクエストと main への push で回す検査。
+#
+# 配信（pages.yml）は main への push でしか動かないので、それだけだと
+# プルリクエストには何のチェックも付かない。出題の偏りは questions.ts を
+# 1行変えるだけで戻るので、マージする前に verify を通しておきたい。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 出題エンジンの検証。正解の位置の偏りと、当てずっぽうで「おぼえた」に
+      # 届く割合を見る。落ちたら終了コード 1 が返る。
+      - run: npm run verify
+      # build は tsc --noEmit を含むので、型チェックはここで一緒に通る
+      - run: npm run build

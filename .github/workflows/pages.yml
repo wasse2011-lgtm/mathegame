@@ -33,6 +33,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # 出題の偏りは questions.ts を1行変えるだけで戻る。配信の前に必ず通す。
+      - run: npm run verify
       - run: npm run build
 
       # Pages の配信元が「ブランチ」のままだと、ビルドしていないソースがそのまま
