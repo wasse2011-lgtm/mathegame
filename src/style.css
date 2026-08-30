@@ -377,6 +377,8 @@ body {
   display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; flex-wrap: wrap;
   padding: .5rem .2rem; border-bottom: 2px dotted var(--line); font-size: 1rem; color: var(--ink-2);
 }
+/* display:flex が UA の [hidden]{display:none} に勝ってしまうので、明示的に消す */
+.result-rows li[hidden] { display: none; }
 .result-rows li:last-child { border-bottom: 0; }
 .result-rows span { white-space: nowrap; }
 .result-rows b {
@@ -400,8 +402,8 @@ body {
 }
 .zukan-scroll { flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch; }
 .zukan-grid {
-  display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px;
-  min-width: 340px; max-width: 560px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(var(--cols, 10), 1fr); gap: 3px;
+  min-width: 300px; max-width: 560px; margin: 0 auto;
 }
 .zk-head {
   display: grid; place-items: center; aspect-ratio: 1;
@@ -467,8 +469,14 @@ body {
 .item canvas { width: 56px; height: 56px; }
 .item .no-hat {
   width: 56px; height: 56px; display: grid; place-items: center;
-  font-size: 1.6rem; color: var(--ink-3);
+  font-size: 1.6rem; color: var(--ink-2);
 }
+
+.no-storage {
+  margin: 0; font-size: .85rem; line-height: 1.6; text-align: center; color: var(--bad-dark);
+  background: #fdeee9; border: 2px solid var(--bad); border-radius: var(--r-md); padding: .5rem .8rem;
+}
+.no-storage[hidden] { display: none; }
 
 .egg-sheet { align-items: center; text-align: center; }
 .egg-sheet canvas { width: 120px; height: 120px; animation: egg-pop .5s cubic-bezier(.2,1.5,.4,1); }

@@ -18,6 +18,8 @@ export interface World {
   choices: 3 | 4;
   /** 通常ステージ数（この次がボスステージ） */
   stages: number;
+  /** true なら「7 + ? = 10」形式で、たす数のほうを問う */
+  blank?: boolean;
   facts: Fact[];
 }
 
@@ -62,10 +64,13 @@ export const WORLDS: World[] = [
   {
     id: 3,
     name: '10 の とびら',
-    desc: 'たすと ちょうど 10',
+    desc: '10 に するには あと いくつ',
     answerTime: 6.0,
     choices: 3,
     stages: 8,
+    // 答えが必ず 10 になるので、ふつうに出すと式を読まずに 10 を押せてしまう。
+    // 「7 + ? = 10」の形にして、分解そのものを問う。
+    blank: true,
     facts: build((a, b) => a + b === 10, 9, 9, 1, 1),
   },
   {
@@ -116,16 +121,19 @@ export const WORLDS: World[] = [
 ];
 
 export interface Cherry {
-  /** 10 にするために足す数 */
+  /** きりのいい数にするために足す数 */
   need: number;
   /** 残り */
   rest: number;
+  /** 足したあとにできる、きりのいい数。9+4 なら 10、27+8 なら 30 */
+  ten: number;
 }
 
 /**
- * 繰り上がりの式を「10 をつくる」形に分解する（さくらんぼ計算）。
- *   9 + 4 → 9 に 1 を あげて 10、のこり 3
- * 繰り上がらない式と、答えがちょうど 10 の式（ヒントが答えそのものになる）は null。
+ * 繰り上がりの式を「きりのいい数をつくる」形に分解する（さくらんぼ計算）。
+ *   9 + 4  → 9 に 1 を あげて 10、のこり 3
+ *   27 + 8 → 27 に 3 を あげて 30、のこり 5
+ * 繰り上がらない式と、足すとちょうど切りのいい数になる式（ヒントが答えそのもの）は null。
  */
 export function cherry(f: Fact): Cherry | null {
   const ones = f.a % 10;
@@ -133,14 +141,17 @@ export function cherry(f: Fact): Cherry | null {
   const need = 10 - ones;
   const rest = f.b - need;
   if (rest <= 0) return null;
-  return { need, rest };
+  return { need, rest, ten: f.a - ones + 10 };
 }
+
+/** たしざん図鑑の一辺。1〜9 の 9×9 = 81 マス */
+export const ZUKAN_MAX = 9;
 
 /**
  * たしざん図鑑のマス。1〜9 どうしの 81 通り。
  * W1・W2・W3・W5 を合わせるとちょうどこの 81 枚が埋まる。
  */
-export const BASIC_FACTS: Fact[] = build(() => true, 9, 9, 1, 1);
+export const BASIC_FACTS: Fact[] = build(() => true, ZUKAN_MAX, ZUKAN_MAX, 1, 1);
 
 export function worldById(id: number): World {
   return WORLDS.find((w) => w.id === id) ?? WORLDS[0];
@@ -164,6 +175,17 @@ export function questionCount(w: World, stage: number): number {
  * 短くしすぎると「考える」より「当てる」ゲームになるので下限を置く。
  */
 export function answerTimeFor(w: World, stage: number, slow: boolean): number {
-  const t = Math.max(w.answerTime - (stage - 1) * 0.14, w.answerTime * 0.62);
+  // デイリー（stage = 0）は「ステージ1と同じ」扱いにする
+  const step = Math.max(stage, 1) - 1;
+  const t = Math.max(w.answerTime - step * 0.14, w.answerTime * 0.62);
   return slow ? t * 1.6 : t;
+}
+
+/**
+ * ボスに挑めるか。通常ステージをただ通過するだけでなく、★の合計で見る。
+ * ★の下限は1なので、当てずっぽうで通過し続けた子は 8★ しか集まらず、
+ * ここで足が止まる（ゲームオーバーにはせず、前のステージをやり直せばよい）。
+ */
+export function bossRequirement(w: World): number {
+  return Math.ceil(w.stages * 1.5);
 }

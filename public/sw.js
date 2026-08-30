@@ -7,6 +7,17 @@
 
 const CACHE = 'tj-v1';
 
+// ビルドのたびにファイル名のハッシュが変わるので、放っておくと古い版の
+// アセットが永久に残る。上限を決めて古いものから捨てる。
+const MAX_ENTRIES = 60;
+
+async function trim(cache) {
+  const keys = await cache.keys();
+  for (let i = 0; i < keys.length - MAX_ENTRIES; i++) {
+    await cache.delete(keys[i]);
+  }
+}
+
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
@@ -25,6 +36,7 @@ async function store(request, response) {
   if (!response || !response.ok || response.type === 'opaque') return;
   const cache = await caches.open(CACHE);
   await cache.put(request, response);
+  await trim(cache);
 }
 
 self.addEventListener('fetch', (event) => {

@@ -33,10 +33,6 @@ export const ITEMS: Item[] = [
   { id: 'hat-crown', kind: 'hat', label: 'おうかん' },
 ];
 
-export function itemById(id: string): Item | undefined {
-  return ITEMS.find((i) => i.id === id);
-}
-
 export function isOwned(item: Item): boolean {
   return Boolean(item.free) || profile().unlocked.includes(item.id);
 }

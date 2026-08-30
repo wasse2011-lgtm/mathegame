@@ -27,6 +27,11 @@
       <div class="title-inner">
         <h1 class="logo"><span class="logo-a">たしざん</span><span class="logo-b">ジャンプ</span></h1>
 
+        <p class="no-storage" id="no-storage" hidden>
+          このひらきかたでは <b>きろくが のこりません</b>。<br>
+          ブラウザで ひらくか、ホームがめんに ついかしてください。
+        </p>
+
         <div class="skin-pick" id="skin-pick" hidden>
           <p class="skin-label">だれで あそぶ？</p>
           <div class="skin-row" id="skin-row"></div>
@@ -120,6 +125,7 @@
         <ul class="result-rows">
           <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
           <li><span>コイン</span><b id="result-coins">+0</b></li>
+          <li id="result-combo-row" hidden><span>さいこう れんぞく</span><b id="result-combo">-</b></li>
           <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
         </ul>
         <p class="learned" id="result-learned" hidden></p>
@@ -226,6 +232,10 @@
           <button class="btn btn-ghost" id="p-load" type="button">貼り付けた内容を読みこむ</button>
         </div>
         <p class="p-note" id="p-data-msg"></p>
+
+        <h3 class="p-h">やりなおす</h3>
+        <p class="p-note">星・コイン・図鑑・きせかえを含め、すべて消えます。元に戻せません。</p>
+        <button class="btn btn-danger-ghost" id="set-reset" type="button">さいしょから やりなおす</button>
       </div>
     </section>
 
@@ -256,7 +266,6 @@
         <button class="btn btn-primary" id="set-close" type="button">とじる</button>
         <button class="btn btn-ghost" id="btn-parent" type="button">おうちのかたへ</button>
         <button class="btn btn-ghost" id="btn-switch" type="button">なまえを かえる</button>
-        <button class="btn btn-danger-ghost" id="set-reset" type="button">さいしょから やりなおす</button>
       </div>
     </div>
 

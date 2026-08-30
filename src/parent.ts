@@ -7,12 +7,12 @@
 
 import { WORLDS, bossStage, type Fact } from './curriculum';
 import { MASTERED } from './questions';
-import { persist, profile, save, stageStars, today } from './save';
+import { SAVE_KEY, freezeSave, persist, profile, save, stageStars, today } from './save';
 import { zukanProgress } from './zukan';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
-const KEY = 'tj.save.v1';
+const KEY = SAVE_KEY;
 
 interface WeakFact {
   fact: Fact;
@@ -123,6 +123,8 @@ export function initParent(onChange: () => void): void {
         return;
       }
       localStorage.setItem(KEY, text);
+      // リロードまでのあいだに、メモリ上の古いセーブで上書きされないようにする
+      freezeSave();
       msg.textContent = '読みこみました。画面を作りなおします…';
       window.setTimeout(() => location.reload(), 600);
     } catch {

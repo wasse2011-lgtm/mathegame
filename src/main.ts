@@ -4,6 +4,7 @@ import { sfx, unlockAudio } from './audio';
 import {
   WORLDS,
   answerTimeFor,
+  bossRequirement,
   bossStage,
   isBoss,
   questionCount,
@@ -16,6 +17,7 @@ import { initShop, onShopChange, renderShop } from './shop';
 import { weakestFacts } from './questions';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
+  flushSave,
   overDailyLimit,
   persist,
   profile,
@@ -24,6 +26,7 @@ import {
   resetAll,
   save,
   stageStars,
+  storageWorks,
 } from './save';
 import { SKINS, drawChar, paintSkinIcon } from './sprites';
 import { renderZukan, zukanProgress } from './zukan';
@@ -93,10 +96,30 @@ function startHomeIdle(): void {
   if (!homeRaf) homeRaf = requestAnimationFrame(paintHome);
 }
 
+/** ホームに戻る。描き直しを忘れないよう、必ずここを通す */
+function goHome(): void {
+  $('overlay-pause').hidden = true;
+  renderTitle();
+  show('title');
+}
+
 // ------------------------------------------------------------------ 進行状況
 
-/** ステージが開いているか（前のステージを1つでもクリアしていれば開く） */
+/** ワールドの通常ステージで集めた★ */
+function normalStars(w: World): number {
+  let n = 0;
+  for (let s = 1; s <= w.stages; s++) n += stageStars(w.id, s);
+  return n;
+}
+
+/**
+ * ステージが開いているか。
+ * 通常ステージは前を1つでもクリアすれば開くが、ボスだけは★の合計で見る。
+ * ★の下限は1なので、当てずっぽうで通過し続けた子はここで足が止まり、
+ * 先のワールドに進めない（ゲームオーバーにはしない）。
+ */
 function stageUnlocked(w: World, stage: number): boolean {
+  if (isBoss(w, stage)) return normalStars(w) >= bossRequirement(w);
   if (stage === 1) return true;
   return stageStars(w.id, stage - 1) > 0;
 }
@@ -221,14 +244,12 @@ $('btn-shop').addEventListener('click', () => {
 
 $('zukan-back').addEventListener('click', () => {
   sfx.tap();
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 $('shop-back').addEventListener('click', () => {
   sfx.tap();
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 // ------------------------------------------------------------------ デイリー
@@ -236,7 +257,7 @@ $('shop-back').addEventListener('click', () => {
 $('daily-card').addEventListener('click', () => {
   unlockAudio();
   sfx.tap();
-  const p = profile();
+  refreshDaily(profile()); // 日付をまたいだまま開きっぱなしのことがある
   const w = worldById(lastPlayedWorld());
   const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => x.facts);
   startRun({
@@ -246,8 +267,6 @@ $('daily-card').addEventListener('click', () => {
     boss: false,
     label: 'きょうの 5もん',
     facts: weakestFacts(pool, 5),
-    // すでに今日クリアしていれば、遊べるがコインのおまけはつかない
-    bonusCoins: p.daily.done ? 0 : 20,
     saveStars: false,
   });
 });
@@ -306,15 +325,17 @@ function renderMap(): void {
     grid.appendChild(b);
   }
 
+  const bossNeed = bossRequirement(w) - normalStars(w);
   $('map-hint').textContent = overDailyLimit()
     ? 'きょうの ぼうけんは ここまで。また あした！'
-    : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
+    : bossNeed > 0
+      ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w)}）`
+      : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
 }
 
 $('map-back').addEventListener('click', () => {
   sfx.tap();
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 // ------------------------------------------------------------------ プレイ
@@ -334,18 +355,24 @@ function startStage(world: World, stage: number): void {
 function startRun(cfg: RunConfig): void {
   // 上限に達していたら新しいステージは始めない（走っている途中では止めない）
   if (overDailyLimit()) {
-    renderTitle();
-    show('title');
+    goHome();
     return;
   }
+  // デイリーのおまけは走り出すたびに計算しなおす。
+  // 設定オブジェクトを使いまわすので、ここで決めないと「もういちど」で
+  // 何度でも +20 コインがもらえてしまう。
+  if (cfg.stage === 0) cfg.bonusCoins = profile().daily.done ? 0 : 20;
+
   lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
+  $('overlay-pause').hidden = true;
   show('play');
   // 画面を出してからレイアウトが確定するので、次のフレームで開始する
   requestAnimationFrame(() => {
     runner.start(cfg, (r) => {
       if (cfg.stage === 0) {
         const p = profile();
+        refreshDaily(p); // 日付をまたいで走り終えることがある
         if (!p.daily.done) {
           p.daily.done = true;
           p.daily.streak += 1;
@@ -365,6 +392,8 @@ $('btn-pause').addEventListener('click', () => {
 });
 
 $('pause-resume').addEventListener('click', () => {
+  // iOS は裏に回ると AudioContext を止める。戻ってきたら鳴らしなおす
+  unlockAudio();
   $('overlay-pause').hidden = true;
   runner.setPaused(false);
 });
@@ -373,8 +402,7 @@ $('pause-quit').addEventListener('click', () => {
   $('overlay-pause').hidden = true;
   runner.stop();
   if (lastRun && lastRun.stage === 0) {
-    renderTitle();
-    show('title');
+    goHome();
   } else {
     renderMap();
     show('map');
@@ -404,6 +432,10 @@ function renderResult(r: StageResult): void {
   } else {
     bestRow.hidden = true;
   }
+
+  const comboRow = $('result-combo-row');
+  comboRow.hidden = r.maxCombo < 3;
+  $('result-combo').textContent = `${r.maxCombo} れんぞく`;
 
   const learned = $('result-learned');
   if (r.learned.length) {
@@ -447,16 +479,14 @@ $('result-next').addEventListener('click', () => {
   if (!lastResult) return;
   sfx.tap();
   if (overDailyLimit()) {
-    renderTitle();
-    show('title');
+    goHome();
     return;
   }
   const next = nextStageOf(lastResult.worldId, lastResult.stage);
   if (next) {
     startStage(next.world, next.stage);
   } else if (lastResult.stage === 0) {
-    renderTitle();
-    show('title');
+    goHome();
   } else {
     mapWorld = lastResult.worldId;
     renderMap();
@@ -530,8 +560,7 @@ $('gate-ok').addEventListener('click', () => {
 });
 
 $('parent-back').addEventListener('click', () => {
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 $('btn-switch').addEventListener('click', () => {
@@ -539,16 +568,14 @@ $('btn-switch').addEventListener('click', () => {
   persist();
   sfx.tap();
   $('overlay-settings').hidden = true;
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 $('set-reset').addEventListener('click', () => {
   if (!window.confirm('ぜんぶ さいしょから やりなおします。いいですか？')) return;
   resetAll();
   $('overlay-settings').hidden = true;
-  renderTitle();
-  show('title');
+  goHome();
 });
 
 // ------------------------------------------------------------------ 起動
@@ -567,10 +594,21 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && current === 'play') {
-    runner.setPaused(true);
-    $('overlay-pause').hidden = false;
+  if (document.hidden) {
+    if (current === 'play') {
+      runner.setPaused(true);
+      $('overlay-pause').hidden = false;
+    }
+  } else {
+    unlockAudio(); // 中断されたオーディオを起こしなおす
   }
+});
+
+// 書き込みは 120ms まとめているので、閉じられる前に必ず吐き出す。
+// iOS は裏に回した時点でタイマーを止めるため、これがないと直前の1ステージが消える。
+window.addEventListener('pagehide', flushSave);
+window.addEventListener('visibilitychange', () => {
+  if (document.hidden) flushSave();
 });
 
 requestPersistentStorage();
@@ -581,12 +619,23 @@ initParent(() => {
   renderTitle();
 });
 syncSettings();
+
+// file:// で開いたときなど、記録が残らない環境ではその場で伝える
+$('no-storage').hidden = storageWorks;
+
 renderTitle();
 show('title');
 
-// 埋め込み表示（iframe やビューアの中）では sw.js を置いていないので登録しない
+// 埋め込み表示（iframe やビューアの中）と開発サーバーでは sw.js を登録しない。
+// dev で登録すると、ハッシュのつかないソースが恒久的にキャッシュされて
+// 変更が反映されなくなる。
 const embedded = window.top !== window.self;
-if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !embedded) {
+if (
+  'serviceWorker' in navigator &&
+  location.protocol.startsWith('http') &&
+  !embedded &&
+  !import.meta.env.DEV
+) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(new URL('./sw.js', document.baseURI).href).catch(() => undefined);
   });

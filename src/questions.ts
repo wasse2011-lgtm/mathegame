@@ -6,12 +6,16 @@
  */
 
 import { type Fact, factKey } from './curriculum';
-import { factStat } from './save';
+import { factStat, peekFact } from './save';
 
 export interface Question {
   fact: Fact;
   answer: number;
   choices: number[];
+  /** 画面に出す式。「7 + 5 = ?」または「7 + ? = 10」 */
+  text: string;
+  /** 空欄が「たす数」のほう（10の合成で使う） */
+  blank: boolean;
 }
 
 function shuffle<T>(arr: T[]): T[] {
@@ -41,9 +45,31 @@ function distractorPool(a: number, b: number, sum: number): Distractor[] {
   push(sum - 2, 2);
   // 記号の読みまちがい。2けたでは答えが遠すぎて誤答として機能しないので 1けた同士だけ。
   if (a !== b && a < 10 && b < 10) push(Math.abs(a - b), 2);
-  push(sum + 10, 3); // 十の位のつけまちがい
+  // 十の位のつけまちがい。答えが小さいうちは「1+1 に 12」のように明らかすぎるので出さない
+  if (sum >= 8) push(sum + 10, 3);
   push(sum + 3, 4);
   push(sum - 3, 4);
+  push(sum + 4, 5);
+  push(sum - 4, 5);
+
+  return pool;
+}
+
+/** 「7 + ? = 10」形式の誤答。たす数そのものを間違える形にする */
+function blankPool(a: number, b: number, sum: number): Distractor[] {
+  const pool: Distractor[] = [];
+  const push = (v: number, tier: number) => {
+    if (v > 0 && v !== b && !pool.some((d) => d.v === v)) pool.push({ v, tier });
+  };
+
+  push(b + 1, 1);
+  push(b - 1, 1);
+  push(sum, 2); // 「こたえ」のほうを書いてしまう（10 の合成でいちばん多い）
+  push(a, 2); // たされる数と取りちがえる
+  push(b + 2, 3);
+  push(b - 2, 3);
+  push(b + 3, 4);
+  push(b + 4, 5);
 
   return pool;
 }
@@ -56,33 +82,40 @@ function byTier(list: Distractor[]): number[] {
     .map((x) => x.d.v);
 }
 
-function buildChoices(sum: number, pool: Distractor[], count: number): number[] {
-  const above = byTier(pool.filter((d) => d.v > sum));
-  const below = byTier(pool.filter((d) => d.v < sum));
-  const picks: number[] = [];
+/**
+ * 選択肢を作る。
+ *
+ * ここは一度しくじっている。「いちばん大きいのが正解」を封じようとして
+ * 上下にひとつずつ置いたら、今度は正解がほぼ必ず「まんなかの大きさ」になり、
+ * 計算せずに中くらいのボタンを押すだけで 9割 当たるようになっていた。
+ *
+ * なので順位そのものを先に決める。正解が下から何番目になるかを毎回
+ * 一様ランダムに引き、その形になるように誤答を選ぶ。
+ */
+function buildChoices(answer: number, pool: Distractor[], count: number): number[] {
+  const above = byTier(pool.filter((d) => d.v > answer));
+  const below = byTier(pool.filter((d) => d.v < answer));
+  const need = count - 1;
 
-  // ふだんは上下に散らして「いちばん大きいのが正解」を封じる。
-  // ただし毎回そうすると今度は「いちばん大きいのは正解じゃない」を覚えてしまうので、
-  // ときどきは散らさずに選ぶ。
-  const roll = Math.random();
-  if (roll > 0.25) {
-    if (above.length) picks.push(above.shift() as number);
-    if (below.length && picks.length < count - 1) picks.push(below.shift() as number);
-  } else if (roll < 0.125 && below.length >= count - 1) {
-    picks.push(...below.splice(0, count - 1)); // 正解がいちばん大きい回
+  let wantBelow = Math.min(Math.floor(Math.random() * count), below.length, need);
+  let wantAbove = Math.min(need - wantBelow, above.length);
+  // 片側が足りなければ、もう片側で埋める
+  wantBelow = Math.min(need - wantAbove, below.length);
+
+  const picks = [...below.slice(0, wantBelow), ...above.slice(0, wantAbove)];
+
+  // それでも足りなければ候補全体から、最後は答えの近くの数で埋める
+  for (const v of byTier(pool)) {
+    if (picks.length >= need) break;
+    if (!picks.includes(v)) picks.push(v);
+  }
+  for (let pad = 1; picks.length < need; pad++) {
+    for (const v of [answer + pad, answer - pad]) {
+      if (picks.length < need && v > 0 && v !== answer && !picks.includes(v)) picks.push(v);
+    }
   }
 
-  const rest = byTier(pool.filter((d) => !picks.includes(d.v)));
-  while (picks.length < count - 1 && rest.length) picks.push(rest.shift() as number);
-  // 候補が尽きた場合の保険
-  let pad = 1;
-  while (picks.length < count - 1) {
-    const v = sum + pad;
-    if (!picks.includes(v) && v !== sum) picks.push(v);
-    pad++;
-  }
-
-  return [...picks, sum];
+  return [...picks, answer];
 }
 
 export class QuestionPicker {
@@ -92,10 +125,10 @@ export class QuestionPicker {
   /** 正解が同じ位置に並び続けないようにする */
   private lastSlots: number[] = [];
 
-  constructor(private pool: Fact[], private choiceCount: number) {}
+  constructor(private pool: Fact[], private choiceCount: number, private blank = false) {}
 
   private weight(f: Fact): number {
-    const s = factStat(factKey(f));
+    const s = peekFact(factKey(f));
     if (s.m <= 1) return 6; // まだ身についていない
     if (s.m <= 3) return 3; // 途中
     return 1; // 得意（気持ちよく走らせるためのごほうび問題）
@@ -128,8 +161,15 @@ export class QuestionPicker {
 
   next(): Question {
     const fact = this.pickFact();
-    const answer = fact.a + fact.b;
-    const choices = buildChoices(answer, distractorPool(fact.a, fact.b, answer), this.choiceCount);
+    const sum = fact.a + fact.b;
+    // 「10 の合成」は答えが必ず 10 なので、ふつうに出すと式を読まなくても当たる。
+    // たす数のほうを空欄にして、分解そのものを問う。
+    const answer = this.blank ? fact.b : sum;
+    const text = this.blank ? `${fact.a} + ? = ${sum}` : `${fact.a} + ${fact.b} = ?`;
+    const pool = this.blank
+      ? blankPool(fact.a, fact.b, sum)
+      : distractorPool(fact.a, fact.b, sum);
+    const choices = buildChoices(answer, pool, this.choiceCount);
 
     shuffle(choices);
     // 3回続けて同じ位置に正解が来たら、隣と入れ替える
@@ -146,7 +186,7 @@ export class QuestionPicker {
     if (this.recent.length > 3) this.recent.shift();
     this.asked++;
 
-    return { fact, answer, choices };
+    return { fact, answer, choices, text, blank: this.blank };
   }
 
   /** 間違えた式は 2問後と 5問後に戻す */
@@ -159,13 +199,20 @@ export class QuestionPicker {
 /** 習熟度 4 以上を「おぼえた」とみなす（図鑑のカードが光る境目） */
 export const MASTERED = 4;
 
-/** 正解／不正解を習熟度に反映する。戻り値は「いま初めておぼえた」かどうか */
+/**
+ * 正解／不正解を習熟度に反映する。戻り値は「いま初めておぼえた」かどうか。
+ *
+ * 速く答えたら +2 にしていたが、それだと 3択でまぐれ当たり2回でも
+ * 「おぼえた」になってしまい、図鑑も親向けの数字も当てにならなかった。
+ * 上げ幅は必ず +1 で、4回きれいに正解して初めて「おぼえた」。
+ * 速さは ms（平均解答時間）のほうにだけ反映する。
+ */
 export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
   const s = factStat(factKey(fact));
   const before = s.m;
   s.seen++;
   if (ok) {
-    s.m = Math.min(5, s.m + (ms <= 3000 ? 2 : 1));
+    s.m = Math.min(5, s.m + 1);
     s.ms = s.ms ? Math.round(s.ms * 0.7 + ms * 0.3) : ms;
   } else {
     s.m = Math.max(0, s.m - 2);
@@ -183,8 +230,9 @@ export function weakestFacts(pool: Fact[], n: number): Fact[] {
   const unseen: Fact[] = [];
 
   for (const f of pool) {
-    const s = factStat(factKey(f));
-    if (s.seen > 0) seen.push({ f, score: s.m * 10 - Math.min(s.miss, 5) });
+    const s = peekFact(factKey(f));
+    // 少しゆらぎを入れる。完全に決まっていると、毎日おなじ5問になる
+    if (s.seen > 0) seen.push({ f, score: s.m * 10 - Math.min(s.miss, 5) + Math.random() * 4 });
     else unseen.push(f);
   }
 

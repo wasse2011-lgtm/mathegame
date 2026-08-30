@@ -57,7 +57,24 @@ export interface SaveData {
   settings: Settings;
 }
 
-const KEY = 'tj.save.v1';
+/** 保存先のキー。ここを直接書かず、必ずこの定数を使う */
+export const SAVE_KEY = 'tj.save.v1';
+const KEY = SAVE_KEY;
+
+/**
+ * localStorage が使えるか。file:// で開いたときやプライベートモードでは書けないので、
+ * 「遊べるが記録が残らない」ことを画面で伝えるために持っておく。
+ */
+export const storageWorks = ((): boolean => {
+  try {
+    const probe = `${SAVE_KEY}.probe`;
+    localStorage.setItem(probe, '1');
+    localStorage.removeItem(probe);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 function freshProfile(): Profile {
   return {
@@ -166,18 +183,50 @@ function read(): SaveData {
 export const save: SaveData = read();
 
 let pending = 0;
+let frozen = false;
+
+/**
+ * 外からセーブを差し替えたあと、リロードするまで書き戻さないようにする。
+ * これがないと、読みこんだ直後のリロードで pagehide のフラッシュが走り、
+ * メモリ上の「古いほう」で上書きしてしまう。
+ */
+export function freezeSave(): void {
+  frozen = true;
+  if (pending) {
+    clearTimeout(pending);
+    pending = 0;
+  }
+}
+
+function write(): void {
+  if (frozen) return;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(save));
+  } catch {
+    /* 容量超過やプライベートモードでは黙って諦める */
+  }
+}
 
 /** 書き込みはまとめる。ステージ中に毎フレーム保存しないための遅延。 */
 export function persist(): void {
   if (pending) return;
   pending = window.setTimeout(() => {
     pending = 0;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(save));
-    } catch {
-      /* 容量超過やプライベートモードでは黙って諦める */
-    }
+    write();
   }, 120);
+}
+
+/**
+ * 遅延を待たずに今すぐ書く。
+ * iOS はアプリを裏に回した時点でタイマーを止めるので、これがないと
+ * 「クリアした直後にアプリを閉じた」ぶんが丸ごと消える。
+ */
+export function flushSave(): void {
+  if (pending) {
+    clearTimeout(pending);
+    pending = 0;
+  }
+  write();
 }
 
 export function profile(): Profile {
@@ -204,6 +253,18 @@ export function setStageStars(worldId: number, stage: number, stars: number): vo
   persist();
 }
 
+const EMPTY_FACT: Readonly<FactStat> = { m: 0, ms: 0, miss: 0, seen: 0 };
+
+/**
+ * 読むだけ。まだ出していない式のレコードを作らない。
+ * （出題のたびに全部の式を作ってしまうと、W6〜W8 では数百件のゼロだけの
+ *   レコードが保存され、「一度でも出した式かどうか」が分からなくなる）
+ */
+export function peekFact(key: string): Readonly<FactStat> {
+  return profile().facts[key] ?? EMPTY_FACT;
+}
+
+/** 書き込み用。ここで初めてレコードを作る */
 export function factStat(key: string): FactStat {
   const p = profile();
   let s = p.facts[key];

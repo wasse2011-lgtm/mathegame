@@ -90,7 +90,11 @@ export class Runner {
 
   // 問題状態
   private q: Question | null = null;
-  private askedAt = 0;
+  /**
+   * その問題が出てからの秒数。壁時計ではなくゲーム内時間で数えるので、
+   * ポーズや裏に回っていた時間は「考えていた時間」に入らない。
+   */
+  private qElapsed = 0;
   private wrongThisQ = false;
   private phase: Phase = 'ask';
   private hold = 0;
@@ -104,7 +108,7 @@ export class Runner {
   private char: CharState = { t: 0, air: false, hurt: 0, squash: 1 };
   private py = 0;
   private vy = 0;
-  private ob = { x: 0, v: 0, passed: false };
+  private ob = { x: 0, v: 0 };
   private particles: Particle[] = [];
   private shake = 0;
   private flash = 0;
@@ -142,7 +146,11 @@ export class Runner {
     this.stage = cfg.stage;
     this.boss = cfg.boss;
     this.total = cfg.total;
-    this.picker = new QuestionPicker(cfg.facts ?? cfg.world.facts, cfg.world.choices);
+    this.picker = new QuestionPicker(
+      cfg.facts ?? cfg.world.facts,
+      cfg.world.choices,
+      Boolean(cfg.world.blank),
+    );
     this.qIndex = 0;
     this.correct = 0;
     this.misses = 0;
@@ -183,8 +191,10 @@ export class Runner {
   }
 
   setPaused(p: boolean): void {
-    if (!this.running) return;
+    // running を見て早期 return すると、start() の直前に裏へ回ったときに
+    // 「ポーズ画面が出たまま裏で走り続ける」状態になる。状態は必ず持つ。
     this.paused = p;
+    if (!this.running) return;
     if (!p) {
       this.lastTs = 0;
       cancelAnimationFrame(this.raf);
@@ -197,6 +207,11 @@ export class Runner {
   private resize(): void {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) return;
+
+    // 障害物は「残り時間」そのものなので、画面が変わっても残りの割合を保つ。
+    // これがないと、横向きにしただけで期限が伸びたり、いきなり時間切れになる。
+    const oldSpan = this.spawnX() - this.playerX;
+    const oldLeft = this.ob.x - this.playerX;
 
     this.W = Math.round(rect.width);
     this.H = Math.round(rect.height);
@@ -216,6 +231,13 @@ export class Runner {
     const apex = 74 * this.s;
     this.gravity = (2 * apex) / (T_APEX * T_APEX);
     this.jumpV = -this.gravity * T_APEX;
+
+    const newSpan = this.spawnX() - this.playerX;
+    if (oldSpan > 1 && newSpan > 1 && this.ob.v > 0) {
+      const k = newSpan / oldSpan;
+      this.ob.x = this.playerX + oldLeft * k;
+      this.ob.v *= k;
+    }
   }
 
   private spawnX(): number {
@@ -244,7 +266,7 @@ export class Runner {
    */
   private showHint(): void {
     const q = this.q;
-    if (!q || this.hintShown) return;
+    if (!q || this.hintShown || q.blank) return;
     const c = cherry(q.fact);
     if (!c) return;
     this.hintShown = true;
@@ -260,7 +282,7 @@ export class Runner {
       circle(62, 60, 16, 'leaf need', String(c.need)) +
       circle(138, 60, 16, 'leaf', String(c.rest));
 
-    this.elHintText.textContent = `${q.fact.a} に ${c.need} を あげて 10！`;
+    this.elHintText.textContent = `${q.fact.a} に ${c.need} を あげて ${c.ten}！`;
     this.elHint.hidden = false;
     // レイアウトが縮むぶんは ResizeObserver が拾って canvas を測りなおす
   }
@@ -274,35 +296,36 @@ export class Runner {
     this.q = this.picker.next();
     this.wrongThisQ = false;
     this.phase = 'ask';
-    this.askedAt = performance.now();
+    this.qElapsed = 0;
     this.hideHint();
 
-    this.elQuestion.textContent = `${this.q.fact.a} + ${this.q.fact.b} = ?`;
+    this.elQuestion.textContent = this.q.text;
 
     this.elAnswers.replaceChildren();
-    this.buttons = this.q.choices.map((v, i) => {
+    this.buttons = this.q.choices.map((v) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'answer';
       b.textContent = String(v);
       b.setAttribute('aria-label', `こたえ ${v}`);
-      b.dataset.i = String(i);
       return b;
     });
     this.elAnswers.append(...this.buttons);
 
     const time = answerTimeFor(this.world, this.stage, save.settings.slow);
-    this.ob = { x: this.spawnX(), v: (this.spawnX() - this.playerX) / time, passed: false };
+    this.ob = { x: this.spawnX(), v: (this.spawnX() - this.playerX) / time };
   }
 
   private answer(i: number): void {
     const q = this.q;
     if (this.phase !== 'ask' || !q || this.paused) return;
+    // 前の問題の勢いで連打した指が、出たばかりのボタンを踏まないようにする
+    if (this.qElapsed < 0.3) return;
     const btn = this.buttons[i];
     if (!btn || btn.disabled) return;
 
     const value = q.choices[i];
-    const ms = performance.now() - this.askedAt;
+    const ms = this.qElapsed * 1000;
 
     if (value === q.answer) {
       const firstTry = !this.wrongThisQ;
@@ -374,7 +397,7 @@ export class Runner {
     if (!this.wrongThisQ) {
       this.wrongThisQ = true;
       this.misses++;
-      recordAnswer(q.fact, false, performance.now() - this.askedAt);
+      recordAnswer(q.fact, false, this.qElapsed * 1000);
       this.picker.markWrong(q.fact);
     }
     this.markPip(false);
@@ -489,9 +512,11 @@ export class Runner {
     this.scroll += Math.min(Math.max(this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
 
     if (this.phase === 'ask') {
-      // 障害物が 3分の2 まで来ても答えが出ていなければヒントを出す
+      this.qElapsed += dt;
+      // 障害物が半分まで来ても答えが出ていなければヒントを出す。
+      // 遅すぎると、読んで理解する時間が残らない。
       const gone = (this.spawnX() - this.ob.x) / (this.spawnX() - this.playerX);
-      if (gone > 0.66) this.showHint();
+      if (gone > 0.5) this.showHint();
       if (this.ob.x < this.playerX - 4 * this.s) this.timeout();
     }
 
