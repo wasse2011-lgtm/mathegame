@@ -1,6 +1,7 @@
 /** キャラと障害物の描画。画像は使わず、すべて Canvas で描く（読み込み待ちゼロ・拡大しても綺麗）。 */
 
 import type { SkinId } from './save';
+import type { ObstacleKind } from './theme';
 
 export interface SkinDef {
   id: SkinId;
@@ -275,56 +276,375 @@ export function drawChar(
   g.restore();
 }
 
+/**
+ * 障害物の顔。ぜんぶ共通でここが描く。
+ * 「こわい」より「ちょっといじわる」くらいに留める（こわいと遊ばなくなる）。
+ */
+function face(
+  g: CanvasRenderingContext2D,
+  cx: number,
+  ey: number,
+  spread: number,
+  size: number,
+  opts: { angry?: boolean; mouth?: number } = {},
+): void {
+  g.fillStyle = '#fff';
+  g.beginPath(); g.arc(cx - spread, ey, size * 0.1, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(cx + spread, ey, size * 0.1, 0, Math.PI * 2); g.fill();
+  g.fillStyle = INK;
+  g.beginPath(); g.arc(cx - spread + size * 0.01, ey + size * 0.015, size * 0.05, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(cx + spread + size * 0.01, ey + size * 0.015, size * 0.05, 0, Math.PI * 2); g.fill();
+
+  g.strokeStyle = INK;
+  g.lineWidth = Math.max(2, size * 0.05);
+  g.lineCap = 'round';
+  if (opts.angry) {
+    g.beginPath();
+    g.moveTo(cx - spread - size * 0.11, ey - size * 0.19);
+    g.lineTo(cx - spread + size * 0.08, ey - size * 0.1);
+    g.moveTo(cx + spread + size * 0.11, ey - size * 0.19);
+    g.lineTo(cx + spread - size * 0.08, ey - size * 0.1);
+    g.stroke();
+  }
+  const my = ey + (opts.mouth ?? size * 0.26);
+  g.beginPath();
+  g.moveTo(cx - size * 0.14, my);
+  g.lineTo(cx + size * 0.14, my);
+  g.stroke();
+}
+
+/**
+ * 障害物。
+ *
+ * 同じ岩ばかりだと、3ステージで景色ごと飽きる。ワールドごとに出る種類を変え、
+ * さらに 1問ごとに引き直す（theme.ts の obstacles）。動きも種類ごとに変えて、
+ * 遠くから来る時点で「お、ちがうやつだ」と分かるようにする。
+ *
+ * どれも当たり判定は同じ（正解した瞬間に足元を通り抜ける）。見た目だけの違い。
+ */
 export function drawObstacle(
   g: CanvasRenderingContext2D,
   cx: number,
   footY: number,
   size: number,
-  boss: boolean,
+  kind: ObstacleKind,
+  t: number,
 ): void {
-  const w = size * (boss ? 1.5 : 0.86);
-  const h = size * (boss ? 1.55 : 0.92);
-  const x = cx - w / 2;
-  const y = footY - h;
+  switch (kind) {
+    case 'boss': {
+      const w = size * 1.5;
+      const h = size * 1.55 * (1 + Math.sin(t * 6) * 0.03);
+      const x = cx - w / 2;
+      const y = footY - h;
+      g.fillStyle = '#6b4a7a';
+      g.beginPath();
+      g.moveTo(x + w * 0.1, y + h * 0.16);
+      g.lineTo(x - w * 0.08, y - h * 0.14);
+      g.lineTo(x + w * 0.34, y + h * 0.04);
+      g.closePath();
+      g.fill();
+      g.beginPath();
+      g.moveTo(x + w * 0.9, y + h * 0.16);
+      g.lineTo(x + w * 1.08, y - h * 0.14);
+      g.lineTo(x + w * 0.66, y + h * 0.04);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#8a5fa0';
+      roundRect(g, x, y, w, h, size * 0.2);
+      g.fill();
+      g.fillStyle = 'rgba(0,0,0,.16)';
+      roundRect(g, x, y + h * 0.62, w, h * 0.38, size * 0.2);
+      g.fill();
+      face(g, cx, y + h * 0.38, w * 0.18, size, { angry: true, mouth: h * 0.28 });
+      break;
+    }
 
-  if (boss) {
-    g.fillStyle = '#6b4a7a';
-    g.beginPath();
-    g.moveTo(x + w * 0.1, y + h * 0.16);
-    g.lineTo(x - w * 0.08, y - h * 0.14);
-    g.lineTo(x + w * 0.34, y + h * 0.04);
-    g.closePath();
-    g.fill();
-    g.beginPath();
-    g.moveTo(x + w * 0.9, y + h * 0.16);
-    g.lineTo(x + w * 1.08, y - h * 0.14);
-    g.lineTo(x + w * 0.66, y + h * 0.04);
-    g.closePath();
-    g.fill();
+    case 'slime': {
+      // ぷるぷる。つぶれるほど横に広がる（体積が変わらないように見せる）
+      const k = 1 + Math.sin(t * 7) * 0.14;
+      const h = size * 0.82 * k;
+      const w = size * 0.94 / k;
+      const x = cx - w / 2;
+      const y = footY - h;
+      g.fillStyle = '#5fc9b4';
+      g.beginPath();
+      g.moveTo(x, footY);
+      g.bezierCurveTo(x - w * 0.06, y + h * 0.1, x + w * 0.2, y - h * 0.14, cx, y - h * 0.14);
+      g.bezierCurveTo(x + w * 0.8, y - h * 0.14, x + w * 1.06, y + h * 0.1, x + w, footY);
+      g.closePath();
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.55)';
+      g.beginPath();
+      g.ellipse(cx - w * 0.2, y + h * 0.22, w * 0.12, h * 0.09, -0.5, 0, Math.PI * 2);
+      g.fill();
+      face(g, cx, y + h * 0.42, w * 0.19, size, { mouth: size * 0.2 });
+      break;
+    }
+
+    case 'bird': {
+      // 空を飛ぶ。ジャンプの頂点よりは低いところを通る
+      const fly = footY - size * 0.95 + Math.sin(t * 3) * size * 0.12;
+      const flap = Math.sin(t * 14);
+      const r = size * 0.32;
+      g.fillStyle = '#6ab0e8';
+      g.beginPath();
+      g.moveTo(cx - r * 0.2, fly);
+      g.quadraticCurveTo(cx - r * 1.9, fly - flap * r * 1.1, cx - r * 1.4, fly + r * 0.5);
+      g.closePath();
+      g.fill();
+      g.beginPath();
+      g.moveTo(cx + r * 0.2, fly);
+      g.quadraticCurveTo(cx + r * 1.9, fly - flap * r * 1.1, cx + r * 1.4, fly + r * 0.5);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#8ac5f2';
+      g.beginPath();
+      g.ellipse(cx, fly, r, r * 0.86, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#ffb43c';
+      g.beginPath();
+      g.moveTo(cx - r * 0.85, fly + r * 0.1);
+      g.lineTo(cx - r * 1.35, fly + r * 0.3);
+      g.lineTo(cx - r * 0.85, fly + r * 0.42);
+      g.closePath();
+      g.fill();
+      face(g, cx - r * 0.1, fly - r * 0.14, r * 0.34, size * 0.72, { mouth: size * 0.24 });
+      break;
+    }
+
+    case 'ghost': {
+      const fly = footY - size * 0.5 + Math.sin(t * 2.4) * size * 0.14;
+      const w = size * 0.86;
+      const h = size * 0.98;
+      const x = cx - w / 2;
+      const y = fly - h;
+      g.globalAlpha = 0.9;
+      g.fillStyle = '#eef2ff';
+      g.beginPath();
+      g.moveTo(x, fly);
+      g.lineTo(x, y + w * 0.5);
+      g.arc(cx, y + w * 0.5, w * 0.5, Math.PI, 0);
+      g.lineTo(x + w, fly);
+      // すそのぎざぎざ。ゆらゆら動かす
+      for (let i = 3; i >= 0; i--) {
+        const bx = x + (w / 4) * i;
+        g.quadraticCurveTo(bx + w * 0.125, fly - size * 0.14 + Math.sin(t * 5 + i) * size * 0.03, bx, fly);
+      }
+      g.closePath();
+      g.fill();
+      g.globalAlpha = 1;
+      face(g, cx, y + h * 0.42, w * 0.2, size, { mouth: size * 0.24 });
+      break;
+    }
+
+    case 'mushroom': {
+      const h = size * 1.0;
+      const capR = size * 0.52;
+      const y = footY - h;
+      g.fillStyle = '#f6ead2';
+      roundRect(g, cx - size * 0.2, y + capR * 0.55, size * 0.4, h - capR * 0.55, size * 0.1);
+      g.fill();
+      g.fillStyle = '#e4636f';
+      g.beginPath();
+      g.arc(cx, y + capR * 0.62, capR, Math.PI, 0);
+      g.closePath();
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      g.beginPath();
+      g.arc(cx - capR * 0.44, y + capR * 0.3, capR * 0.16, 0, Math.PI * 2);
+      g.arc(cx + capR * 0.36, y + capR * 0.22, capR * 0.13, 0, Math.PI * 2);
+      g.arc(cx + capR * 0.02, y + capR * 0.02, capR * 0.1, 0, Math.PI * 2);
+      g.fill();
+      face(g, cx, y + h * 0.78, size * 0.13, size * 0.8, { mouth: size * 0.18 });
+      break;
+    }
+
+    case 'snowman': {
+      const bob = Math.sin(t * 4) * size * 0.03;
+      const r = size * 0.34;
+      const by = footY - r + bob;
+      g.fillStyle = '#fbfdff';
+      g.beginPath(); g.arc(cx, by, r, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(cx, by - r * 1.5, r * 0.7, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#8b5e3c';
+      g.lineWidth = Math.max(2, size * 0.05);
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(cx - r * 0.9, by - r * 0.2); g.lineTo(cx - r * 1.6, by - r * 0.7);
+      g.moveTo(cx + r * 0.9, by - r * 0.2); g.lineTo(cx + r * 1.6, by - r * 0.7);
+      g.stroke();
+      g.fillStyle = '#e4675c';
+      g.beginPath();
+      g.moveTo(cx, by - r * 1.5);
+      g.lineTo(cx + r * 0.8, by - r * 1.4);
+      g.lineTo(cx, by - r * 1.3);
+      g.closePath();
+      g.fill();
+      face(g, cx, by - r * 1.7, r * 0.3, size * 0.7, { mouth: size * 0.2 });
+      break;
+    }
+
+    case 'crystal': {
+      const h = size * 1.05;
+      const w = size * 0.62;
+      const y = footY - h;
+      const glow = 0.35 + 0.25 * Math.sin(t * 4);
+      g.fillStyle = `rgba(150,220,255,${glow})`;
+      g.beginPath();
+      g.arc(cx, footY - h * 0.5, w * 1.1, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#8fd8f5';
+      g.beginPath();
+      g.moveTo(cx, y);
+      g.lineTo(cx + w / 2, y + h * 0.34);
+      g.lineTo(cx + w * 0.32, footY);
+      g.lineTo(cx - w * 0.32, footY);
+      g.lineTo(cx - w / 2, y + h * 0.34);
+      g.closePath();
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.5)';
+      g.beginPath();
+      g.moveTo(cx, y);
+      g.lineTo(cx - w / 2, y + h * 0.34);
+      g.lineTo(cx - w * 0.32, footY);
+      g.lineTo(cx - w * 0.06, footY);
+      g.closePath();
+      g.fill();
+      face(g, cx, footY - h * 0.44, w * 0.24, size * 0.8, { mouth: size * 0.2 });
+      break;
+    }
+
+    case 'crab': {
+      const step = Math.sin(t * 9);
+      const w = size * 1.0;
+      const h = size * 0.56;
+      const y = footY - h - Math.abs(step) * size * 0.05;
+      g.strokeStyle = '#c9483c';
+      g.lineWidth = Math.max(2, size * 0.06);
+      g.lineCap = 'round';
+      for (let i = -1; i <= 1; i += 2) {
+        for (let l = 0; l < 3; l++) {
+          const lx = cx + i * (w * 0.16 + l * w * 0.13);
+          g.beginPath();
+          g.moveTo(lx, y + h * 0.7);
+          g.lineTo(lx + i * w * 0.1, footY + (l % 2 ? step : -step) * size * 0.05);
+          g.stroke();
+        }
+      }
+      g.fillStyle = '#e4675c';
+      g.beginPath();
+      g.ellipse(cx, y + h * 0.5, w * 0.5, h * 0.55, 0, 0, Math.PI * 2);
+      g.fill();
+      for (let i = -1; i <= 1; i += 2) {
+        g.beginPath();
+        g.ellipse(cx + i * w * 0.56, y + h * 0.12 - step * size * 0.06, w * 0.15, h * 0.34, i * 0.5, 0, Math.PI * 2);
+        g.fill();
+      }
+      face(g, cx, y + h * 0.34, w * 0.19, size * 0.82, { angry: true, mouth: size * 0.2 });
+      break;
+    }
+
+    case 'log': {
+      // ころころ転がる。年輪が回るので、止まっていないのが分かる
+      const r = size * 0.42;
+      const cy = footY - r;
+      g.save();
+      g.translate(cx, cy);
+      g.fillStyle = '#a9744a';
+      roundRect(g, -size * 0.5, -r, size, r * 2, r * 0.35);
+      g.fill();
+      g.rotate(-t * 5);
+      g.fillStyle = '#c9955f';
+      g.beginPath(); g.arc(0, 0, r * 0.9, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#8b5e3c';
+      g.lineWidth = Math.max(1.5, size * 0.035);
+      for (let i = 1; i <= 2; i++) {
+        g.beginPath();
+        g.arc(0, 0, r * 0.28 * i, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.restore();
+      face(g, cx, cy - r * 0.1, r * 0.42, size * 0.62, { mouth: size * 0.16 });
+      break;
+    }
+
+    case 'bush': {
+      const h = size * 0.78;
+      const y = footY - h;
+      g.fillStyle = '#4f9b52';
+      g.beginPath();
+      g.arc(cx - h * 0.36, footY - h * 0.32, h * 0.36, 0, Math.PI * 2);
+      g.arc(cx + h * 0.36, footY - h * 0.32, h * 0.36, 0, Math.PI * 2);
+      g.arc(cx, y + h * 0.34, h * 0.44, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#66b55f';
+      g.beginPath();
+      g.arc(cx - h * 0.1, y + h * 0.3, h * 0.24, 0, Math.PI * 2);
+      g.fill();
+      face(g, cx, y + h * 0.44, h * 0.22, size * 0.8, { mouth: size * 0.18 });
+      break;
+    }
+
+    case 'cone': {
+      const h = size * 0.92;
+      const y = footY - h;
+      g.fillStyle = '#5b6672';
+      roundRect(g, cx - size * 0.42, footY - size * 0.1, size * 0.84, size * 0.1, size * 0.04);
+      g.fill();
+      g.fillStyle = '#f08a3c';
+      g.beginPath();
+      g.moveTo(cx, y);
+      g.lineTo(cx + size * 0.34, footY - size * 0.08);
+      g.lineTo(cx - size * 0.34, footY - size * 0.08);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.moveTo(cx - size * 0.19, footY - size * 0.42);
+      g.lineTo(cx + size * 0.19, footY - size * 0.42);
+      g.lineTo(cx + size * 0.23, footY - size * 0.28);
+      g.lineTo(cx - size * 0.23, footY - size * 0.28);
+      g.closePath();
+      g.fill();
+      face(g, cx, footY - size * 0.55, size * 0.11, size * 0.66, { mouth: size * 0.14 });
+      break;
+    }
+
+    case 'box': {
+      const w = size * 0.82;
+      const h = size * 0.82;
+      const x = cx - w / 2;
+      const y = footY - h;
+      g.fillStyle = '#c99a68';
+      roundRect(g, x, y, w, h, size * 0.08);
+      g.fill();
+      g.strokeStyle = '#a87b4c';
+      g.lineWidth = Math.max(2, size * 0.06);
+      g.beginPath();
+      g.moveTo(x, y); g.lineTo(x + w, y + h);
+      g.moveTo(x + w, y); g.lineTo(x, y + h);
+      g.stroke();
+      g.strokeRect(x + size * 0.03, y + size * 0.03, w - size * 0.06, h - size * 0.06);
+      face(g, cx, y + h * 0.36, w * 0.2, size * 0.86, { mouth: size * 0.22 });
+      break;
+    }
+
+    case 'rock':
+    default: {
+      const w = size * 0.86;
+      const h = size * 0.92;
+      const x = cx - w / 2;
+      const y = footY - h;
+      g.fillStyle = '#7d8b97';
+      roundRect(g, x, y, w, h, size * 0.2);
+      g.fill();
+      g.fillStyle = 'rgba(0,0,0,.12)';
+      roundRect(g, x, y + h * 0.62, w, h * 0.38, size * 0.2);
+      g.fill();
+      face(g, cx, y + h * 0.38, w * 0.18, size, { mouth: h * 0.28 });
+      break;
+    }
   }
-
-  g.fillStyle = boss ? '#8a5fa0' : '#7d8b97';
-  roundRect(g, x, y, w, h, size * 0.2);
-  g.fill();
-  g.fillStyle = boss ? 'rgba(0,0,0,.16)' : 'rgba(0,0,0,.12)';
-  roundRect(g, x, y + h * 0.62, w, h * 0.38, size * 0.2);
-  g.fill();
-
-  // ちょっと怒った顔（こわすぎない程度に）
-  g.fillStyle = '#fff';
-  const ey = y + h * 0.38;
-  g.beginPath(); g.arc(x + w * 0.32, ey, size * 0.1, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(x + w * 0.68, ey, size * 0.1, 0, Math.PI * 2); g.fill();
-  g.fillStyle = INK;
-  g.beginPath(); g.arc(x + w * 0.33, ey + size * 0.015, size * 0.05, 0, Math.PI * 2); g.fill();
-  g.beginPath(); g.arc(x + w * 0.69, ey + size * 0.015, size * 0.05, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = INK;
-  g.lineWidth = Math.max(2, size * 0.05);
-  g.lineCap = 'round';
-  g.beginPath();
-  g.moveTo(x + w * 0.36, y + h * 0.66);
-  g.lineTo(x + w * 0.64, y + h * 0.66);
-  g.stroke();
 }
 
 /** キャラ選択・きせかえのアイコン用 */

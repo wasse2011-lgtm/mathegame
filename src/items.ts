@@ -17,7 +17,8 @@ export interface Item {
   free?: boolean;
 }
 
-export const EGG_COST = 30;
+/** たまご1個の値段。1ステージぶんのコイン（30〜60枚）で必ず1個は割れる */
+export const EGG_COST = 90;
 
 export const ITEMS: Item[] = [
   { id: 'cat', kind: 'skin', label: 'ねこ', free: true },
