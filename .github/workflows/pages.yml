@@ -37,17 +37,11 @@ jobs:
       - run: npm run verify
       - run: npm run build
 
-      # Pages の配信元が「ブランチ」のままだと、ビルドしていないソースがそのまま
-      # 公開されて動かない（index.html が /src/main.ts を読みにいくため）。
-      # この workflow からの配信に切り替える。すでに切り替わっていれば何も変わらない。
-      # configure-pages の enablement では直らない（未設定のときに作るだけで、
-      # すでにある設定の build_type は変えない）
-      - name: Serve Pages from this workflow
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api --method PUT "repos/${{ github.repository }}/pages" -f build_type=workflow
-
+      # 配信元（Settings → Pages → Source）は、この workflow からは変えられない。
+      # PUT /repos/{owner}/{repo}/pages は GITHUB_TOKEN に pages:write を与えても
+      # 403 Resource not accessible by integration になる。
+      # configure-pages の enablement でも直らない（未設定のときに作るだけで、
+      # すでにある設定は変えない）。人が一度だけ手で設定する必要がある。
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

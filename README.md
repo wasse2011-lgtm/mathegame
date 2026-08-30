@@ -117,11 +117,41 @@ npm run dev
 
 > Pages で公開したページは誰でも見られる状態になります。
 
-配信元は workflow の中で `GitHub Actions` に切り替えています。ここが `Deploy from
-a branch` のままだと、ビルドしていないソースがそのまま公開されて動きません
-（`index.html` が TypeScript の `/src/main.ts` を読みにいくため）。
-権限の都合でこの切り替えに失敗した場合は、**Settings → Pages → Source** を
-`GitHub Actions` にしてから流し直してください。
+### 最初に一度だけ必要な設定
+
+**Settings → Pages → Source を `GitHub Actions` にしてください。** これは人が
+手でやるしかありません。workflow から変えることはできず、`GITHUB_TOKEN` に
+`pages:write` を与えても `PUT /repos/{owner}/{repo}/pages` は
+`403 Resource not accessible by integration` になります
+（`configure-pages` の `enablement` でも直りません。未設定のときに作るだけで、
+すでにある設定は変えないため）。
+
+ここが `Deploy from a branch` のままだと、**Actions のデプロイが成功しても
+配信には反映されません**。ブランチ側のビルドが生き続け、ビルドしていない
+ソースが公開されます。Actions が緑なのにページが直らない、という形になるので
+気づきにくい。`Settings → Pages` の表示が `GitHub Actions` になっているか、
+実際に配信されている HTML に `assets/index-` が入っているかで確かめられます。
+
+### 配信でハマるところ
+
+このリポジトリは Vite でビルドしてから配る必要があります。`index.html` が
+TypeScript の `/src/main.ts` を読みにいくので、**ビルドを挟まない配信経路に
+乗ると必ず失敗します**。ブラウザは `.ts` を JavaScript として実行しません。
+
+ビルドを挟まない経路は 2つあり、どちらも「真っ白／動かない」になります。
+
+| やってはいけないこと | 何が起きるか |
+| --- | --- |
+| **Settings → Pages → Source をブランチにする** | リポジトリ直下がそのまま配信される。`dist/` は Git に入っていないので、配られるのはソースそのもの |
+| **Jekyll のワークフローを足す** | `actions/jekyll-build-pages` はリポジトリ直下を配る。上と同じ結果になる |
+
+とくに 2つめは、GitHub の Pages 設定画面が Jekyll のワークフローを勧めてくるため
+入りこみやすい。`pages.yml` と両方あると、**同じ push で 2つとも走って先着順で
+上書きし合う**（どちらも concurrency group が `pages`、`cancel-in-progress: false`
+なので、片方が待ってから後勝ちになる）。成功したり失敗したりする、いちばん
+分かりにくい壊れかたをします。
+
+**Pages に配信するワークフローは `pages.yml` ひとつだけにしてください。**
 
 ## PWA について
 
