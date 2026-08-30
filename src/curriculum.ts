@@ -120,6 +120,26 @@ export const WORLDS: World[] = [
   },
 ];
 
+/**
+ * デイリーチャレンジ（きょうの 5もん）専用のワールド。
+ *
+ * 式は weakestFacts() が解放済みの全ワールドから苦手な順に選ぶので facts は空でよい。
+ * ここでワールドを借りると choices と blank まで借りてしまい、W3（10 のとびら）まで
+ * 進んだ子のデイリーが、W1 の式まで「2 + ? = 5」の穴埋めに化ける。穴埋めは
+ * たし算ではなく 10 の分解を問う別のスキルなので、復習のつもりが未習の形式になる。
+ *
+ * 選択肢は 3。デイリーは苦手な式ばかりが並ぶので、当てにくさより「毎日ひらく」を優先する。
+ */
+export const DAILY_WORLD: World = {
+  id: 0,
+  name: 'きょうの 5もん',
+  desc: 'にがてな しきを 5もん',
+  answerTime: 7.0,
+  choices: 3,
+  stages: 1,
+  facts: [],
+};
+
 export interface Cherry {
   /** きりのいい数にするために足す数 */
   need: number;

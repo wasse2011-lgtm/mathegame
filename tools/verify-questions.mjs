@@ -41,44 +41,69 @@ const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
 let failed = 0;
 
+/**
+ * 「毎回おなじ順位のボタンを押す」だけで取れてよい正答率の上限。
+ * ふつうは 1/選択肢数 に 3pt の余裕。ただし 2つのワールドは形式そのものに下限がある。
+ *
+ * どちらも原因は同じで、「正解の下に置ける正の整数が足りない」:
+ *
+ *   W1  1 + 1 = 2  → 2 より小さい正の整数は 1 だけ。正解が3番目になれない。
+ *                    10 通り中 1 通りなので 下限 (2/3 + 9/3) / 10 = 36.7%
+ *   W3  9 + ? = 10 → 答えが 1。1 より小さい正の整数が無く、必ず最小になる。
+ *                     9 通り中 1 通りなので 下限 (1 + 8/3) / 9 = 40.7%
+ *
+ * どちらもロジックの偏りではないので、誤答候補を足しても直らない。0 を選択肢に
+ * 許せば消えるが、それは「9 + 0 = 10」を子どもに見せるかどうかの判断になる
+ * （src/questions.ts の blankPool のコメント参照）。
+ */
+const STRATEGY_LIMIT = { 1: 0.375, 3: 0.42 };
+const strategyLimit = (w) => STRATEGY_LIMIT[w.id] ?? 1 / w.choices + 0.03;
+
 console.log('A) 正解の順位（下から）と、計算しない戦略の正答率');
-console.log('   ワールド  選択肢 |  順位のばらつき             | まんなか | 期待値');
+console.log('   ワールド  選択肢 |  順位のばらつき             | 通る手 | 上限');
+const bestRate = new Map();
 for (const w of WORLDS) {
   const picker = new QuestionPicker(w.facts, w.choices, Boolean(w.blank));
   const rank = new Array(w.choices).fill(0);
-  let mid = 0;
   for (let i = 0; i < N; i++) {
     const q = picker.next();
     const r = [...q.choices].sort((a, b) => a - b).indexOf(q.answer);
     rank[r]++;
-    if (w.choices === 3 ? r === 1 : r === 1 || r === 2) mid += w.choices === 3 ? 1 : 0.5;
   }
-  const worst = Math.max(...rank.map((n) => Math.abs(n / N - 1 / w.choices)));
-  const ok = worst < 0.09;
+  // 位置だけで当てにいく手のうち、いちばん通るものの正答率
+  const best = Math.max(...rank) / N;
+  bestRate.set(w.id, best);
+  const limit = strategyLimit(w);
+  const ok = best <= limit;
   if (!ok) failed++;
   console.log(
     `   W${w.id}${w.blank ? '*' : ' '}          ${w.choices}  | ` +
       rank.map((n) => pct(n).padStart(7)).join('') +
       (w.choices === 3 ? '       ' : '') +
-      ` |  ${pct(mid).padStart(6)} | ${pct(N / w.choices)}  ${ok ? '' : '← 偏っている'}`,
+      ` | ${`${(best * 100).toFixed(1)}%`.padStart(6)} | ${(limit * 100).toFixed(1)}%  ${ok ? '' : '← 偏っている'}`,
   );
 }
 
-console.log('\nB) 当てずっぽうだけで「おぼえた」に届く割合（低いほどよい）');
+// A) で測った「いちばん通る手」の正答率をそのまま使う。1/選択肢数 を決め打ちすると、
+// W3 のように位置で 40.8% 取れるワールドを甘く見積もる。
+console.log('\nB) 計算しない子が「おぼえた」に届く割合（低いほどよい）');
 for (const w of WORLDS) {
-  if (w.id !== 1 && w.id !== 5) continue;
+  const p = bestRate.get(w.id);
   const trials = 20000;
   let mastered = 0;
   for (let t = 0; t < trials; t++) {
     let m = 0;
     for (let i = 0; i < 20; i++) {
-      m = Math.random() < 1 / w.choices ? Math.min(5, m + 1) : Math.max(0, m - 2);
+      m = Math.random() < p ? Math.min(5, m + 1) : Math.max(0, m - 2);
     }
     if (m >= MASTERED) mastered++;
   }
   const ok = mastered / trials < 0.05;
   if (!ok) failed++;
-  console.log(`   W${w.id}（${w.choices}択）20回出会って: ${pct(mastered, trials)}  ${ok ? '' : '← 甘すぎる'}`);
+  console.log(
+    `   W${w.id}（${w.choices}択・正答率 ${(p * 100).toFixed(1)}%）20回出会って: ` +
+      `${pct(mastered, trials)}  ${ok ? '' : '← 甘すぎる'}`,
+  );
 }
 
 console.log('\nC) 選択肢の健全性（各ワールド 20000 問）');

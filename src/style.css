@@ -147,8 +147,16 @@ body {
   border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
   min-height: 48px;
 }
+/* きせかえ／ずかん／せってい は芝生（--grass）の上に乗る。
+   透明のままだと文字色 --ink-2 とのコントラストが足りないので、白を敷く。 */
 .title-sub { display: flex; gap: .4rem; }
 .title-sub[hidden] { display: none; }
+.title-sub .btn-ghost {
+  background: rgba(255,255,255,.88);
+  border-color: rgba(255,255,255,.88);
+  color: var(--ink);
+  padding: 0 .9rem;
+}
 
 /* ホームの草の上に、いま着せているキャラが立っている */
 #home-char { display: block; width: 120px; height: 120px; margin: -.4rem auto 0; }
@@ -245,7 +253,9 @@ body {
 }
 .hud { display: flex; align-items: center; gap: .55rem; padding: 0 .2rem; flex: 0 0 auto; }
 .hud-stage { margin: 0; font-weight: 700; font-size: 1rem; color: var(--ink-2); }
-.pips { flex: 1; display: flex; gap: 3px; align-items: center; }
+/* min-width:0 が無いと、コンボ表示が出たときにピップ列が縮まず、
+   ステージ名・コンボ・コイン数が右端まで詰まって溢れる */
+.pips { flex: 1 1 auto; min-width: 0; overflow: hidden; display: flex; gap: 3px; align-items: center; }
 .pip { flex: 1; max-width: 16px; height: 8px; border-radius: 99px; background: rgba(255,255,255,.75); }
 .pip.done { background: var(--good); }
 .pip.miss { background: var(--bad); }

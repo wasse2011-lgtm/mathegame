@@ -2,6 +2,7 @@ import './style.css';
 
 import { sfx, unlockAudio } from './audio';
 import {
+  DAILY_WORLD,
   WORLDS,
   answerTimeFor,
   bossRequirement,
@@ -220,7 +221,9 @@ function renderTitle(): void {
 $('btn-start').addEventListener('click', () => {
   const p = profile();
   if (!p.name) {
-    p.name = ($<HTMLInputElement>('name-input').value || 'きみ').trim().slice(0, 6);
+    // trim してから既定値に落とす。先に || を書くと、空白だけの入力が
+    // truthy なので 'きみ' に落ちず、名前が空のままマップへ進んでしまう。
+    p.name = $<HTMLInputElement>('name-input').value.trim().slice(0, 6) || 'きみ';
     persist();
     renderTitle(); // 戻ってきたときのホームを先に作っておく
   }
@@ -258,10 +261,9 @@ $('daily-card').addEventListener('click', () => {
   unlockAudio();
   sfx.tap();
   refreshDaily(profile()); // 日付をまたいだまま開きっぱなしのことがある
-  const w = worldById(lastPlayedWorld());
   const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => x.facts);
   startRun({
-    world: w,
+    world: DAILY_WORLD,
     stage: 0,
     total: 5,
     boss: false,
