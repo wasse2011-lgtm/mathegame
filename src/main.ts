@@ -350,7 +350,9 @@ syncSettings();
 renderTitle();
 show('title');
 
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+// 埋め込み表示（iframe やビューアの中）では sw.js を置いていないので登録しない
+const embedded = window.top !== window.self;
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !embedded) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(new URL('./sw.js', document.baseURI).href).catch(() => undefined);
   });

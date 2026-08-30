@@ -33,25 +33,48 @@ iPhone / iPad の Safari で動く PWA として作っています。App Store �
 - **間違えた式は必ず戻ってくる** — 2問後と5問後に再出題。式ごとに習熟度を持ち、未習得の式を優先して出す
 - **時間切れは答えを見せてから進む** — ここで正解を教えるのが一番効く
 
+## iPhone / iPad で試す
+
+### 1. 単一ファイルを送る（いちばん手軽）
+
+```bash
+npm install
+npm run build:single      # dist/tashizan-jump.html （約 50KB の1枚）
+```
+
+できた `tashizan-jump.html` を AirDrop かメールで iPhone に送り、Safari で開けば
+そのまま遊べます。サーバーもネットも不要です。
+（この形ではホーム画面追加とオフラインキャッシュは使えません）
+
+### 2. 同じ Wi-Fi の PC から配信する（開発中はこれ）
+
+```bash
+npm run dev
+```
+
+ターミナルに出る `Network: http://192.168.x.x:5173/` を iPhone の Safari で開きます。
+コードを直すとその場で反映されるので、子どもの反応を見ながら調整できます。
+
+### 3. GitHub Pages に置く（ホーム画面に入れるならこれ）
+
+1. リポジトリの **Settings → Pages → Source** を `GitHub Actions` にする
+2. `main` に push すると `.github/workflows/pages.yml` が動いて配信される
+3. iPhone の Safari で開く → 共有ボタン → **ホーム画面に追加**
+
+追加したアイコンから起動すると、アドレスバーのない全画面になります。
+Service Worker が入っているので、一度開けば電波がなくても遊べます。
+
+> Pages で公開したページは誰でも見られる状態になります。
+
 ## 開発
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173
-npm run build      # 型チェック + dist/ に出力
-npm run preview    # ビルド結果を確認
+npm run dev           # http://localhost:5173
+npm run build         # 型チェック + dist/ に出力
+npm run build:single  # dist/tashizan-jump.html（1枚にまとめる）
+npm run preview       # ビルド結果を確認
 ```
-
-実機で試すときは `npm run dev` のあと、同じ Wi-Fi の iPad から
-`http://<PCのIPアドレス>:5173` を開きます。
-
-### iPad / iPhone のホーム画面に入れる
-
-1. `npm run build` して `dist/` を任意の HTTPS ホスティング（GitHub Pages など）に置く
-2. Safari で開く → 共有ボタン → **ホーム画面に追加**
-3. 追加したアイコンから起動すると、アドレスバーのない全画面になります
-
-Service Worker が入っているので、一度開けば電波がなくても遊べます。
 
 ## ファイル構成
 
@@ -68,7 +91,9 @@ src/
   style.css           見た目と iOS 向けの調整
 public/
   manifest.webmanifest, sw.js, icons/
-tools/make-icons.mjs  アイコンの生成（絵を変えたいときだけ実行）
+tools/make-icons.mjs   アイコンの生成（絵を変えたいときだけ実行）
+tools/build-single.mjs dist/ を 1枚の HTML にまとめる
+.github/workflows/pages.yml  GitHub Pages への配信
 ```
 
 ### iOS 向けにやってあること
