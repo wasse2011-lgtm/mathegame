@@ -5,7 +5,8 @@
  *  ・ジャンプのタイミング判定はしない。正解した瞬間に障害物のほうが加速して
  *    足元を通り抜ける。腕前ではなく計算だけで越えられるようにするため。
  *  ・タイマーは出さない。近づいてくる障害物そのものが残り時間。
- *  ・ぶつかってもゲームオーバーにしない。コインを1枚落として先へ進む。
+ *  ・ぶつかってもゲームオーバーにしない。コインを数枚落として先へ進む。
+ *  ・景色と障害物はステージごとに変える（theme.ts）。同じ絵が続くと飽きる。
  */
 
 import { sfx } from './audio';
@@ -13,8 +14,13 @@ import { answerTimeFor, cherry, factKey, type Fact, type World } from './curricu
 import { drawPet } from './petart';
 import { activePet, petPower, type PetDef } from './pets';
 import { QuestionPicker, recordAnswer, type Question } from './questions';
+import {
+  COIN_COMBO, COIN_CORRECT, COIN_MISS, COIN_PERFECT, gainTotal, type CoinGain,
+} from './rewards';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
-import { currentLook, drawChar, drawObstacle, roundRect, type CharState } from './sprites';
+import { drawScene, drawWeather, type SceneView } from './scenery';
+import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
+import { themeFor, type ObstacleKind, type Theme } from './theme';
 
 /** 1回の走りの設定。通常ステージもボスもデイリーもこれで表す */
 export interface RunConfig {
@@ -36,12 +42,17 @@ export interface StageResult {
   stars: number;
   correct: number;
   total: number;
+  /** もらったコインの合計 */
   coins: number;
+  /** その内訳。リザルトで1行ずつ見せる */
+  gain: CoinGain;
   bestKey: string | null;
   bestMs: number;
   /** この回で初めておぼえた式 */
   learned: string[];
   maxCombo: number;
+  /** クリア後に持っているコイン */
+  totalCoins: number;
 }
 
 type Phase = 'ask' | 'clear' | 'reveal' | 'over';
@@ -50,9 +61,29 @@ interface Particle {
   x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; r: number;
 }
 
+/** HUD のコイン表示へ吸いこまれていくコイン */
+interface FlyCoin {
+  x0: number; y0: number; cx: number; cy: number;
+  p: number; speed: number; value: number;
+}
+
+/** 「＋3」のように、その場に浮かんで消える文字 */
+interface FloatText {
+  x: number; y: number; life: number; max: number; text: string; color: string; size: number;
+}
+
 const CLEAR_HOLD = 0.8;
 const REVEAL_HOLD = 1.25;
 const T_APEX = 0.32;
+
+/** れんぞく数ごとの掛け声。上に行くほど短く強い言葉にする */
+const COMBO_CALLS: { at: number; text: string }[] = [
+  { at: 3, text: 'いいね！' },
+  { at: 5, text: 'すごい！' },
+  { at: 8, text: 'ちょうぜつダッシュ！' },
+  { at: 12, text: 'てんさい！' },
+  { at: 16, text: 'かみってる！' },
+];
 
 export class Runner {
   private canvas = document.getElementById('world') as HTMLCanvasElement;
@@ -76,6 +107,7 @@ export class Runner {
   // ステージ状態
   private cfg!: RunConfig;
   private world!: World;
+  private theme: Theme = themeFor(1, 1, false);
   private stage = 1;
   private boss = false;
   private total = 0;
@@ -83,7 +115,9 @@ export class Runner {
   private qIndex = 0;
   private correct = 0;
   private misses = 0;
-  private coins = 0;
+  private gain: CoinGain = { correct: 0, combo: 0, perfect: 0, bonus: 0, lost: 0 };
+  /** HUD に出しているコイン。飛んできたコインが着いた分だけ増える */
+  private coinsShown = 0;
   private combo = 0;
   private maxCombo = 0;
   private learned: string[] = [];
@@ -121,11 +155,13 @@ export class Runner {
   private char: CharState = { t: 0, air: false, hurt: 0, squash: 1 };
   private py = 0;
   private vy = 0;
-  private ob = { x: 0, v: 0 };
+  private ob = { x: 0, v: 0, kind: 'rock' as ObstacleKind, scale: 1 };
   private particles: Particle[] = [];
+  private coinsFlying: FlyCoin[] = [];
+  private floats: FloatText[] = [];
   private shake = 0;
   private flash = 0;
-  /** 画面いっぱいの帯を出している残り時間 */
+  /** 掛け声・お知らせの帯を出している残り時間 */
   private banner = 0;
   private bannerFull = 1.5;
   private bannerText = '';
@@ -135,6 +171,9 @@ export class Runner {
   private H = 200;
   private s = 1;
   private groundY = 170;
+  /** 画面の上端から canvas の上端まで／画面ぜんたいの高さ（空の色を画面とそろえる） */
+  private skyTop = 0;
+  private skyH = 600;
   private playerX = 70;
   private gravity = 1400;
   private jumpV = -440;
@@ -158,6 +197,7 @@ export class Runner {
   start(cfg: RunConfig, onDone: (r: StageResult) => void): void {
     this.cfg = cfg;
     this.world = cfg.world;
+    this.theme = themeFor(cfg.world.id, cfg.stage, cfg.boss);
     this.stage = cfg.stage;
     this.boss = cfg.boss;
     this.total = cfg.total;
@@ -169,7 +209,8 @@ export class Runner {
     this.qIndex = 0;
     this.correct = 0;
     this.misses = 0;
-    this.coins = 0;
+    this.gain = { correct: 0, combo: 0, perfect: 0, bonus: 0, lost: 0 };
+    this.coinsShown = 0;
     this.combo = 0;
     this.maxCombo = 0;
     this.learned = [];
@@ -177,6 +218,9 @@ export class Runner {
     this.onDone = onDone;
     this.elapsed = 0;
     this.particles = [];
+    this.coinsFlying = [];
+    this.floats = [];
+    this.banner = 0;
     this.py = 0;
     this.vy = 0;
     this.char = { t: 0, air: false, hurt: 0, squash: 1 };
@@ -245,6 +289,13 @@ export class Runner {
 
     this.W = Math.round(rect.width);
     this.H = Math.round(rect.height);
+
+    // canvas の外側（式やボタンの後ろ）は CSS のグラデーション。同じ位置・同じ高さで
+    // 色を作らないと、canvas の上端に横線が出る
+    const screen = this.canvas.closest('.screen');
+    const sr = screen?.getBoundingClientRect();
+    this.skyTop = sr ? rect.top - sr.top : 0;
+    this.skyH = sr && sr.height > 1 ? sr.height : this.H;
     const dpr = Math.min(window.devicePixelRatio || 1, 2); // 3倍は塗り面積が2.25倍になり発熱する
     this.canvas.width = Math.round(this.W * dpr);
     this.canvas.height = Math.round(this.H * dpr);
@@ -272,6 +323,13 @@ export class Runner {
 
   private spawnX(): number {
     return this.W + 28 * this.s;
+  }
+
+  private view(): SceneView {
+    return {
+      W: this.W, H: this.H, s: this.s, groundY: this.groundY,
+      scroll: this.scroll, t: this.t, skyTop: this.skyTop, skyH: this.skyH,
+    };
   }
 
   // ---------------------------------------------------------------- 問題
@@ -322,6 +380,18 @@ export class Runner {
     this.hintShown = false;
   }
 
+  /** つぎに出てくる障害物を引く。同じものが2回続かないようにする */
+  private pickObstacle(): ObstacleKind {
+    if (this.boss) return 'boss';
+    const pool = this.theme.obstacles;
+    if (pool.length <= 1) return pool[0] ?? 'rock';
+    let kind = pool[Math.floor(Math.random() * pool.length)];
+    if (kind === this.ob.kind) {
+      kind = pool[(pool.indexOf(kind) + 1 + Math.floor(Math.random() * (pool.length - 1))) % pool.length];
+    }
+    return kind;
+  }
+
   private nextQuestion(): void {
     this.q = this.picker.next();
     this.wrongThisQ = false;
@@ -352,7 +422,14 @@ export class Runner {
    */
   private launchObstacle(k: number): void {
     const time = answerTimeFor(this.world, this.stage, save.settings.slow) * (1 + this.slow) * k;
-    this.ob = { x: this.spawnX(), v: (this.spawnX() - this.playerX) / time };
+    const kind = this.pickObstacle();
+    this.ob = {
+      x: this.spawnX(),
+      v: (this.spawnX() - this.playerX) / time,
+      kind,
+      // 同じ種類でも少しずつ大きさを変える。並べたときの「作りもの感」が減る
+      scale: this.boss ? 1 : 0.88 + Math.random() * 0.3,
+    };
   }
 
   private answer(i: number): void {
@@ -381,14 +458,15 @@ export class Runner {
         this.correct++;
         this.combo++;
         this.maxCombo = Math.max(this.maxCombo, this.combo);
-        this.coins += 1 + (this.combo >= 5 ? 1 : 0);
+
+        const bonus = this.combo >= 5 ? COIN_COMBO : 0;
+        this.gain.correct += COIN_CORRECT;
+        this.gain.combo += bonus;
+        this.spawnCoins(COIN_CORRECT + bonus);
+
         if (!this.best || ms < this.best.ms) this.best = { key, ms };
         sfx.correct(this.combo - 1);
-        sfx.coin();
-        if (this.combo === 8) {
-          this.showBanner('ちょうぜつダッシュ！', 1.5);
-          sfx.fanfare();
-        }
+        this.callOut();
       } else {
         sfx.correct(0);
       }
@@ -433,6 +511,15 @@ export class Runner {
     }
   }
 
+  /** れんぞくが節目に届いたら、帯を出して音を鳴らす */
+  private callOut(): void {
+    const call = COMBO_CALLS.find((c) => c.at === this.combo);
+    if (!call) return;
+    this.showBanner(call.text, 1.5);
+    sfx.fanfare();
+    this.burst(this.W / 2, this.H * 0.34, 18, '#fff0b0');
+  }
+
   /**
    * ペットが助けてくれる。時間切れの障害物をせなかに乗って越え、
    * おなじ問題にもう一度だけ挑める。
@@ -471,13 +558,22 @@ export class Runner {
     this.markPip(false);
     this.combo = 0;
 
+    // ペットが助けてくれる（1ステージに1回だけ）。コインも落とさずに済む。
+    // まちがいの記録は上でもう付けてあるので、★も図鑑も甘くならない
     if (this.rescueLeft > 0) {
       this.petRescue();
       this.updateHud(false);
       return;
     }
 
-    this.coins = Math.max(0, this.coins - 1);
+    // 落とせるのは、いま持っている「この走りぶん」まで。マイナスにはしない
+    const drop = Math.min(COIN_MISS, Math.max(0, this.earned() - this.gain.lost));
+    this.gain.lost += drop;
+    if (drop > 0) {
+      this.coinsShown = Math.max(0, this.coinsShown - drop);
+      this.float(this.playerX, this.groundY - 46 * this.s, `−${drop}`, '#e4675c');
+    }
+
     this.char.hurt = 0.7;
     this.shake = 0.3;
     sfx.stumble();
@@ -494,6 +590,11 @@ export class Runner {
     this.updateHud(false);
   }
 
+  /** ここまでに稼いだぶん（落としたぶんを引く前） */
+  private earned(): number {
+    return this.gain.correct + this.gain.combo;
+  }
+
   private advance(): void {
     this.qIndex++;
     if (this.qIndex >= this.total) this.finish();
@@ -505,11 +606,12 @@ export class Runner {
     this.stop();
 
     const stars = this.misses === 0 ? 3 : this.misses <= 2 ? 2 : 1;
-    if (stars === 3) this.coins += 10;
-    this.coins += this.cfg.bonusCoins ?? 0;
+    if (stars === 3) this.gain.perfect = COIN_PERFECT;
+    this.gain.bonus = this.cfg.bonusCoins ?? 0;
 
+    const coins = gainTotal(this.gain);
     const p = profile();
-    p.coins += this.coins;
+    p.coins += coins;
     if (this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars);
     persist();
 
@@ -519,18 +621,20 @@ export class Runner {
       stars,
       correct: this.correct,
       total: this.total,
-      coins: this.coins,
+      coins,
+      gain: { ...this.gain },
       bestKey: this.best?.key ?? null,
       bestMs: this.best?.ms ?? 0,
       learned: this.learned,
       maxCombo: this.maxCombo,
+      totalCoins: p.coins,
     });
   }
 
   // ---------------------------------------------------------------- HUD
 
   private updateHud(pop: boolean): void {
-    this.elCoins.textContent = String(profile().coins + this.coins);
+    this.elCoins.textContent = String(profile().coins + this.coinsShown);
     const badge = this.elCoins.parentElement;
     if (pop && badge) {
       badge.classList.remove('pop');
@@ -547,6 +651,37 @@ export class Runner {
     } else {
       this.elCombo.hidden = true;
     }
+  }
+
+  // ---------------------------------------------------------------- コインの演出
+
+  /**
+   * もらったコインを、キャラから HUD のコイン表示へ飛ばす。
+   * 数字がいきなり増えるより、飛んでいくものが見えるほうが「もらった」が伝わる。
+   */
+  private spawnCoins(value: number): void {
+    const n = Math.min(value, 6);
+    const per = Math.floor(value / n);
+    let rest = value - per * n;
+    const tx = this.W - 16 * this.s;
+    const ty = 12 * this.s;
+    for (let i = 0; i < n; i++) {
+      const extra = rest > 0 ? 1 : 0;
+      rest -= extra;
+      this.coinsFlying.push({
+        x0: this.playerX + (Math.random() - 0.5) * 22 * this.s,
+        y0: this.groundY - (26 + Math.random() * 16) * this.s,
+        cx: tx, cy: ty,
+        p: -i * 0.16,
+        speed: 1.5 + Math.random() * 0.35,
+        value: per + extra,
+      });
+    }
+    this.float(this.playerX, this.groundY - 52 * this.s, `＋${value}`, '#e0a400');
+  }
+
+  private float(x: number, y: number, text: string, color: string): void {
+    this.floats.push({ x, y, life: 0.9, max: 0.9, text, color, size: 17 * this.s });
   }
 
   // ---------------------------------------------------------------- ループ
@@ -613,6 +748,24 @@ export class Runner {
       p.vy += 900 * dt;
       if (p.life <= 0) this.particles.splice(i, 1);
     }
+
+    for (let i = this.coinsFlying.length - 1; i >= 0; i--) {
+      const c = this.coinsFlying[i];
+      c.p += c.speed * dt;
+      if (c.p >= 1) {
+        this.coinsFlying.splice(i, 1);
+        this.coinsShown += c.value;
+        this.updateHud(true);
+        sfx.coin();
+      }
+    }
+
+    for (let i = this.floats.length - 1; i >= 0; i--) {
+      const f = this.floats[i];
+      f.life -= dt;
+      f.y -= 42 * this.s * dt;
+      if (f.life <= 0) this.floats.splice(i, 1);
+    }
   }
 
   private burst(x: number, y: number, n: number, color: string): void {
@@ -639,11 +792,7 @@ export class Runner {
       g.translate((Math.random() - 0.5) * 7 * s, (Math.random() - 0.5) * 7 * s);
     }
 
-    this.drawClouds();
-    // 丘は画面が低いときに主張しすぎないよう、高さでも上限をかける
-    this.drawHills(0.16, Math.min(118 * s, H * 0.34), 'rgba(255,255,255,.42)');
-    this.drawHills(0.34, Math.min(84 * s, H * 0.24), 'rgba(126,201,111,.55)');
-    this.drawGround();
+    drawScene(g, this.theme, this.view());
 
     // 影（空中では小さく薄く）
     const lift = Math.min(1, -this.py / (80 * s));
@@ -653,7 +802,7 @@ export class Runner {
     g.fill();
 
     if (this.ob.x > -80 * s) {
-      drawObstacle(g, this.ob.x, this.groundY, 30 * s, this.boss);
+      drawObstacle(g, this.ob.x, this.groundY, 30 * s * this.ob.scale, this.ob.kind, this.t);
       if (this.ob.v > this.runSpeed * 2.2) this.drawSpeedLines();
     }
 
@@ -672,6 +821,10 @@ export class Runner {
       g.fill();
     }
     g.globalAlpha = 1;
+
+    drawWeather(g, this.theme, this.view());
+    this.drawFlyingCoins();
+    this.drawFloats();
 
     if (this.flash > 0) {
       g.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`;
@@ -695,7 +848,9 @@ export class Runner {
 
     // 1 に近いほど「せなかに乗せている」。降りるときは 0 へ戻り、位置も走る位置へ滑る
     const k = Math.min(1, Math.max(0, this.ride / 0.35));
-    const x = this.playerX - 30 * s * (1 - k);
+    // 走る位置は、画面の左端で切れないところまで（狭い画面ほど後ろが詰まる）
+    const follow = Math.max(this.playerX - 26 * s, 20 * s);
+    const x = follow + (this.playerX - follow) * k;
     const y = this.groundY + this.petY + (this.py + size * 0.5 - this.petY) * k;
 
     if (k > 0.02) {
@@ -723,6 +878,47 @@ export class Runner {
     }
 
     drawPet(g, x, y, size, this.pet.art, this.t);
+  }
+
+  /** HUD へ吸いこまれていくコイン。放り上げてから吸い寄せる軌道にする */
+  private drawFlyingCoins(): void {
+    const g = this.g;
+    const s = this.s;
+    for (const c of this.coinsFlying) {
+      if (c.p < 0) continue;
+      const p = Math.min(1, c.p);
+      const ease = p * p;
+      const x = c.x0 + (c.cx - c.x0) * ease;
+      const y = c.y0 + (c.cy - c.y0) * ease - Math.sin(p * Math.PI) * 46 * s;
+      // 回っているように見せるため、横幅だけを縮める
+      const w = Math.abs(Math.cos(this.t * 7 + c.x0)) * 0.75 + 0.25;
+      const r = 7 * s;
+      g.fillStyle = '#ffc53d';
+      g.beginPath();
+      g.ellipse(x, y, r * w, r, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.65)';
+      g.beginPath();
+      g.ellipse(x - r * 0.22 * w, y - r * 0.25, r * 0.28 * w, r * 0.32, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  private drawFloats(): void {
+    const g = this.g;
+    for (const f of this.floats) {
+      const k = f.life / f.max;
+      g.globalAlpha = Math.min(1, k * 1.8);
+      g.font = `700 ${f.size}px ${'"Hiragino Maru Gothic ProN", sans-serif'}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineWidth = Math.max(3, f.size * 0.22);
+      g.strokeStyle = '#fff';
+      g.strokeText(f.text, f.x, f.y);
+      g.fillStyle = f.color;
+      g.fillText(f.text, f.x, f.y);
+    }
+    g.globalAlpha = 1;
   }
 
   /** 5連続からの光る輪 */
@@ -787,56 +983,6 @@ export class Runner {
     }
     if (t > 0.9) g.fillText(this.bannerText, W / 2, y);
     g.restore();
-  }
-
-  private drawClouds(): void {
-    const g = this.g;
-    const off = (this.scroll * 0.06) % (this.W + 200);
-    g.fillStyle = 'rgba(255,255,255,.75)';
-    for (let i = 0; i < 3; i++) {
-      const cx = ((i * (this.W / 2 + 90) - off) % (this.W + 220)) + 110 - 110;
-      const cy = 26 * this.s + i * 18 * this.s;
-      const r = (14 + i * 3) * this.s;
-      g.beginPath();
-      g.arc(cx, cy, r, 0, Math.PI * 2);
-      g.arc(cx + r * 0.9, cy + r * 0.15, r * 0.75, 0, Math.PI * 2);
-      g.arc(cx - r * 0.85, cy + r * 0.2, r * 0.62, 0, Math.PI * 2);
-      g.fill();
-    }
-  }
-
-  private drawHills(rate: number, radius: number, color: string): void {
-    const g = this.g;
-    const step = radius * 1.7;
-    const off = (this.scroll * rate) % step;
-    g.fillStyle = color;
-    g.beginPath();
-    for (let i = -1; i < this.W / step + 2; i++) {
-      const cx = i * step - off + step * 0.4;
-      g.moveTo(cx - radius, this.groundY);
-      g.arc(cx, this.groundY, radius, Math.PI, 0);
-    }
-    g.fill();
-  }
-
-  private drawGround(): void {
-    const g = this.g;
-    const { W, s } = this;
-    g.fillStyle = '#7ec96f';
-    g.fillRect(0, this.groundY, W, this.H - this.groundY);
-    g.fillStyle = '#c99a68';
-    g.fillRect(0, this.groundY + 8 * s, W, this.H - this.groundY - 8 * s);
-    g.fillStyle = '#5da84f';
-    g.fillRect(0, this.groundY, W, 3 * s);
-
-    // 走っている感じを出すための地面の線
-    g.fillStyle = 'rgba(255,255,255,.35)';
-    const step = 26 * s;
-    const off = this.scroll % step;
-    for (let i = -1; i < W / step + 1; i++) {
-      roundRect(g, i * step - off, this.groundY + 12 * s, 12 * s, 3 * s, 2 * s);
-      g.fill();
-    }
   }
 
   private drawSpeedLines(): void {

@@ -43,7 +43,8 @@
 
         <div class="home" id="home" hidden>
           <div class="home-top">
-            <p class="hello" id="hello"></p>
+            <!-- 名前をタップすると、きろく（セーブデータ）を選びなおせる -->
+            <button class="hello" id="hello" type="button"></button>
             <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
           </div>
 
@@ -67,7 +68,7 @@
             <b id="pet-count">0 / 30</b>
           </div>
 
-          <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかんと きせかえは みられるよ。</p>
+          <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかん・きせかえ・ぼくじょうは みられるよ。</p>
         </div>
 
         <button class="btn btn-primary btn-xl" id="btn-start">あそぶ</button>
@@ -81,6 +82,19 @@
 
         <canvas id="home-char" aria-hidden="true"></canvas>
       </div>
+    </section>
+
+    <!-- ===== きろく（セーブデータ）えらび ===== -->
+    <section class="screen" id="screen-slots" data-screen="slots" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="slots-back" type="button" aria-label="もどる">←</button>
+        <div class="map-title">
+          <p class="map-world">ぼうけんの きろく</p>
+          <p class="map-desc">つづきから あそぶ きろくを えらんでね</p>
+        </div>
+      </header>
+      <div class="slot-list" id="slot-list"></div>
+      <p class="map-hint">きろくは この きかいの なかに ほぞんされます</p>
     </section>
 
     <!-- ===== ステージマップ =====
@@ -143,20 +157,37 @@
 
     <!-- ===== リザルト ===== -->
     <section class="screen" id="screen-result" data-screen="result" hidden>
-      <div class="result-card">
-        <p class="result-stage" id="result-stage">1-1</p>
-        <div class="stars" id="result-stars" aria-label="ほし"></div>
-        <p class="result-head" id="result-head">クリア！</p>
-        <ul class="result-rows">
-          <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
-          <li><span>コイン</span><b id="result-coins">+0</b></li>
-          <li id="result-combo-row" hidden><span>さいこう れんぞく</span><b id="result-combo">-</b></li>
-          <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
-        </ul>
-        <p class="learned" id="result-learned" hidden></p>
-        <div class="result-btns">
-          <button class="btn btn-ghost" id="result-retry" type="button">もういちど</button>
-          <button class="btn btn-primary" id="result-next" type="button">つぎへ</button>
+      <!-- 紙吹雪。カードの後ろで降る -->
+      <canvas id="confetti" aria-hidden="true"></canvas>
+      <div class="result-scroll">
+        <div class="result-card">
+          <p class="result-stage" id="result-stage">1-1</p>
+          <div class="stars" id="result-stars" aria-label="ほし"></div>
+          <p class="result-head" id="result-head">クリア！</p>
+
+          <!-- もらったコイン。ここがこの画面のいちばん大きい数字 -->
+          <div class="coin-hero" id="coin-hero">
+            <span class="coin-dot xl" aria-hidden="true"></span>
+            <b id="result-coins" aria-live="polite">+0</b>
+            <span class="coin-hero-unit">コイン</span>
+          </div>
+          <ul class="coin-lines" id="coin-lines"></ul>
+          <p class="coin-total">ぜんぶで <b id="result-total">0</b> コイン</p>
+
+          <ul class="result-rows">
+            <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
+            <li id="result-combo-row" hidden><span>さいこう れんぞく</span><b id="result-combo">-</b></li>
+            <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
+          </ul>
+          <p class="learned" id="result-learned" hidden></p>
+
+          <div class="result-btns">
+            <button class="btn btn-primary btn-xl" id="result-next" type="button">つづける</button>
+            <div class="result-sub">
+              <button class="btn btn-ghost" id="result-map" type="button">マップへ</button>
+              <button class="btn btn-ghost" id="result-home" type="button">スタートへ</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -201,7 +232,7 @@
             <b id="egg-label">たまごを わる</b>
             <span id="egg-sub">キャラ・ぼうし・アクセ</span>
           </span>
-          <span class="egg-cost"><span class="coin-dot"></span>30</span>
+          <span class="egg-cost"><span class="coin-dot"></span><b id="egg-cost">90</b></span>
         </button>
       </div>
 
@@ -350,8 +381,20 @@
         <label class="toggle"><input type="checkbox" id="set-slow" /><span>ゆっくりモード</span></label>
         <label class="toggle"><input type="checkbox" id="set-left" /><span>ひだりきき</span></label>
         <button class="btn btn-primary" id="set-close" type="button">とじる</button>
+        <button class="btn btn-ghost" id="btn-slots" type="button">きろくを えらぶ</button>
         <button class="btn btn-ghost" id="btn-parent" type="button">おうちのかたへ</button>
         <button class="btn btn-ghost" id="btn-switch" type="button">なまえを かえる</button>
+      </div>
+    </div>
+
+    <!-- きろくを消す前の確認。ふたつ目のタップを必ず挟む -->
+    <div class="overlay" id="overlay-erase" hidden>
+      <div class="sheet">
+        <p class="sheet-head">この きろくを けしますか？</p>
+        <p class="erase-name" id="erase-name"></p>
+        <p class="p-note">ほし・コイン・ずかん・きせかえが すべて きえます。もとには もどせません。</p>
+        <button class="btn btn-ghost" id="erase-cancel" type="button">やめる</button>
+        <button class="btn btn-danger-ghost" id="erase-ok" type="button">けす</button>
       </div>
     </div>
 

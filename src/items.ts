@@ -24,7 +24,8 @@ export interface Item {
   cost?: number;
 }
 
-export const EGG_COST = 30;
+/** たまご1個の値段。1ステージぶんのコイン（30〜60枚）で必ず1個は割れる */
+export const EGG_COST = 90;
 
 export const ITEMS: Item[] = [
   // ---- キャラ 12 ----
@@ -64,15 +65,15 @@ export const ITEMS: Item[] = [
   { id: 'acc-tail', kind: 'acc', label: 'しっぽ' },
 
   // ---- いろ 9（コインで直接買う） ----
-  { id: 'color-sakura', kind: 'color', label: 'さくら', cost: 25 },
-  { id: 'color-sora', kind: 'color', label: 'そら', cost: 25 },
-  { id: 'color-mint', kind: 'color', label: 'ミント', cost: 25 },
-  { id: 'color-lemon', kind: 'color', label: 'レモン', cost: 25 },
-  { id: 'color-grape', kind: 'color', label: 'ぶどう', cost: 25 },
-  { id: 'color-choco', kind: 'color', label: 'チョコ', cost: 25 },
-  { id: 'color-snow', kind: 'color', label: 'ゆき', cost: 25 },
-  { id: 'color-night', kind: 'color', label: 'よぞら', cost: 25 },
-  { id: 'color-rainbow', kind: 'color', label: 'にじいろ', cost: 80 },
+  { id: 'color-sakura', kind: 'color', label: 'さくら', cost: 75 },
+  { id: 'color-sora', kind: 'color', label: 'そら', cost: 75 },
+  { id: 'color-mint', kind: 'color', label: 'ミント', cost: 75 },
+  { id: 'color-lemon', kind: 'color', label: 'レモン', cost: 75 },
+  { id: 'color-grape', kind: 'color', label: 'ぶどう', cost: 75 },
+  { id: 'color-choco', kind: 'color', label: 'チョコ', cost: 75 },
+  { id: 'color-snow', kind: 'color', label: 'ゆき', cost: 75 },
+  { id: 'color-night', kind: 'color', label: 'よぞら', cost: 75 },
+  { id: 'color-rainbow', kind: 'color', label: 'にじいろ', cost: 240 },
 ];
 
 /** いろの中身。キャラ本来の色を上から塗りかえる */

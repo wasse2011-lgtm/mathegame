@@ -273,10 +273,11 @@ export function setActivePet(id: string): void {
 
 // ---------------------------------------------------------------- ガチャ
 
-export const PET_EGG_COST = 40;
-export const PET_EGG_SHINY_COST = 120;
+/** たまごの値段。コインは1ステージで 30〜100枚うごくので、その 1〜3回ぶん */
+export const PET_EGG_COST = 120;
+export const PET_EGG_SHINY_COST = 360;
 /** おなじ子が出たときに もどってくるコイン */
-export const DUP_REFUND = 8;
+export const DUP_REFUND = 24;
 
 /** レア度の出かた。合計 1 になるように書く */
 const NORMAL_ODDS: Record<Rarity, number> = { n: 0.66, r: 0.26, sr: 0.07, ur: 0.01 };

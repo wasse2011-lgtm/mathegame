@@ -18,10 +18,13 @@ import { drawPet } from './petart';
 import { PET_COUNT, activePet, ownedPets } from './pets';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
-import { weakestFacts } from './questions';
+import { MASTERED, weakestFacts } from './questions';
+import { COIN_BOSS, COIN_DAILY } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
+  clearSlot,
   flushSave,
+  isEmptySlot,
   overDailyLimit,
   persist,
   profile,
@@ -29,16 +32,22 @@ import {
   requestPersistentStorage,
   resetAll,
   save,
+  selectSlot,
+  slots,
   stageStars,
   storageWorks,
+  usedSlots,
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
+import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
 import { renderZukan, zukanProgress } from './zukan';
 
-type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'parent';
+type ScreenName =
+  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'parent';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
+  slots: document.getElementById('screen-slots') as HTMLElement,
   map: document.getElementById('screen-map') as HTMLElement,
   play: document.getElementById('screen-play') as HTMLElement,
   result: document.getElementById('screen-result') as HTMLElement,
@@ -59,6 +68,8 @@ let lastRun: RunConfig | null = null;
 let lastResult: StageResult | null = null;
 
 function show(name: ScreenName): void {
+  // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
+  if (current === 'result' && name !== 'result') stopResultAnim();
   current = name;
   (Object.keys(screens) as ScreenName[]).forEach((k) => {
     screens[k].hidden = k !== name;
@@ -202,6 +213,7 @@ function renderTitle(): void {
 
   refreshDaily(p);
   $('hello').textContent = `${p.name} の ぼうけん`;
+  $('hello').setAttribute('aria-label', `${p.name} の ぼうけん。きろくを えらぶ`);
   $('home-coins').textContent = String(p.coins);
 
   // 1日の上限に達したら、遊ぶ導線だけ閉じる（図鑑ときせかえは見られる）
@@ -218,7 +230,7 @@ function renderTitle(): void {
     ? 'また あした'
     : p.daily.done
       ? 'きょうは クリア！'
-      : '＋20 コイン';
+      : `＋${COIN_DAILY} コイン`;
   const streak = $('home-streak');
   streak.hidden = p.daily.streak < 1;
   const sb = streak.querySelector('b');
@@ -248,6 +260,119 @@ $('btn-start').addEventListener('click', () => {
   mapView = 'worlds';
   renderMap();
   show('map');
+});
+
+// ------------------------------------------------------------------ きろく（セーブデータ）
+
+/** そのきろくが集めた★の合計 */
+function starsOf(stars: Record<string, number>): number {
+  let n = 0;
+  for (const v of Object.values(stars)) n += v;
+  return n;
+}
+
+/** 消す前に確認するきろくの番号。-1 は確認中でない */
+let eraseTarget = -1;
+
+function renderSlots(): void {
+  const list = $('slot-list');
+  list.replaceChildren();
+
+  slots().forEach((p, i) => {
+    const empty = isEmptySlot(p);
+    const card = document.createElement('div');
+    card.className = `slot${empty ? ' empty' : ''}${i === save.active && !empty ? ' current' : ''}`;
+
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'slot-pick';
+
+    const c = document.createElement('canvas');
+    c.className = 'slot-face';
+    const body = document.createElement('span');
+    body.className = 'slot-body';
+
+    if (empty) {
+      const name = document.createElement('b');
+      name.textContent = 'あたらしい ぼうけん';
+      const sub = document.createElement('span');
+      sub.textContent = 'ここから はじめる';
+      body.append(name, sub);
+      const plus = document.createElement('span');
+      plus.className = 'slot-plus';
+      plus.textContent = '＋';
+      pick.append(plus, body);
+    } else {
+      const name = document.createElement('b');
+      name.textContent = p.name;
+      const sub = document.createElement('span');
+      const zukan = Object.values(p.facts).filter((s) => s.m >= MASTERED).length;
+      sub.textContent = `★${starsOf(p.stars)}　コイン ${p.coins}　ずかん ${zukan}`;
+      const seen = document.createElement('small');
+      seen.textContent = p.seen ? `さいごに あそんだ日 ${p.seen}` : 'まだ あそんでいません';
+      body.append(name, sub, seen);
+      pick.append(c, body);
+      queueMicrotask(() => paintSkinIcon(c, { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color }, 54));
+    }
+
+    pick.addEventListener('click', () => {
+      sfx.tap();
+      selectSlot(i);
+      goHome();
+    });
+    card.appendChild(pick);
+
+    if (!empty) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'slot-del';
+      del.textContent = 'けす';
+      del.setAttribute('aria-label', `${p.name} の きろくを けす`);
+      del.addEventListener('click', () => {
+        sfx.tap();
+        eraseTarget = i;
+        $('erase-name').textContent = `${p.name} の ぼうけん`;
+        $('overlay-erase').hidden = false;
+      });
+      card.appendChild(del);
+    }
+
+    list.appendChild(card);
+  });
+}
+
+function showSlots(): void {
+  renderSlots();
+  show('slots');
+}
+
+$('hello').addEventListener('click', () => {
+  sfx.tap();
+  showSlots();
+});
+
+$('btn-slots').addEventListener('click', () => {
+  sfx.tap();
+  $('overlay-settings').hidden = true;
+  showSlots();
+});
+
+$('slots-back').addEventListener('click', () => {
+  sfx.tap();
+  // 名前の無い枠を選んだまま戻ると行き場が無いので、必ずホームを作りなおす
+  goHome();
+});
+
+$('erase-cancel').addEventListener('click', () => {
+  eraseTarget = -1;
+  $('overlay-erase').hidden = true;
+});
+
+$('erase-ok').addEventListener('click', () => {
+  if (eraseTarget >= 0) clearSlot(eraseTarget);
+  eraseTarget = -1;
+  $('overlay-erase').hidden = true;
+  renderSlots();
 });
 
 $('btn-zukan').addEventListener('click', () => {
@@ -302,6 +427,14 @@ $('daily-card').addEventListener('click', () => {
 });
 
 // ------------------------------------------------------------------ マップ
+
+/** ステージの時間帯。みちのマスに小さく出す */
+const TIME_ICON: Record<TimeId, string> = {
+  day: '☀️', dawn: '🌅', sunset: '🌇', night: '🌙', boss: '⚡',
+};
+const TIME_NAME: Record<TimeId, string> = {
+  day: 'ひるま', dawn: 'あさ', sunset: 'ゆうがた', night: 'よる', boss: 'ボス',
+};
 
 /** そのワールドで、つぎに遊ぶステージ（ぜんぶクリア済みなら 0） */
 function nextStageIn(w: World): number {
@@ -421,10 +554,16 @@ function renderStagePath(): void {
     b.type = 'button';
     b.className = `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}${!open ? ' locked' : ''}`;
     b.disabled = !open || overDailyLimit();
+    // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる
     b.innerHTML =
+      `<span class="when" aria-hidden="true">${TIME_ICON[timeIdFor(stage, boss)]}</span>` +
       `<span class="sn-label">${!open ? '🔒' : boss ? '👑' : stage}</span>` +
       `<span class="st">${starRow(got)}</span>`;
-    b.setAttribute('aria-label', `${boss ? 'ボス' : `ステージ ${stage}`} ほし ${got}`);
+    b.setAttribute(
+      'aria-label',
+      `${boss ? 'ボス' : `ステージ ${stage}`} ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
+    );
+
     b.addEventListener('click', () => {
       unlockAudio();
       sfx.tap();
@@ -494,7 +633,7 @@ function startStage(world: World, stage: number): void {
     total: questionCount(world, stage),
     boss,
     label: boss ? `${world.id}-ボス` : `${world.id}-${stage}`,
-    bonusCoins: boss ? 30 : 0,
+    bonusCoins: boss ? COIN_BOSS : 0,
   });
 }
 
@@ -505,12 +644,17 @@ function startRun(cfg: RunConfig): void {
     return;
   }
   // デイリーのおまけは走り出すたびに計算しなおす。
-  // 設定オブジェクトを使いまわすので、ここで決めないと「もういちど」で
-  // 何度でも +20 コインがもらえてしまう。
-  if (cfg.stage === 0) cfg.bonusCoins = profile().daily.done ? 0 : 20;
+  // 設定オブジェクトを使いまわすので、ここで決めないと、その日のうちに
+  // 何度でもデイリーのボーナスがもらえてしまう。
+  if (cfg.stage === 0) cfg.bonusCoins = profile().daily.done ? 0 : COIN_DAILY;
 
   lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
+  // canvas の外（式やボタンの後ろ）も、そのステージの空の色にそろえる。
+  // 夜とボスは空が暗いので、式やコインの数字を白抜きに切りかえる
+  const theme = themeFor(cfg.world.id, cfg.stage, cfg.boss);
+  screens.play.style.background = skyCss(theme);
+  screens.play.classList.toggle('dark', theme.dark);
   $('overlay-pause').hidden = true;
   show('play');
   // 画面を出してからレイアウトが確定するので、次のフレームで開始する
@@ -560,7 +704,129 @@ $('pause-quit').addEventListener('click', () => {
 
 const STAR_SVG = `<svg class="star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3-5.8 3 1.1-6.5L2.6 9.4l6.5-.9z" fill="#ffc53d" stroke="#d99a10" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
 
+/**
+ * リザルトの演出はタイマーとアニメの束。画面を離れるとき（子どもは待たずに
+ * 次を押す）に全部止められるよう、後始末をここにためておく。
+ */
+const resultStop: (() => void)[] = [];
+
+function stopResultAnim(): void {
+  while (resultStop.length) resultStop.pop()?.();
+}
+
+function later(fn: () => void, ms: number): void {
+  const id = window.setTimeout(fn, ms);
+  resultStop.push(() => clearTimeout(id));
+}
+
+/**
+ * 数字を数え上げる。いきなり「+48」と出すより、増えていくのを見せるほうが効く。
+ * チャリンという音も一緒に鳴らして、耳からも「増えた」を伝える。
+ */
+function countUp(el: HTMLElement, from: number, to: number, ms: number, prefix = ''): void {
+  const t0 = performance.now();
+  let id = 0;
+  let alive = true;
+  let lastTick = -1;
+  const step = (now: number): void => {
+    if (!alive) return;
+    const k = Math.min(1, (now - t0) / ms);
+    const eased = 1 - (1 - k) * (1 - k);
+    el.textContent = `${prefix}${Math.round(from + (to - from) * eased)}`;
+    const tick = Math.floor(k * 7);
+    if (tick !== lastTick) {
+      lastTick = tick;
+      if (k < 1) sfx.coin();
+    }
+    if (k < 1) id = requestAnimationFrame(step);
+  };
+  id = requestAnimationFrame(step);
+  resultStop.push(() => { alive = false; cancelAnimationFrame(id); });
+}
+
+// ---------------------------------------------------------------- 紙吹雪
+
+const CONFETTI_COLORS = ['#ffc53d', '#ff8fb1', '#6ec8f0', '#7ed37c', '#c79bf0', '#ffffff'];
+
+interface Flake { x: number; y: number; vx: number; vy: number; r: number; a: number; va: number; c: string; }
+
+function confetti(count: number): void {
+  const canvas = $<HTMLCanvasElement>('confetti');
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 2) return;
+  const g = canvas.getContext('2d');
+  if (!g) return;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const W = rect.width;
+  const H = rect.height;
+  const flakes: Flake[] = Array.from({ length: count }, () => ({
+    x: W * (0.1 + Math.random() * 0.8),
+    y: -20 - Math.random() * H * 0.6,
+    vx: (Math.random() - 0.5) * 90,
+    vy: 130 + Math.random() * 190,
+    r: 4 + Math.random() * 5,
+    a: Math.random() * Math.PI,
+    va: (Math.random() - 0.5) * 9,
+    c: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
+  }));
+
+  let id = 0;
+  let alive = true;
+  let last = performance.now();
+  const step = (now: number): void => {
+    if (!alive) return;
+    const dt = Math.min((now - last) / 1000, 1 / 20);
+    last = now;
+    g.clearRect(0, 0, W, H);
+    let live = 0;
+    for (const f of flakes) {
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.a += f.va * dt;
+      f.vx *= 0.99;
+      if (f.y < H + 20) live++;
+      g.save();
+      g.translate(f.x, f.y);
+      g.rotate(f.a);
+      g.fillStyle = f.c;
+      g.fillRect(-f.r / 2, -f.r * 0.7, f.r, f.r * 1.4);
+      g.restore();
+    }
+    if (live > 0) id = requestAnimationFrame(step);
+    else g.clearRect(0, 0, W, H);
+  };
+  id = requestAnimationFrame(step);
+  resultStop.push(() => {
+    alive = false;
+    cancelAnimationFrame(id);
+    g.clearRect(0, 0, W, H);
+  });
+}
+
+// ---------------------------------------------------------------- リザルト本体
+
+interface CoinLine { label: string; value: number; }
+
+/** もらったコインの内訳。0 の行は出さない（読む量が増えるだけ） */
+function coinLines(r: StageResult): CoinLine[] {
+  const daily = r.stage === 0;
+  const out: CoinLine[] = [];
+  if (r.gain.correct) out.push({ label: `せいかい ${r.correct}もん`, value: r.gain.correct });
+  if (r.gain.combo) out.push({ label: 'れんぞく ボーナス', value: r.gain.combo });
+  if (r.gain.perfect) out.push({ label: 'ノーミス ボーナス', value: r.gain.perfect });
+  if (r.gain.bonus) out.push({ label: daily ? 'きょうの 5もん' : 'ボス ボーナス', value: r.gain.bonus });
+  if (r.gain.lost) out.push({ label: 'おとした コイン', value: -r.gain.lost });
+  return out;
+}
+
 function renderResult(r: StageResult): void {
+  stopResultAnim();
+
   const daily = r.stage === 0;
   const w = worldById(r.worldId);
   $('result-stage').textContent = daily
@@ -570,7 +836,6 @@ function renderResult(r: StageResult): void {
       : `${w.id}-${r.stage}  ${w.name}`;
   $('result-head').textContent = r.stars === 3 ? 'パーフェクト！' : r.stars === 2 ? 'クリア！' : 'ゴール！';
   $('result-correct').textContent = `${r.correct} / ${r.total}`;
-  $('result-coins').textContent = `+${r.coins}`;
 
   const bestRow = $('result-best-row');
   if (r.bestKey) {
@@ -592,35 +857,75 @@ function renderResult(r: StageResult): void {
     learned.hidden = true;
   }
 
+  // 星 → コインの内訳 → 合計、の順に見せる。いちどに全部出すと、
+  // どれが自分の手柄なのか分からないまま画面が終わる
   const box = $('result-stars');
   box.innerHTML = STAR_SVG.repeat(3);
   const stars = Array.from(box.children) as HTMLElement[];
   sfx.clear();
   stars.forEach((el, i) => {
     if (i < r.stars) {
-      window.setTimeout(() => {
+      later(() => {
         el.classList.add('on');
         sfx.star(i);
       }, 260 + i * 300);
     }
   });
 
-  const over = overDailyLimit();
-  $('result-retry').hidden = over;
-  $('result-next').textContent = over
-    ? 'きょうは おしまい'
-    : nextStageOf(r.worldId, r.stage)
-      ? 'つぎへ'
-      : daily
-        ? 'ホームへ'
-        : 'マップへ';
-}
+  const hero = $('result-coins');
+  const total = $('result-total');
+  const list = $('coin-lines');
+  hero.textContent = '+0';
+  total.textContent = String(r.totalCoins - r.coins);
+  list.replaceChildren();
 
-$('result-retry').addEventListener('click', () => {
-  if (!lastRun) return;
-  sfx.tap();
-  startRun(lastRun);
-});
+  const lines = coinLines(r);
+  const startAt = 300 + r.stars * 300;
+  let running = 0;
+
+  lines.forEach((line, i) => {
+    later(() => {
+      const li = document.createElement('li');
+      li.className = line.value < 0 ? 'minus' : '';
+      const label = document.createElement('span');
+      label.textContent = line.label;
+      const value = document.createElement('b');
+      value.textContent = `${line.value < 0 ? '−' : '＋'}${Math.abs(line.value)}`;
+      li.append(label, value);
+      list.appendChild(li);
+
+      const from = running;
+      running = Math.max(0, running + line.value);
+      countUp(hero, from, running, 420, '+');
+      $('coin-hero').classList.remove('pop');
+      void $('coin-hero').offsetWidth;
+      $('coin-hero').classList.add('pop');
+      sfx.star(Math.min(i, 2));
+    }, startAt + i * 460);
+  });
+
+  const endAt = startAt + lines.length * 460 + 260;
+  later(() => {
+    countUp(total, r.totalCoins - r.coins, r.totalCoins, 700);
+    sfx.fanfare();
+    confetti(r.stars === 3 ? 90 : r.stars === 2 ? 50 : 28);
+  }, endAt);
+
+  // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る
+  const over = overDailyLimit();
+  const next = nextStageOf(r.worldId, r.stage);
+  const nextBtn = $('result-next');
+  nextBtn.textContent = over
+    ? 'きょうは おしまい'
+    : next
+      ? 'つづける'
+      : daily
+        ? 'スタートへ'
+        : 'マップへ';
+  // つぎのボタンがマップ／スタートを兼ねているときは、同じ行き先を2つ出さない
+  $('result-map').hidden = over || !next;
+  $('result-home').hidden = over || (!next && daily);
+}
 
 $('result-next').addEventListener('click', () => {
   if (!lastResult) return;
@@ -640,6 +945,20 @@ $('result-next').addEventListener('click', () => {
     renderMap();
     show('map');
   }
+});
+
+$('result-map').addEventListener('click', () => {
+  sfx.tap();
+  mapWorld = lastResult && lastResult.stage > 0 ? lastResult.worldId : lastPlayedWorld();
+  // 走り終わった直後は、いま走っていた せかいの みちに戻す
+  mapView = 'stages';
+  renderMap();
+  show('map');
+});
+
+$('result-home').addEventListener('click', () => {
+  sfx.tap();
+  goHome();
 });
 
 // ------------------------------------------------------------------ せってい
@@ -774,7 +1093,10 @@ syncSettings();
 $('no-storage').hidden = storageWorks;
 
 renderTitle();
-show('title');
+// きろくが2つ以上あるなら、まず誰のぼうけんかを選んでもらう。
+// きょうだいで1台を使うとき、前の子のデータで走り出してしまうのを防ぐ。
+if (usedSlots() > 1 || (usedSlots() > 0 && !profile().name)) showSlots();
+else show('title');
 
 // 埋め込み表示（iframe やビューアの中）と開発サーバーでは sw.js を登録しない。
 // dev で登録すると、ハッシュのつかないソースが恒久的にキャッシュされて
