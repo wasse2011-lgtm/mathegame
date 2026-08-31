@@ -707,11 +707,16 @@ export class Runner {
     if (this.banner > 0) this.banner -= dt;
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
 
-    if (this.ride > 0) this.ride -= dt;
-
-    if (this.char.air) {
-      // せなかに乗っているあいだは、ゆっくり浮いていられる
-      this.vy += this.gravity * (this.ride > 0 ? 0.12 : 1) * dt;
+    if (this.ride > 0) {
+      // せなかに乗っているあいだは、決まった高さでふわりと浮く。
+      // 重力を弱めるだけにすると1秒で画面の外まで上がってしまい、
+      // 助けてもらった瞬間にキャラが消える
+      this.ride -= dt;
+      this.char.air = true;
+      this.py += (-64 * this.s - this.py) * Math.min(1, dt * 6);
+      this.vy = this.ride <= 0 ? -30 * this.s : 0; // 降りぎわに ふわっと放される
+    } else if (this.char.air) {
+      this.vy += this.gravity * dt;
       this.py += this.vy * dt;
       if (this.py >= 0) {
         this.py = 0;
