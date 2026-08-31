@@ -33,6 +33,23 @@ export const RARITIES: RarityDef[] = [
   { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1 },
 ];
 
+/**
+ * 鳴き声の種類。30ぴきぶん個別に音を作ると管理しきれないので、
+ * からだの形でまとめる（鳥はさえずり、けものは低くうなる…）。
+ */
+export function voiceOf(art: PetArt): 'bird' | 'bug' | 'beast' | 'blob' | 'ghost' | 'small' {
+  switch (art.shape) {
+    case 'bird': return 'bird';
+    case 'bug':
+    case 'worm': return 'bug';
+    case 'beast': return 'beast';
+    case 'blob':
+    case 'jelly': return 'blob';
+    case 'ghost': return 'ghost';
+    default: return 'small';
+  }
+}
+
 export function rarityDef(r: Rarity): RarityDef {
   return RARITIES.find((x) => x.id === r) ?? RARITIES[0];
 }

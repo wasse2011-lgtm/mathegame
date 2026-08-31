@@ -133,4 +133,74 @@ export const sfx = {
       tone(f, 0.2, { at: 0.08 + i * 0.08, wave: 'triangle', vol: 0.34 });
     });
   },
+
+  /**
+   * なかまの鳴き声。さわったときに返す。
+   * ペットは 30ぴき いるので、1ぴきずつ音を作らず「からだの形」で分ける。
+   */
+  voice(kind: 'bird' | 'bug' | 'beast' | 'blob' | 'ghost' | 'small'): void {
+    switch (kind) {
+      case 'bird':
+        tone(1400, 0.06, { wave: 'sine', vol: 0.22, to: 2000 });
+        tone(1800, 0.07, { at: 0.08, wave: 'sine', vol: 0.2, to: 1300 });
+        break;
+      case 'bug':
+        tone(320, 0.16, { wave: 'sawtooth', vol: 0.14 });
+        tone(330, 0.16, { at: 0.05, wave: 'sawtooth', vol: 0.12 });
+        break;
+      case 'beast':
+        tone(160, 0.26, { wave: 'sawtooth', vol: 0.24, to: 110 });
+        break;
+      case 'blob':
+        tone(240, 0.18, { wave: 'sine', vol: 0.3, to: 660 });
+        break;
+      case 'ghost':
+        tone(520, 0.34, { wave: 'sine', vol: 0.18, to: 300 });
+        break;
+      default:
+        tone(880, 0.07, { wave: 'triangle', vol: 0.24, to: 1200 });
+        tone(1100, 0.08, { at: 0.08, wave: 'triangle', vol: 0.2, to: 800 });
+    }
+  },
+
+  /** ボスの遠距離攻撃が放たれる */
+  shoot(kind: 'rock' | 'beam' | 'fire'): void {
+    if (kind === 'beam') {
+      tone(1400, 0.22, { wave: 'sawtooth', vol: 0.2, to: 520 });
+    } else if (kind === 'fire') {
+      noise(0.3, 0.18);
+      tone(220, 0.26, { wave: 'sawtooth', vol: 0.16, to: 140 });
+    } else {
+      noise(0.16, 0.2);
+      tone(160, 0.2, { wave: 'square', vol: 0.2, to: 110 });
+    }
+  },
+
+  /** 攻撃をよけた瞬間 */
+  dodge(): void {
+    noise(0.1, 0.14);
+    tone(880, 0.1, { wave: 'sine', vol: 0.26, to: 1760 });
+  },
+
+  /** ボスのうなり声。突撃の合図にも使う */
+  roar(): void {
+    tone(120, 0.5, { wave: 'sawtooth', vol: 0.3, to: 70 });
+    tone(180, 0.45, { at: 0.05, wave: 'square', vol: 0.16, to: 90 });
+    noise(0.45, 0.16);
+  },
+
+  /** ボスを踏みつける */
+  stomp(): void {
+    noise(0.32, 0.34);
+    tone(90, 0.34, { wave: 'square', vol: 0.32, to: 55 });
+    tone(523.25, 0.18, { at: 0.14, wave: 'triangle', vol: 0.3 });
+  },
+
+  /** ボスにやられた */
+  gameover(): void {
+    [392, 330, 262, 196].forEach((f, i) => {
+      tone(f, 0.3, { at: i * 0.16, wave: 'triangle', vol: 0.3 });
+    });
+    noise(0.3, 0.2);
+  },
 };

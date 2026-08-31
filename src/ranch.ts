@@ -8,6 +8,7 @@
 
 import { sfx } from './audio';
 import { drawPet, paintPetIcon } from './petart';
+import { pickAction } from './playground';
 import {
   DUP_REFUND,
   PETS,
@@ -23,11 +24,12 @@ import {
   rarityDef,
   rollPetEgg,
   setActivePet,
+  voiceOf,
   type PetDef,
   type PetRoll,
 } from './pets';
 import { profile } from './save';
-import { currentLook, drawChar } from './sprites';
+import { currentLook, drawChar, roundRect } from './sprites';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -48,6 +50,8 @@ export function powerText(pet: PetDef): string {
 
 // ---------------------------------------------------------------- 牧場
 
+type Action = 'jump' | 'spin' | 'heart' | 'shout' | 'dance';
+
 interface Walker {
   pet: PetDef;
   x: number;
@@ -55,22 +59,96 @@ interface Walker {
   depth: number;
   vx: number;
   phase: number;
+  /** さわられたときの反応。終わると null に戻る */
+  act: Action | null;
+  aT: number;
+  /** 跳ねている高さ（画面ピクセル） */
+  hop: number;
+  spin: number;
+  /** 最後に描いた位置と大きさ。さわった場所の判定に使う */
+  sx: number;
+  sy: number;
+  ss: number;
+}
+
+/** さわったときに飛ぶ ハート／きらきら */
+interface Puff {
+  x: number; y: number; vx: number; vy: number;
+  life: number; heart: boolean; color: string;
 }
 
 let walkers: Walker[] = [];
+let puffs: Puff[] = [];
 let ranchRaf = 0;
+/** 前のフレームの時刻。反応の速さを画面の refresh rate に左右させない */
+let ranchLast = 0;
 let ranchW = 320;
 let ranchH = 150;
 
 function buildWalkers(): void {
   const list = ownedPets();
-  walkers = list.map((pet, i) => ({
-    pet,
-    x: ((i + 0.5) / Math.max(list.length, 1)) * 0.9 + 0.05,
-    depth: ((i * 7) % 10) / 10,
-    vx: (i % 2 ? 1 : -1) * (0.02 + ((i * 3) % 5) * 0.006),
-    phase: (i * 1.7) % 6,
-  }));
+  walkers = list.map((pet, i) => {
+    const old = walkers.find((w) => w.pet.id === pet.id);
+    if (old) return old;
+    return {
+      pet,
+      x: ((i + 0.5) / Math.max(list.length, 1)) * 0.9 + 0.05,
+      depth: ((i * 7) % 10) / 10,
+      vx: (i % 2 ? 1 : -1) * (0.02 + ((i * 3) % 5) * 0.006),
+      phase: (i * 1.7) % 6,
+      act: null,
+      aT: 0,
+      hop: 0,
+      spin: 0,
+      sx: 0,
+      sy: 0,
+      ss: 24,
+    };
+  });
+}
+
+/**
+ * 牧場の子をさわる。
+ * 見ているだけの牧場と「さわると返してくれる」牧場では、居つく時間がまるで違う。
+ * 鳴き声・大ジャンプ・くるっと回る・ハート・おどり のどれかを返し、
+ * そのあと歩く向きも変える（何度さわっても同じにならない）。
+ */
+function pokeRanch(px: number, py: number): void {
+  let hit: Walker | null = null;
+  let best = Infinity;
+  for (const w of walkers) {
+    const dx = Math.abs(px - w.sx);
+    const dy = Math.abs(py - (w.sy - w.ss * 0.5));
+    if (dx > w.ss * 0.95 || dy > w.ss * 0.95) continue;
+    const d = dx + dy;
+    if (d < best) {
+      best = d;
+      hit = w;
+    }
+  }
+  if (!hit) return;
+
+  hit.act = pickAction(hit.act) as Action;
+  hit.aT = 0;
+  hit.spin = 0;
+  hit.vx = (Math.random() < 0.5 ? -1 : 1) * (0.02 + Math.random() * 0.04);
+  sfx.voice(voiceOf(hit.pet.art));
+
+  const color = hit.act === 'heart' ? '#ff8aa0' : '#ffd257';
+  for (let i = 0; i < (hit.act === 'heart' ? 5 : 7); i++) {
+    puffs.push({
+      x: hit.sx,
+      y: hit.sy - hit.ss * 0.8,
+      vx: (Math.random() - 0.5) * 70,
+      vy: -35 - Math.random() * 70,
+      life: 0.9,
+      heart: hit.act === 'heart',
+      color,
+    });
+  }
+
+  // さわった子の ひとこと。ここが note の出しどころ
+  $('pet-detail').textContent = `${hit.pet.name}「${hit.pet.note}」`;
 }
 
 function paintRanch(ts: number): void {
@@ -97,6 +175,8 @@ function paintRanch(ts: number): void {
   g.clearRect(0, 0, ranchW, ranchH);
 
   const t = ts / 1000;
+  const dt = Math.min(ranchLast ? (ts - ranchLast) / 1000 : 1 / 60, 1 / 20);
+  ranchLast = ts;
   const top = ranchH * 0.3;
 
   // そら → しばふ
@@ -155,7 +235,21 @@ function paintRanch(ts: number): void {
   ];
 
   for (const w of walkers) {
-    w.x += w.vx * 0.16;
+    // さわられている子は、その場で反応してから また歩きだす
+    if (w.act) {
+      w.aT += dt;
+      const dur = w.act === 'spin' ? 0.7 : w.act === 'shout' ? 1.1 : 1.2;
+      if (w.act === 'spin') w.spin = Math.min(1, w.aT / 0.7) * Math.PI * 2;
+      if (w.act === 'jump') w.hop = Math.abs(Math.sin(w.aT * 9)) * (1 - w.aT / dur);
+      if (w.act === 'heart') w.hop = Math.abs(Math.sin(w.aT * 6)) * 0.35;
+      if (w.aT >= dur) {
+        w.act = null;
+        w.spin = 0;
+        w.hop = 0;
+      }
+    }
+    const dancing = w.act === 'dance';
+    if (!w.act) w.x += w.vx * dt * 9.6;
     if (w.x < 0.04) {
       w.x = 0.04;
       w.vx = Math.abs(w.vx);
@@ -164,9 +258,12 @@ function paintRanch(ts: number): void {
       w.x = 0.96;
       w.vx = -Math.abs(w.vx);
     }
-    const y = yOf(w.depth);
     const s = sizeOf(w.depth);
-    const x = w.x * ranchW;
+    const y = yOf(w.depth) - w.hop * s * 1.1;
+    const x = w.x * ranchW + (dancing ? Math.sin(t * 14) * s * 0.3 : 0);
+    w.sx = x;
+    w.sy = y;
+    w.ss = s;
     const isActive = active?.id === w.pet.id;
     items.push({
       // つれて歩く子は、ほかの子のうしろに隠れないよう最前面に描く
@@ -177,19 +274,29 @@ function paintRanch(ts: number): void {
         if (isActive) {
           g.fillStyle = 'rgba(255,197,61,.55)';
           g.beginPath();
-          g.ellipse(x, y + 2, s * 0.44, s * 0.16, 0, 0, Math.PI * 2);
+          g.ellipse(x, yOf(w.depth) + 2, s * 0.44, s * 0.16, 0, 0, Math.PI * 2);
           g.fill();
           g.fillStyle = 'rgba(255,255,255,.55)';
           g.beginPath();
-          g.ellipse(x, y + 2, s * 0.3, s * 0.1, 0, 0, Math.PI * 2);
+          g.ellipse(x, yOf(w.depth) + 2, s * 0.3, s * 0.1, 0, 0, Math.PI * 2);
           g.fill();
         } else {
           g.fillStyle = 'rgba(40,70,40,.14)';
           g.beginPath();
-          g.ellipse(x, y + 2, s * 0.3, s * 0.1, 0, 0, Math.PI * 2);
+          g.ellipse(x, yOf(w.depth) + 2, s * 0.3, s * 0.1, 0, 0, Math.PI * 2);
           g.fill();
         }
-        drawPet(g, x, y, s, w.pet.art, t + w.phase);
+        if (w.spin) {
+          g.save();
+          g.translate(x, y - s * 0.5);
+          g.rotate(w.spin);
+          g.translate(-x, -(y - s * 0.5));
+          drawPet(g, x, y, s, w.pet.art, t + w.phase);
+          g.restore();
+        } else {
+          drawPet(g, x, y, s, w.pet.art, t + w.phase);
+        }
+        if (w.act === 'shout') bubble(g, x, y - s * 1.15, w.pet.name, s);
         if (isActive) {
           // つれて歩く子には しるしを付ける
           g.fillStyle = '#ffc53d';
@@ -209,6 +316,43 @@ function paintRanch(ts: number): void {
 
   items.sort((a, b) => a.z - b.z).forEach((i) => i.draw());
 
+  // さわったときに飛ぶ ハート／きらきら
+  for (let i = puffs.length - 1; i >= 0; i--) {
+    const q = puffs[i];
+    q.life -= dt;
+    q.x += q.vx * dt;
+    q.y += q.vy * dt;
+    q.vy += 90 * dt;
+    if (q.life <= 0) {
+      puffs.splice(i, 1);
+      continue;
+    }
+    g.globalAlpha = Math.max(0, q.life / 0.9);
+    g.fillStyle = q.color;
+    if (q.heart) {
+      const r = 6;
+      g.beginPath();
+      g.moveTo(q.x, q.y + r * 0.9);
+      g.bezierCurveTo(q.x - r * 1.5, q.y - r * 0.3, q.x - r * 0.4, q.y - r * 1.2, q.x, q.y - r * 0.35);
+      g.bezierCurveTo(q.x + r * 0.4, q.y - r * 1.2, q.x + r * 1.5, q.y - r * 0.3, q.x, q.y + r * 0.9);
+      g.closePath();
+      g.fill();
+    } else {
+      g.beginPath();
+      for (let k = 0; k < 8; k++) {
+        const a = (Math.PI / 4) * k - Math.PI / 2;
+        const rad = k % 2 ? 2 : 5;
+        const px = q.x + Math.cos(a) * rad;
+        const py = q.y + Math.sin(a) * rad;
+        if (k === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.closePath();
+      g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+
   if (!walkers.length) {
     // かいぬしと重ならないよう、しばふの手前に置く
     g.fillStyle = 'rgba(40,60,70,.62)';
@@ -221,8 +365,36 @@ function paintRanch(ts: number): void {
   ranchRaf = requestAnimationFrame(paintRanch);
 }
 
+/** さわった子の名前を、頭の上に出す */
+function bubble(g: CanvasRenderingContext2D, x: number, y: number, text: string, size: number): void {
+  g.font = `700 ${Math.max(11, size * 0.4)}px "Hiragino Maru Gothic ProN", sans-serif`;
+  const w = g.measureText(text).width + size * 0.5;
+  const h = size * 0.66;
+  const bx = Math.min(Math.max(x - w / 2, 2), ranchW - w - 2);
+  const by = Math.max(y, h + 4);
+  g.fillStyle = '#fff';
+  g.strokeStyle = 'rgba(38,49,61,.18)';
+  g.lineWidth = 2;
+  roundRect(g, bx, by - h, w, h, h * 0.42);
+  g.fill();
+  g.stroke();
+  g.beginPath();
+  g.moveTo(x - size * 0.12, by - 1);
+  g.lineTo(x + size * 0.1, by - 1);
+  g.lineTo(x, by + size * 0.16);
+  g.closePath();
+  g.fill();
+  g.fillStyle = '#26313d';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, bx + w / 2, by - h / 2);
+}
+
 export function startRanchIdle(): void {
-  if (!ranchRaf) ranchRaf = requestAnimationFrame(paintRanch);
+  if (!ranchRaf) {
+    ranchLast = 0;
+    ranchRaf = requestAnimationFrame(paintRanch);
+  }
 }
 
 // ---------------------------------------------------------------- 一覧
@@ -335,6 +507,13 @@ function showRoll(roll: PetRoll): void {
 }
 
 export function initRanch(): void {
+  // 牧場の子をさわれるようにする
+  const pasture = $<HTMLCanvasElement>('pasture');
+  pasture.addEventListener('pointerdown', (e) => {
+    const rect = pasture.getBoundingClientRect();
+    pokeRanch(e.clientX - rect.left, e.clientY - rect.top);
+  });
+
   const open = (shiny: boolean) => {
     const roll = rollPetEgg(shiny);
     if (!roll) return;
