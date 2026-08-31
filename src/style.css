@@ -149,13 +149,25 @@ body {
 }
 /* きせかえ／ずかん／せってい は芝生（--grass）の上に乗る。
    透明のままだと文字色 --ink-2 とのコントラストが足りないので、白を敷く。 */
-.title-sub { display: flex; gap: .4rem; }
+/* 4つに増えたので、狭い画面では 2×2 に畳む（横1列だと指の幅より細くなる） */
+.title-sub { display: grid; grid-template-columns: repeat(2, 1fr); gap: .4rem; width: 100%; }
+@media (min-width: 26rem) { .title-sub { grid-template-columns: repeat(4, 1fr); } }
 .title-sub[hidden] { display: none; }
 .title-sub .btn-ghost {
   background: rgba(255,255,255,.88);
   border-color: rgba(255,255,255,.88);
   color: var(--ink);
-  padding: 0 .9rem;
+  padding: 0 .8rem;
+  font-size: .95rem;
+}
+
+/* 縦の短い端末では、ホームの行が増えたぶん（ずかん＋ペット）を詰める。
+   そのままだとロゴが画面の上に押し出されて切れる */
+@media (max-height: 720px) {
+  .title-inner { gap: .55rem; }
+  .logo { font-size: clamp(2rem, 9vw, 3rem); }
+  .zukan-mini { padding: .4rem .8rem; font-size: .82rem; }
+  .daily-card { min-height: 60px; }
 }
 
 /* ホームの草の上に、いま着せているキャラが立っている */
@@ -213,38 +225,138 @@ body {
 }
 .map-head { display: flex; align-items: center; gap: .7rem; }
 .map-title { flex: 1; min-width: 0; }
+/* 見出しは1行に収める。ワールド名が長いと2行になり、下の内容を押し出す */
+.map-world, .map-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .map-world { margin: 0; font-size: 1.25rem; font-weight: 700; }
 .map-desc { margin: 0; font-size: .85rem; color: var(--ink-2); }
 
-.world-tabs { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .2rem; scrollbar-width: none; }
-.world-tabs::-webkit-scrollbar { display: none; }
-.world-tab {
-  flex: 0 0 auto; font-family: inherit; font-weight: 700; font-size: .95rem;
-  padding: .45rem .9rem; min-height: 44px; border-radius: 999px; cursor: pointer;
-  background: var(--paper); border: 2px solid var(--line); color: var(--ink-2);
-}
-.world-tab[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
-.world-tab[disabled] { opacity: .4; }
-
-.stage-grid {
-  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: .6rem; align-content: start;
-  padding: .2rem;
-}
-.stage-btn {
-  position: relative; aspect-ratio: 1; min-height: 76px;
-  font-family: inherit; font-weight: 700; font-size: 1.7rem; color: var(--ink);
-  background: var(--paper); border: 3px solid var(--line); border-bottom-width: 6px;
-  border-radius: var(--r-md); cursor: pointer;
-  display: grid; grid-template-rows: 1fr auto; place-items: center; gap: 0;
-  padding: .5rem 0 .45rem;
-}
-.stage-btn:active { transform: translateY(3px); border-bottom-width: 3px; }
-.stage-btn[disabled] { background: var(--paper-2); color: #b9c4cc; }
-.stage-btn.boss { background: #ffeede; border-color: #f0b184; }
-.stage-btn .st { font-size: .7rem; letter-spacing: -1px; height: 1em; line-height: 1; color: var(--amber-dark); }
-.stage-btn .st .off { opacity: .22; }
 .map-hint { margin: 0; font-size: .85rem; color: var(--ink-2); text-align: center; min-height: 1.2em; }
+
+/* --- せかい ぜんぶ（一覧） --- */
+.world-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .5rem; }
+.world-view[hidden] { display: none; }
+
+.total-bar {
+  display: flex; align-items: center; gap: .6rem; flex: 0 0 auto;
+  background: rgba(255,255,255,.9); border-radius: var(--r-md); padding: .5rem .8rem;
+  font-size: .84rem; font-weight: 700; color: var(--ink-2);
+}
+.total-bar .bar { flex: 1 1 auto; }
+.total-bar b { color: var(--amber-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.world-list {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  display: flex; flex-direction: column; gap: .55rem; padding: .5rem .2rem .2rem;
+}
+.world-card {
+  position: relative;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .7rem;
+  font-family: inherit; text-align: left; cursor: pointer;
+  background: var(--paper); border: 3px solid var(--wc, var(--line)); border-bottom-width: 6px;
+  border-radius: var(--r-md); padding: .6rem .8rem; min-height: 86px;
+}
+.world-card:active { transform: translateY(3px); border-bottom-width: 3px; }
+.world-card.locked { background: var(--paper-2); border-color: var(--line); opacity: .85; }
+.world-card.here { box-shadow: 0 0 0 4px rgba(255,197,61,.45); }
+
+.wc-badge {
+  position: relative; width: 54px; height: 54px; border-radius: 17px;
+  background: var(--wc, var(--line)); display: grid; place-items: center;
+}
+.world-card.locked .wc-badge { background: #c7d1d8; }
+.wc-emoji { font-size: 1.7rem; line-height: 1; }
+.wc-badge b {
+  position: absolute; right: -6px; bottom: -6px; min-width: 24px; height: 24px; padding: 0 .2rem;
+  background: #fff; border: 2px solid var(--wc, var(--line)); border-radius: 999px;
+  display: grid; place-items: center; font-size: .78rem; color: var(--ink);
+}
+.wc-main { min-width: 0; display: flex; flex-direction: column; gap: .18rem; }
+.wc-name { font-size: 1.05rem; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-desc { font-size: .76rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-main .bar { height: 8px; margin-top: .1rem; }
+.wc-main .bar i { background: var(--wc, var(--amber)); }
+.wc-right { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
+.wc-stars { font-size: .9rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wc-stars small { font-size: .68rem; color: var(--ink-2); }
+.wc-stages { font-size: .7rem; color: var(--ink-2); white-space: nowrap; }
+.wc-flag {
+  position: absolute; top: -10px; right: 12px;
+  background: var(--wc, var(--ink)); color: #fff; border-radius: 999px;
+  padding: .1rem .55rem; font-size: .68rem; font-weight: 700;
+}
+.wc-flag.now { background: var(--amber); color: #4a3400; animation: here-pulse 1.6s ease-in-out infinite; }
+@keyframes here-pulse { 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .wc-flag.now { animation: none; } }
+
+/* --- その せかいの みち --- */
+.stage-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.stage-view[hidden] { display: none; }
+.path-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: .8rem 0 .4rem; }
+.stage-path {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: .7rem;
+  padding: .2rem 0 .6rem;
+}
+/* まんなかを通る一本道。ステージはこの上に左右へ ふれながら並ぶので、
+   細い線ではなく「道はば」を持たせて、ふれた先でも必ず重なるようにする */
+.stage-path::before, .stage-path::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; z-index: 0;
+  transform: translateX(-50%); pointer-events: none;
+}
+.stage-path::before {
+  width: 52px; border-radius: 26px;
+  background: var(--wc, #c2ccd4); opacity: .2;
+}
+.stage-path::after {
+  width: 8px; border-radius: 4px;
+  background: repeating-linear-gradient(to bottom, rgba(255,255,255,.9) 0 16px, transparent 16px 34px);
+}
+.node-row {
+  position: relative; z-index: 1;
+  width: 100%; display: flex; justify-content: center;
+  transform: translateX(calc(var(--k, 0) * 20%));
+}
+.path-goal { position: relative; z-index: 1; }
+.stage-node {
+  position: relative; width: 84px; height: 84px; border-radius: 27px;
+  font-family: inherit; font-weight: 700; color: var(--ink);
+  background: var(--paper); border: 3px solid var(--wc, var(--line)); border-bottom-width: 6px;
+  display: grid; grid-template-rows: 1fr auto; place-items: center;
+  padding: .5rem 0 .4rem; cursor: pointer;
+  box-shadow: 0 8px 16px -12px rgba(20,40,60,.7);
+}
+.stage-node:active { transform: translateY(3px); border-bottom-width: 3px; }
+.sn-label { font-size: 1.9rem; line-height: 1; }
+.stage-node .st { font-size: .74rem; letter-spacing: -1px; line-height: 1; color: var(--amber-dark); }
+.stage-node .st .off { opacity: .25; }
+.stage-node.cleared { background: var(--wc, var(--amber)); color: #fff; }
+.stage-node.cleared .st { color: #fff3cf; }
+.stage-node.cleared .st .off { opacity: .45; }
+.stage-node.boss { width: 104px; height: 104px; border-radius: 34px; }
+.stage-node.boss .sn-label { font-size: 2.3rem; }
+.stage-node.locked, .stage-node[disabled] { background: var(--paper-2); border-color: var(--line); color: #b9c4cc; box-shadow: none; }
+.stage-node.locked:active, .stage-node[disabled]:active { transform: none; border-bottom-width: 6px; }
+.stage-node.cleared[disabled] { background: #c7d1d8; color: #fff; }
+
+.node-tag {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-size: .7rem; font-weight: 700;
+  border-radius: 999px; padding: .12rem .55rem;
+}
+.node-tag.now { top: -12px; background: var(--amber); color: #4a3400; animation: here-pulse 1.6s ease-in-out infinite; }
+.node-tag.boss-tag { bottom: -12px; background: var(--wc, var(--ink)); color: #fff; }
+.stage-node.locked .node-tag.boss-tag { background: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .node-tag.now { animation: none; } }
+
+.path-goal {
+  display: flex; align-items: center; gap: .7rem; margin-top: .5rem;
+  background: var(--paper); border: 3px dashed var(--wc, var(--line));
+  border-radius: var(--r-md); padding: .6rem .9rem; max-width: 21rem; width: 92%;
+}
+.pg-emoji { font-size: 1.8rem; }
+.pg-text { display: flex; flex-direction: column; }
+.pg-text b { font-size: .85rem; color: var(--ink-2); }
+.pg-text span { font-size: 1rem; font-weight: 700; color: var(--ink); }
 
 /* ---------------- プレイ ---------------- */
 .screen-play {
@@ -405,7 +517,7 @@ body {
 .learned[hidden] { display: none; }
 
 /* ---------------- たしざん図鑑 ---------------- */
-#screen-zukan, #screen-shop {
+#screen-zukan, #screen-shop, #screen-ranch {
   background: linear-gradient(180deg, var(--sky-2), #fff);
   padding: calc(var(--safe-t) + .6rem) calc(var(--safe-r) + .9rem) calc(var(--safe-b) + .9rem) calc(var(--safe-l) + .9rem);
   gap: .6rem;
@@ -445,6 +557,37 @@ body {
 .lg:not(:first-child) { margin-left: .5rem; }
 
 /* ---------------- きせかえ ---------------- */
+.dress-row { display: flex; align-items: center; gap: .6rem; flex: 0 0 auto; }
+#shop-preview {
+  width: 112px; height: 112px; flex: 0 0 auto;
+  background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,0));
+  border-radius: var(--r-md);
+}
+/* 狭い画面では たまごの絵をたたんで、「たまごを わる」が省略されないようにする */
+@media (max-width: 26rem) {
+  .dress-row .egg-emoji { display: none; }
+}
+.dress-row .egg-btn { flex: 1 1 auto; min-width: 0; }
+.dress-row .egg-text { min-width: 0; }
+.dress-row .egg-text b,
+.dress-row .egg-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dress-row .egg-cost { flex: 0 0 auto; }
+@media (max-height: 700px) {
+  #shop-preview { width: 88px; height: 88px; }
+}
+
+.chip-row { display: flex; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .15rem; flex: 0 0 auto; }
+.chip-row::-webkit-scrollbar { display: none; }
+.chip {
+  flex: 0 0 auto; display: flex; align-items: center; gap: .3rem;
+  font-family: inherit; font-weight: 700; font-size: .95rem;
+  padding: .4rem .9rem; min-height: 44px; border-radius: 999px; cursor: pointer;
+  background: var(--paper); border: 2px solid var(--line); color: var(--ink-2);
+}
+.chip small { font-size: .7rem; opacity: .8; font-variant-numeric: tabular-nums; }
+.chip[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+.shop-msg { margin: 0; min-height: 1.1em; font-size: .78rem; font-weight: 700; color: var(--bad-dark); text-align: center; }
+
 .egg-btn {
   display: flex; align-items: center; gap: .8rem; width: 100%;
   font-family: inherit; text-align: left; cursor: pointer;
@@ -473,7 +616,10 @@ body {
   border-radius: var(--r-md); cursor: pointer; min-height: 96px;
 }
 .item:active { transform: translateY(2px); border-bottom-width: 3px; }
-.item[aria-pressed="true"] { border-color: var(--amber); background: #fff8e6; color: var(--ink); }
+.item[aria-pressed="true"] {
+  border-color: var(--amber); background: #fff8e6; color: var(--ink);
+  outline: 3px solid var(--amber); outline-offset: 1px;
+}
 .item.locked { background: var(--paper-2); }
 .item.locked canvas { opacity: .12; filter: grayscale(1); }
 .item canvas { width: 56px; height: 56px; }
@@ -481,6 +627,75 @@ body {
   width: 56px; height: 56px; display: grid; place-items: center;
   font-size: 1.6rem; color: var(--ink-2);
 }
+/* まだ買っていない「いろ」。えらんでいるマス（枠が二重）と区別できるよう白のまま */
+.item.buyable { background: var(--paper); border-color: var(--amber); color: var(--ink); }
+.item .price {
+  display: flex; align-items: center; gap: .15rem;
+  font-size: .74rem; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+.item .price .coin-dot { width: 11px; height: 11px; }
+.item .price.short { color: var(--ink-2); opacity: .75; }
+
+/* ---------------- ペットぼくじょう ---------------- */
+.pasture {
+  flex: 0 0 auto; height: min(30vh, 200px); min-height: 120px;
+  border: 3px solid #bcdfae; border-radius: var(--r-md); overflow: hidden;
+  background: #e6f5fd;
+}
+#pasture { display: block; width: 100%; height: 100%; }
+
+.egg-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; flex: 0 0 auto; }
+/* 横に2つ並ぶと幅が足りず、文字が折れる。小さいほうは縦積みにする */
+.egg-btn.small {
+  flex-direction: column; align-items: center; text-align: center;
+  min-height: 84px; padding: .45rem .4rem .5rem; gap: .1rem;
+}
+.egg-btn.small .egg-emoji { font-size: 1.4rem; }
+.egg-btn.small .egg-text { flex: 0 0 auto; align-items: center; }
+.egg-btn.small .egg-text b { font-size: .95rem; white-space: nowrap; }
+.egg-btn.small .egg-text span { font-size: .7rem; white-space: nowrap; }
+.egg-btn.small .egg-cost { font-size: .85rem; }
+.egg-btn.shiny { border-color: #c88ae0; background: linear-gradient(180deg, #fff, #faf1ff); }
+.egg-btn.shiny .egg-cost { color: #9a56bd; }
+
+.pet-detail {
+  margin: 0; flex: 0 0 auto; min-height: 2.6em;
+  display: grid; place-items: center; text-align: center;
+  font-size: .82rem; font-weight: 700; color: var(--ink); line-height: 1.4;
+  background: rgba(255,255,255,.85); border-radius: 12px; padding: .3rem .6rem;
+}
+.ranch-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.rarity-head {
+  display: flex; align-items: center; gap: .4rem;
+  margin: .8rem 0 .4rem; font-size: .84rem; font-weight: 700; color: var(--ink-2);
+}
+.rarity-head:first-child { margin-top: .2rem; }
+.rarity-head .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--rc); }
+.rarity-head b { margin-left: auto; color: var(--rc); font-variant-numeric: tabular-nums; }
+
+.pet-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(4.7rem, 1fr)); gap: .45rem; }
+.pet-cell {
+  position: relative; display: grid; justify-items: center; gap: .05rem;
+  padding: .35rem .15rem .4rem; min-height: 94px;
+  font-family: inherit; font-weight: 700; font-size: .72rem; color: var(--ink);
+  background: var(--rs); border: 2px solid var(--rc); border-bottom-width: 4px;
+  border-radius: 15px; cursor: pointer;
+}
+.pet-cell:active { transform: translateY(2px); border-bottom-width: 2px; }
+.pet-cell.locked { background: var(--paper-2); border-color: var(--line); color: #aeb8c0; }
+.pet-cell[aria-pressed="true"] { outline: 3px solid var(--amber); outline-offset: 1px; }
+.pet-cell canvas { width: 54px; height: 54px; }
+.pet-name { line-height: 1.15; text-align: center; }
+.hearts { color: #e4675c; font-size: .68rem; letter-spacing: -1px; line-height: 1; }
+
+.rarity-badge {
+  margin: 0 auto; background: var(--rs); color: var(--rc);
+  border: 2px solid var(--rc); border-radius: 999px;
+  padding: .12rem .8rem; font-size: .78rem; font-weight: 700;
+}
+.pet-note { margin: 0; font-size: .82rem; color: var(--ink-2); text-align: center; line-height: 1.5; }
+#pet-result-canvas { width: 132px; height: 132px; animation: egg-pop .5s cubic-bezier(.2,1.5,.4,1); }
+@media (prefers-reduced-motion: reduce) { #pet-result-canvas { animation: none; } }
 
 .no-storage {
   margin: 0; font-size: .85rem; line-height: 1.6; text-align: center; color: var(--bad-dark);

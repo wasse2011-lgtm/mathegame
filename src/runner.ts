@@ -10,9 +10,11 @@
 
 import { sfx } from './audio';
 import { answerTimeFor, cherry, factKey, type Fact, type World } from './curriculum';
+import { drawPet } from './petart';
+import { activePet, petPower, type PetDef } from './pets';
 import { QuestionPicker, recordAnswer, type Question } from './questions';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
-import { drawChar, drawObstacle, roundRect, type CharState } from './sprites';
+import { currentLook, drawChar, drawObstacle, roundRect, type CharState } from './sprites';
 
 /** 1回の走りの設定。通常ステージもボスもデイリーもこれで表す */
 export interface RunConfig {
@@ -102,6 +104,17 @@ export class Runner {
   /** この走りで遊んだ秒数。ステージが終わるかやめたときに保存する */
   private elapsed = 0;
 
+  // ペット
+  private pet: PetDef | null = null;
+  /** 障害物が来るまでの時間を何割のばすか（レアなペットの力） */
+  private slow = 0;
+  /** あと何回 助けてもらえるか。ステージごとに戻る */
+  private rescueLeft = 0;
+  /** せなかに乗っているあいだの残り秒数 */
+  private ride = 0;
+  /** ついてくるペットの高さ（プレイヤーより遅れて上下する） */
+  private petY = 0;
+
   // 見た目の状態
   private t = 0;
   private scroll = 0;
@@ -112,8 +125,10 @@ export class Runner {
   private particles: Particle[] = [];
   private shake = 0;
   private flash = 0;
-  /** 「ちょうぜつダッシュ」の帯を出している残り時間 */
+  /** 画面いっぱいの帯を出している残り時間 */
   private banner = 0;
+  private bannerFull = 1.5;
+  private bannerText = '';
 
   // 画面寸法（CSS ピクセル）
   private W = 320;
@@ -165,6 +180,14 @@ export class Runner {
     this.py = 0;
     this.vy = 0;
     this.char = { t: 0, air: false, hurt: 0, squash: 1 };
+
+    // つれているペットの力は、走り出すたびに読みなおす
+    this.pet = activePet();
+    const power = petPower();
+    this.slow = power.slow;
+    this.rescueLeft = power.rescue;
+    this.ride = 0;
+    this.petY = 0;
 
     this.elStage.textContent = cfg.label;
     this.elAnswers.style.setProperty('--cols', String(cfg.world.choices));
@@ -319,7 +342,16 @@ export class Runner {
     });
     this.elAnswers.append(...this.buttons);
 
-    const time = answerTimeFor(this.world, this.stage, save.settings.slow);
+    this.launchObstacle(1);
+  }
+
+  /**
+   * 障害物を右端から出しなおす。
+   * ペットの力（this.slow）はここでだけ効かせる。倍率 k は
+   * 「ペットに助けてもらった直後の、もう一度ぶん」を少し短くするために使う。
+   */
+  private launchObstacle(k: number): void {
+    const time = answerTimeFor(this.world, this.stage, save.settings.slow) * (1 + this.slow) * k;
     this.ob = { x: this.spawnX(), v: (this.spawnX() - this.playerX) / time };
   }
 
@@ -330,6 +362,10 @@ export class Runner {
     if (this.qElapsed < 0.3) return;
     const btn = this.buttons[i];
     if (!btn || btn.disabled) return;
+
+    // 乗せてもらっている最中に答えたら、そこで降りる。
+    // 乗っているあいだは重力を弱めているので、そのまま跳ぶと画面の外まで飛ぶ
+    this.ride = 0;
 
     const value = q.choices[i];
     const ms = this.qElapsed * 1000;
@@ -350,7 +386,7 @@ export class Runner {
         sfx.correct(this.combo - 1);
         sfx.coin();
         if (this.combo === 8) {
-          this.banner = 1.5;
+          this.showBanner('ちょうぜつダッシュ！', 1.5);
           sfx.fanfare();
         }
       } else {
@@ -397,6 +433,31 @@ export class Runner {
     }
   }
 
+  /**
+   * ペットが助けてくれる。時間切れの障害物をせなかに乗って越え、
+   * おなじ問題にもう一度だけ挑める。
+   *
+   * まちがいの記録（習熟度・ミス数）は timeout() で済ませたものをそのまま残す。
+   * ここを甘くすると、レアなペットを引いた子だけ★と図鑑が伸びてしまい、
+   * 「引きの良さ」が学習の記録に化ける。助けるのは気持ちの面だけでよい。
+   */
+  private petRescue(): void {
+    this.rescueLeft--;
+    this.ride = 1.15;
+    this.char.air = true;
+    this.char.hurt = 0;
+    this.vy = this.jumpV * 0.95;
+    this.char.squash = 1.14;
+    this.showBanner(`${this.pet?.name ?? 'ペット'}が たすけてくれた！`, 1.4);
+    sfx.rescue();
+    this.burst(this.playerX, this.groundY - 22 * this.s, 14, '#8fd8ff');
+    // もう一度おなじ問題。少しだけ短い持ち時間で出しなおす
+    this.launchObstacle(0.85);
+    // 連打ガード（0.3秒）を入れなおす。助けられた勢いの指で誤答を押さないように
+    this.qElapsed = 0;
+    this.showHint();
+  }
+
   /** 時間切れ。答えを見せてから次へ進む（ここで正解を教えるのが一番効く） */
   private timeout(): void {
     const q = this.q;
@@ -409,6 +470,13 @@ export class Runner {
     }
     this.markPip(false);
     this.combo = 0;
+
+    if (this.rescueLeft > 0) {
+      this.petRescue();
+      this.updateHud(false);
+      return;
+    }
+
     this.coins = Math.max(0, this.coins - 1);
     this.char.hurt = 0.7;
     this.shake = 0.3;
@@ -504,8 +572,11 @@ export class Runner {
     if (this.banner > 0) this.banner -= dt;
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
 
+    if (this.ride > 0) this.ride -= dt;
+
     if (this.char.air) {
-      this.vy += this.gravity * dt;
+      // せなかに乗っているあいだは、ゆっくり浮いていられる
+      this.vy += this.gravity * (this.ride > 0 ? 0.12 : 1) * dt;
       this.py += this.vy * dt;
       if (this.py >= 0) {
         this.py = 0;
@@ -514,6 +585,8 @@ export class Runner {
         this.char.squash = 0.86;
       }
     }
+    // ペットは少し遅れてついてくる
+    this.petY += (this.py * 0.65 - this.petY) * Math.min(1, dt * 7);
 
     this.ob.x -= this.ob.v * dt;
     this.scroll += Math.min(Math.max(this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
@@ -588,8 +661,8 @@ export class Runner {
     if (this.combo >= 5) this.drawAura();
     if (this.combo >= 3) this.drawTrail();
 
-    const p = profile();
-    drawChar(g, this.playerX, this.groundY + this.py, 34 * s, p.skin, this.char, p.hat);
+    this.drawFollower();
+    drawChar(g, this.playerX, this.groundY + this.py, 34 * s, currentLook(), this.char);
 
     for (const p of this.particles) {
       g.globalAlpha = Math.max(0, p.life / p.max);
@@ -608,6 +681,48 @@ export class Runner {
     if (this.banner > 0) this.drawBanner();
 
     g.restore();
+  }
+
+  /**
+   * つれているペット。ふだんは少し後ろを走り、助けてもらっている間だけ
+   * プレイヤーの真下（＝せなかに乗せている位置）に来る。
+   */
+  private drawFollower(): void {
+    if (!this.pet) return;
+    const g = this.g;
+    const s = this.s;
+    const size = 26 * s;
+
+    // 1 に近いほど「せなかに乗せている」。降りるときは 0 へ戻り、位置も走る位置へ滑る
+    const k = Math.min(1, Math.max(0, this.ride / 0.35));
+    const x = this.playerX - 30 * s * (1 - k);
+    const y = this.groundY + this.petY + (this.py + size * 0.5 - this.petY) * k;
+
+    if (k > 0.02) {
+      drawPet(g, x, y, size * (1 + 0.3 * k), this.pet.art, this.t);
+      return;
+    }
+
+    const lift = Math.min(1, -this.petY / (80 * s));
+    g.fillStyle = `rgba(40,60,50,${0.18 * (1 - lift * 0.7)})`;
+    g.beginPath();
+    g.ellipse(x, this.groundY + 3 * s, 11 * s * (1 - lift * 0.4), 3.5 * s, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // まだ助けてもらえるときは、ふんわり光らせておく（HUD を増やさずに伝える）
+    if (this.rescueLeft > 0) {
+      const r = (20 + Math.sin(this.t * 5) * 2) * s;
+      const cy = y - size * (this.pet.art.fly ? 0.7 : 0.45);
+      const grad = g.createRadialGradient(x, cy, r * 0.5, x, cy, r);
+      grad.addColorStop(0, 'rgba(255,255,255,0)');
+      grad.addColorStop(1, 'rgba(140,215,255,.5)');
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(x, cy, r, 0, Math.PI * 2);
+      g.fill();
+    }
+
+    drawPet(g, x, y, size, this.pet.art, this.t);
   }
 
   /** 5連続からの光る輪 */
@@ -643,10 +758,16 @@ export class Runner {
     g.stroke();
   }
 
+  private showBanner(text: string, sec: number): void {
+    this.bannerText = text;
+    this.bannerFull = sec;
+    this.banner = sec;
+  }
+
   private drawBanner(): void {
     const g = this.g;
     const { W, H, s } = this;
-    const t = Math.min(1, (1.5 - this.banner) * 5);
+    const t = Math.min(1, (this.bannerFull - this.banner) * 5);
     const alpha = Math.min(1, this.banner * 2.5);
     const y = H * 0.34;
     g.save();
@@ -656,8 +777,15 @@ export class Runner {
     g.fillStyle = '#4a3400';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = `700 ${20 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
-    if (t > 0.9) g.fillText('ちょうぜつダッシュ！', W / 2, y);
+    // ペットの名前が入ると長さが変わる。画面からはみ出さないところまで縮める
+    let size = 20 * s;
+    g.font = `700 ${size}px "Hiragino Maru Gothic ProN", sans-serif`;
+    const width = g.measureText(this.bannerText).width;
+    if (width > W * 0.92) {
+      size *= (W * 0.92) / width;
+      g.font = `700 ${size}px "Hiragino Maru Gothic ProN", sans-serif`;
+    }
+    if (t > 0.9) g.fillText(this.bannerText, W / 2, y);
     g.restore();
   }
 

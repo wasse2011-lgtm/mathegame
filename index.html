@@ -61,6 +61,12 @@
             <b id="zukan-count">0 / 81</b>
           </div>
 
+          <div class="zukan-mini" id="pet-mini">
+            <span class="zm-label">ペット</span>
+            <span class="bar"><i id="pet-bar"></i></span>
+            <b id="pet-count">0 / 30</b>
+          </div>
+
           <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかんと きせかえは みられるよ。</p>
         </div>
 
@@ -68,6 +74,7 @@
 
         <div class="title-sub" id="title-sub">
           <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ</button>
+          <button class="btn btn-ghost" id="btn-ranch" type="button">ペット</button>
           <button class="btn btn-ghost" id="btn-zukan" type="button">ずかん</button>
           <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
         </div>
@@ -76,18 +83,36 @@
       </div>
     </section>
 
-    <!-- ===== ステージマップ ===== -->
+    <!-- ===== ステージマップ =====
+         「せかい ぜんぶ」→「その せかいの みち」の2段。
+         いま何面まで来ていて、ぜんぶで何面あるのかが、どちらの画面でも見える。 -->
     <section class="screen" id="screen-map" data-screen="map" hidden>
       <header class="map-head">
-        <button class="btn btn-icon" id="map-back" type="button" aria-label="ホームへ">←</button>
+        <button class="btn btn-icon" id="map-back" type="button" aria-label="もどる">←</button>
         <div class="map-title">
-          <p class="map-world" id="map-world">ワールド 1</p>
+          <p class="map-world" id="map-world">せかい ぜんぶ</p>
           <p class="map-desc" id="map-desc"></p>
         </div>
         <p class="coin-badge"><span class="coin-dot"></span><b id="map-coins">0</b></p>
       </header>
-      <nav class="world-tabs" id="world-tabs" aria-label="ワールドをえらぶ"></nav>
-      <div class="stage-grid" id="stage-grid"></div>
+
+      <!-- ぜんたい: せかいの一覧 -->
+      <div class="world-view" id="world-view">
+        <div class="total-bar">
+          <span class="tb-label">ぼうけん</span>
+          <span class="bar"><i id="total-bar"></i></span>
+          <b id="total-count">★ 0</b>
+        </div>
+        <div class="world-list" id="world-list"></div>
+      </div>
+
+      <!-- その せかいの みち -->
+      <div class="stage-view" id="stage-view" hidden>
+        <div class="path-scroll">
+          <div class="stage-path" id="stage-path"></div>
+        </div>
+      </div>
+
       <p class="map-hint" id="map-hint"></p>
     </section>
 
@@ -163,25 +188,68 @@
         <button class="btn btn-icon" id="shop-back" type="button" aria-label="ホームへ">←</button>
         <div class="map-title">
           <p class="map-world">きせかえ</p>
-          <p class="map-desc" id="shop-desc">あつめた 3 / 11</p>
+          <p class="map-desc" id="shop-desc">あつめた 3 / 39</p>
         </div>
         <p class="coin-badge"><span class="coin-dot"></span><b id="shop-coins">0</b></p>
       </header>
 
-      <button class="egg-btn" id="egg-btn" type="button">
-        <span class="egg-emoji" aria-hidden="true">🥚</span>
-        <span class="egg-text">
-          <b id="egg-label">たまごを わる</b>
-          <span id="egg-sub">あたらしい なかま か ぼうし</span>
-        </span>
-        <span class="egg-cost"><span class="coin-dot"></span>30</span>
-      </button>
+      <div class="dress-row">
+        <canvas id="shop-preview" aria-hidden="true"></canvas>
+        <button class="egg-btn" id="egg-btn" type="button">
+          <span class="egg-emoji" aria-hidden="true">🥚</span>
+          <span class="egg-text">
+            <b id="egg-label">たまごを わる</b>
+            <span id="egg-sub">キャラ・ぼうし・アクセ</span>
+          </span>
+          <span class="egg-cost"><span class="coin-dot"></span>30</span>
+        </button>
+      </div>
+
+      <nav class="chip-row" id="shop-tabs" aria-label="なにを きせかえる？"></nav>
+      <p class="shop-msg" id="shop-msg"></p>
 
       <div class="shop-scroll">
-        <h3 class="shop-h">キャラ</h3>
-        <div class="item-grid" id="skin-grid"></div>
-        <h3 class="shop-h">ぼうし</h3>
-        <div class="item-grid" id="hat-grid"></div>
+        <div class="item-grid" id="item-grid"></div>
+      </div>
+    </section>
+
+    <!-- ===== ペットぼくじょう ===== -->
+    <section class="screen" id="screen-ranch" data-screen="ranch" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="ranch-back" type="button" aria-label="ホームへ">←</button>
+        <div class="map-title">
+          <p class="map-world">ペットぼくじょう</p>
+          <p class="map-desc" id="ranch-desc">なかま 0 / 30</p>
+        </div>
+        <p class="coin-badge"><span class="coin-dot"></span><b id="ranch-coins">0</b></p>
+      </header>
+
+      <div class="pasture"><canvas id="pasture" aria-label="ぼくじょう"></canvas></div>
+
+      <div class="egg-row">
+        <button class="egg-btn small" id="pet-egg" type="button">
+          <span class="egg-emoji" aria-hidden="true">🥚</span>
+          <span class="egg-text">
+            <b>たまご</b>
+            <span id="pet-egg-sub">なかまが ふえる</span>
+          </span>
+          <span class="egg-cost"><span class="coin-dot"></span><span id="pet-egg-cost">40</span></span>
+        </button>
+        <button class="egg-btn small shiny" id="pet-egg-shiny" type="button">
+          <span class="egg-emoji" aria-hidden="true">✨</span>
+          <span class="egg-text">
+            <b>キラたまご</b>
+            <span id="pet-egg-shiny-sub">レアが でやすい</span>
+          </span>
+          <span class="egg-cost"><span class="coin-dot"></span><span id="pet-egg-shiny-cost">120</span></span>
+        </button>
+      </div>
+
+      <p class="pet-detail" id="pet-detail">つれていく なかまを タップして えらぼう</p>
+
+      <div class="ranch-scroll">
+        <div class="pet-grid" id="pet-grid"></div>
+        <p class="p-note" id="dup-note"></p>
       </div>
     </section>
 
@@ -224,6 +292,13 @@
         <label class="toggle"><input type="checkbox" id="p-slow" /><span>ゆっくりモード（障害物を遅く）</span></label>
         <p class="p-note">上限に達しても途中で止めることはしません。ステージの切れ目でおしまいの画面になります。</p>
 
+        <h3 class="p-h">ペットのちから</h3>
+        <p class="p-note" id="p-pet"></p>
+        <p class="p-note">
+          レアなペットの効果は「障害物が来るのが少し遅くなる」「1ステージに1回だけ時間切れを助けてくれる」の
+          2つだけです。助けてもらった問題もミスとして記録し、★・図鑑・習熟度の判定は変えていません。
+        </p>
+
         <h3 class="p-h">セーブデータ</h3>
         <p class="p-note">機種変更のときは、この文字列をコピーして新しい端末に貼り付けてください。</p>
         <textarea id="p-data" class="p-data" rows="3" spellcheck="false"></textarea>
@@ -234,7 +309,7 @@
         <p class="p-note" id="p-data-msg"></p>
 
         <h3 class="p-h">やりなおす</h3>
-        <p class="p-note">星・コイン・図鑑・きせかえを含め、すべて消えます。元に戻せません。</p>
+        <p class="p-note">星・コイン・図鑑・きせかえ・ペットを含め、すべて消えます。元に戻せません。</p>
         <button class="btn btn-danger-ghost" id="set-reset" type="button">さいしょから やりなおす</button>
       </div>
     </section>
@@ -254,6 +329,17 @@
         <canvas id="egg-result-canvas"></canvas>
         <p class="egg-got" id="egg-got"></p>
         <button class="btn btn-primary btn-xl" id="egg-close" type="button">やったー！</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="overlay-pet" hidden>
+      <div class="sheet egg-sheet">
+        <p class="rarity-badge" id="pet-rarity">ふつう</p>
+        <p class="egg-got-head" id="pet-result-head">なかまに なった！</p>
+        <canvas id="pet-result-canvas"></canvas>
+        <p class="egg-got" id="pet-got"></p>
+        <p class="pet-note" id="pet-result-note"></p>
+        <button class="btn btn-primary btn-xl" id="pet-close" type="button">やったー！</button>
       </div>
     </div>
 

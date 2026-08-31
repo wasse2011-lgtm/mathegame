@@ -12,6 +12,10 @@ export interface World {
   id: number;
   name: string;
   desc: string;
+  /** マップでの目じるし。「どんな場所か」を一目で分ける */
+  emoji: string;
+  /** マップの見出しやステージの道に使う色 */
+  color: string;
   /** ステージ1で、障害物が届くまでの秒数。ステージが進むと少しずつ短くなる。 */
   answerTime: number;
   /** 選択肢の数 */
@@ -45,6 +49,8 @@ const carry = (a: number, b: number) => (a % 10) + (b % 10) >= 10;
 export const WORLDS: World[] = [
   {
     id: 1,
+    emoji: '🌱',
+    color: '#5fb85f',
     name: 'はじまりの のはら',
     desc: 'こたえが 5 まで',
     answerTime: 7.0,
@@ -54,6 +60,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 2,
+    emoji: '🍃',
+    color: '#3fae8e',
     name: 'そよかぜ の おか',
     desc: 'こたえが 10 まで',
     answerTime: 6.5,
@@ -63,6 +71,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 3,
+    emoji: '🚪',
+    color: '#e08a29',
     name: '10 の とびら',
     desc: '10 に するには あと いくつ',
     answerTime: 6.0,
@@ -75,6 +85,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 4,
+    emoji: '🏙️',
+    color: '#4a8fd6',
     name: 'じゅう の まち',
     desc: '10 と いくつ',
     answerTime: 6.0,
@@ -84,6 +96,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 5,
+    emoji: '⛰️',
+    color: '#9a6fd0',
     name: 'くりあがり やま',
     desc: 'こたえが 11 〜 18',
     answerTime: 6.5,
@@ -93,6 +107,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 6,
+    emoji: '🏖️',
+    color: '#2fa9c4',
     name: 'ふたけた かいがん',
     desc: '2けた + 1けた（くりあがり なし）',
     answerTime: 5.8,
@@ -102,6 +118,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 7,
+    emoji: '🌩️',
+    color: '#6b7ac9',
     name: 'あらしの みさき',
     desc: '2けた + 1けた（くりあがり あり）',
     answerTime: 6.2,
@@ -111,6 +129,8 @@ export const WORLDS: World[] = [
   },
   {
     id: 8,
+    emoji: '☁️',
+    color: '#e0648c',
     name: 'そらの ちょうじょう',
     desc: '2けた + 2けた',
     answerTime: 6.6,
@@ -132,6 +152,8 @@ export const WORLDS: World[] = [
  */
 export const DAILY_WORLD: World = {
   id: 0,
+  emoji: '📅',
+  color: '#e8a33d',
   name: 'きょうの 5もん',
   desc: 'にがてな しきを 5もん',
   answerTime: 7.0,

@@ -14,7 +14,10 @@ import {
   type World,
 } from './curriculum';
 import { initParent, makeGate, renderParent } from './parent';
-import { initShop, onShopChange, renderShop } from './shop';
+import { drawPet } from './petart';
+import { PET_COUNT, activePet, ownedPets } from './pets';
+import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
+import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
 import { weakestFacts } from './questions';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
@@ -29,10 +32,10 @@ import {
   stageStars,
   storageWorks,
 } from './save';
-import { SKINS, drawChar, paintSkinIcon } from './sprites';
+import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { renderZukan, zukanProgress } from './zukan';
 
-type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'parent';
+type ScreenName = 'title' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'parent';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
@@ -41,6 +44,7 @@ const screens: Record<ScreenName, HTMLElement> = {
   result: document.getElementById('screen-result') as HTMLElement,
   zukan: document.getElementById('screen-zukan') as HTMLElement,
   shop: document.getElementById('screen-shop') as HTMLElement,
+  ranch: document.getElementById('screen-ranch') as HTMLElement,
   parent: document.getElementById('screen-parent') as HTMLElement,
 };
 
@@ -49,6 +53,8 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 const runner = new Runner();
 let current: ScreenName = 'title';
 let mapWorld = 1;
+/** マップは「せかい一覧」と「その せかいの みち」の2段 */
+let mapView: 'worlds' | 'stages' = 'worlds';
 let lastRun: RunConfig | null = null;
 let lastResult: StageResult | null = null;
 
@@ -57,7 +63,10 @@ function show(name: ScreenName): void {
   (Object.keys(screens) as ScreenName[]).forEach((k) => {
     screens[k].hidden = k !== name;
   });
+  // 動いている画面は、表に出たときに描画ループを起こしなおす
   if (name === 'title') startHomeIdle();
+  if (name === 'shop') startShopIdle();
+  if (name === 'ranch') startRanchIdle();
 }
 
 // ------------------------------------------------------------------ ホームのキャラ
@@ -82,13 +91,15 @@ function paintHome(ts: number): void {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, size, size);
     const t = ts / 1000;
-    const p = profile();
     const bob = Math.abs(Math.sin(t * 6)) * 3;
     g.fillStyle = 'rgba(40,70,40,.16)';
     g.beginPath();
-    g.ellipse(size / 2, size - 12, 26, 6, 0, 0, Math.PI * 2);
+    g.ellipse(size * 0.62, size - 12, 24, 6, 0, 0, Math.PI * 2);
     g.fill();
-    drawChar(g, size / 2, size - 14 - bob, 52, p.skin, { t, air: false, hurt: 0, squash: 1 }, p.hat);
+    // つれている子も ホームで となりに立っている
+    const pet = activePet();
+    if (pet) drawPet(g, size * 0.2, size - 14, 30, pet.art, t);
+    drawChar(g, size * 0.62, size - 14 - bob, 52, currentLook(), { t, air: false, hurt: 0, squash: 1 });
   }
   homeRaf = requestAnimationFrame(paintHome);
 }
@@ -183,7 +194,7 @@ function renderTitle(): void {
         renderTitle();
       });
       row.appendChild(b);
-      paintSkinIcon(c, skin.id, '', 56);
+      paintSkinIcon(c, { skin: skin.id }, 56);
     }
     $<HTMLInputElement>('name-input').value = p.name;
     return;
@@ -216,6 +227,10 @@ function renderTitle(): void {
   const { done, total } = zukanProgress();
   $('zukan-count').textContent = `${done} / ${total}`;
   $('zukan-bar').style.width = `${(done / total) * 100}%`;
+
+  const pets = ownedPets().length;
+  $('pet-count').textContent = `${pets} / ${PET_COUNT}`;
+  $('pet-bar').style.width = `${(pets / PET_COUNT) * 100}%`;
 }
 
 $('btn-start').addEventListener('click', () => {
@@ -228,7 +243,9 @@ $('btn-start').addEventListener('click', () => {
     renderTitle(); // 戻ってきたときのホームを先に作っておく
   }
   sfx.tap();
+  // まずは「せかい ぜんぶ」から。どこまで来たかを毎回いちど目に入れる
   mapWorld = lastPlayedWorld();
+  mapView = 'worlds';
   renderMap();
   show('map');
 });
@@ -255,6 +272,17 @@ $('shop-back').addEventListener('click', () => {
   goHome();
 });
 
+$('btn-ranch').addEventListener('click', () => {
+  sfx.tap();
+  renderRanch();
+  show('ranch');
+});
+
+$('ranch-back').addEventListener('click', () => {
+  sfx.tap();
+  goHome();
+});
+
 // ------------------------------------------------------------------ デイリー
 
 $('daily-card').addEventListener('click', () => {
@@ -275,68 +303,184 @@ $('daily-card').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ マップ
 
-function renderMap(): void {
-  const w = worldById(mapWorld);
-  $('map-world').textContent = `${w.id}. ${w.name}`;
-  $('map-desc').textContent = w.desc;
-  $('map-coins').textContent = String(profile().coins);
+/** そのワールドで、つぎに遊ぶステージ（ぜんぶクリア済みなら 0） */
+function nextStageIn(w: World): number {
+  for (let s = 1; s <= bossStage(w); s++) {
+    if (stageUnlocked(w, s) && stageStars(w.id, s) === 0) return s;
+  }
+  return 0;
+}
 
-  const tabs = $('world-tabs');
-  tabs.replaceChildren();
-  for (const world of WORLDS) {
+function totalStars(): number {
+  return WORLDS.reduce((n, w) => n + starsInWorld(w), 0);
+}
+
+function maxStars(): number {
+  return WORLDS.reduce((n, w) => n + bossStage(w) * 3, 0);
+}
+
+function starRow(got: number): string {
+  return [0, 1, 2].map((i) => `<span class="${i < got ? '' : 'off'}">★</span>`).join('');
+}
+
+function renderMap(): void {
+  $('map-coins').textContent = String(profile().coins);
+  if (mapView === 'worlds') renderWorldList();
+  else renderStagePath();
+}
+
+/**
+ * せかいの一覧。
+ * 「ぜんぶで いくつ あって、いま どこまで来たか」をこの画面だけで分かるようにする。
+ * 鍵のかかった先も名前と面数まで見せる（次に何が待っているか分かるほうが進みたくなる）。
+ */
+function renderWorldList(): void {
+  $('world-view').hidden = false;
+  $('stage-view').hidden = true;
+  screens.map.style.removeProperty('--wc');
+
+  const cleared = WORLDS.filter((w) => stageStars(w.id, bossStage(w)) > 0).length;
+  $('map-world').textContent = 'せかい ぜんぶ';
+  $('map-desc').textContent = `${WORLDS.length}つの せかい・クリア ${cleared}／${WORLDS.length}`;
+
+  const got = totalStars();
+  const max = maxStars();
+  $('total-bar').style.width = `${(got / max) * 100}%`;
+  $('total-count').textContent = `★ ${got} / ${max}`;
+
+  const here = lastPlayedWorld();
+  const list = $('world-list');
+  list.replaceChildren();
+
+  for (const w of WORLDS) {
+    const open = worldUnlocked(w.id);
+    const stars = starsInWorld(w);
+    const full = bossStage(w) * 3;
+    const done = stageStars(w.id, bossStage(w)) > 0;
+
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'world-tab';
-    b.setAttribute('aria-selected', String(world.id === mapWorld));
-    const open = worldUnlocked(world.id);
-    b.textContent = open ? `W${world.id}` : '🔒';
+    b.className = `world-card${open ? '' : ' locked'}${done ? ' done' : ''}${open && w.id === here ? ' here' : ''}`;
+    b.style.setProperty('--wc', w.color);
     b.disabled = !open;
+    b.innerHTML =
+      `<span class="wc-badge"><span class="wc-emoji">${open ? w.emoji : '🔒'}</span><b>${w.id}</b></span>` +
+      `<span class="wc-main">` +
+      `<b class="wc-name">${open ? w.name : '？？？'}</b>` +
+      `<span class="wc-desc">${open ? w.desc : 'まえの ボスを たおすと ひらく'}</span>` +
+      `<span class="bar"><i style="width:${open ? (stars / full) * 100 : 0}%"></i></span>` +
+      `</span>` +
+      `<span class="wc-right">` +
+      `<span class="wc-stars">★ ${open ? stars : 0}<small>/${full}</small></span>` +
+      `<span class="wc-stages">${w.stages}めん＋ボス</span>` +
+      `</span>` +
+      (done ? '<span class="wc-flag">クリア</span>' : open && w.id === here ? '<span class="wc-flag now">いま ここ</span>' : '');
+
     b.addEventListener('click', () => {
-      mapWorld = world.id;
       sfx.tap();
+      mapWorld = w.id;
+      mapView = 'stages';
       renderMap();
     });
-    tabs.appendChild(b);
+    list.appendChild(b);
   }
 
-  const grid = $('stage-grid');
-  grid.replaceChildren();
+  $('map-hint').textContent = overDailyLimit()
+    ? 'きょうの ぼうけんは ここまで。また あした！'
+    : `せかいを タップすると、なかの みちが みえるよ`;
+}
+
+/**
+ * ステージの道。ぐねぐねした一本道に、ステージが順番に並ぶ。
+ * 前のマス目グリッドだと「あと何面あるのか」「いまどこか」が読み取れなかった。
+ */
+function renderStagePath(): void {
+  const w = worldById(mapWorld);
+  $('world-view').hidden = true;
+  $('stage-view').hidden = false;
+  screens.map.style.setProperty('--wc', w.color);
+
+  $('map-world').textContent = `${w.emoji} ${w.id}. ${w.name}`;
+  $('map-desc').textContent = `${w.desc}　・　${w.stages}めん＋ボス`;
+
+  const next = nextStageIn(w);
+  const path = $('stage-path');
+  path.replaceChildren();
+
   for (let stage = 1; stage <= bossStage(w); stage++) {
     const boss = isBoss(w, stage);
     const open = stageUnlocked(w, stage);
     const got = stageStars(w.id, stage);
 
+    const row = document.createElement('div');
+    row.className = 'node-row';
+    // 一本道をぐねぐねさせる。sin にしておくと、面数が変わっても形が破綻しない
+    row.style.setProperty('--k', String(Math.sin(stage * 0.9).toFixed(3)));
+
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = `stage-btn${boss ? ' boss' : ''}`;
+    b.className = `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}${!open ? ' locked' : ''}`;
     b.disabled = !open || overDailyLimit();
-
-    const label = document.createElement('span');
-    label.textContent = boss ? '👑' : String(stage);
-    const stars = document.createElement('span');
-    stars.className = 'st';
-    stars.innerHTML = [0, 1, 2].map((i) => `<span class="${i < got ? '' : 'off'}">★</span>`).join('');
-    b.append(label, stars);
+    b.innerHTML =
+      `<span class="sn-label">${!open ? '🔒' : boss ? '👑' : stage}</span>` +
+      `<span class="st">${starRow(got)}</span>`;
     b.setAttribute('aria-label', `${boss ? 'ボス' : `ステージ ${stage}`} ほし ${got}`);
-
     b.addEventListener('click', () => {
       unlockAudio();
       sfx.tap();
       startStage(w, stage);
     });
-    grid.appendChild(b);
+    row.appendChild(b);
+
+    // ふだ（「ボス」「いま ここ」）はマスの中に絶対配置する。
+    // 行に並べると、その行だけマスが道からずれる
+    if (boss) {
+      const tag = document.createElement('span');
+      tag.className = 'node-tag boss-tag';
+      const need = bossRequirement(w) - normalStars(w);
+      tag.textContent = open ? 'ボス' : `★あと ${need}`;
+      b.appendChild(tag);
+    }
+    if (stage === next && open) {
+      const tag = document.createElement('span');
+      tag.className = 'node-tag now';
+      tag.textContent = 'いま ここ';
+      b.appendChild(tag);
+    }
+    path.appendChild(row);
   }
+
+  // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる
+  const nw = WORLDS.find((x) => x.id === w.id + 1);
+  const goal = document.createElement('div');
+  goal.className = 'path-goal';
+  if (nw) {
+    const open = worldUnlocked(nw.id);
+    goal.style.setProperty('--wc', nw.color);
+    goal.innerHTML = `<span class="pg-emoji">${open ? nw.emoji : '🔒'}</span>` +
+      `<span class="pg-text"><b>つぎの せかい</b><span>${open ? `${nw.id}. ${nw.name}` : 'ボスを たおすと ひらく'}</span></span>`;
+  } else {
+    goal.innerHTML = `<span class="pg-emoji">🏁</span>` +
+      `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
+  }
+  path.appendChild(goal);
 
   const bossNeed = bossRequirement(w) - normalStars(w);
   $('map-hint').textContent = overDailyLimit()
     ? 'きょうの ぼうけんは ここまで。また あした！'
     : bossNeed > 0
       ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w)}）`
-      : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}`;
+      : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}　ボスに いどめる！`;
 }
 
 $('map-back').addEventListener('click', () => {
   sfx.tap();
+  // 道 → せかい一覧 → ホーム の順で戻る
+  if (mapView === 'stages') {
+    mapView = 'worlds';
+    renderMap();
+    return;
+  }
   goHome();
 });
 
@@ -406,6 +550,7 @@ $('pause-quit').addEventListener('click', () => {
   if (lastRun && lastRun.stage === 0) {
     goHome();
   } else {
+    mapView = 'stages';
     renderMap();
     show('map');
   }
@@ -491,6 +636,7 @@ $('result-next').addEventListener('click', () => {
     goHome();
   } else {
     mapWorld = lastResult.worldId;
+    mapView = 'stages';
     renderMap();
     show('map');
   }
@@ -616,6 +762,8 @@ window.addEventListener('visibilitychange', () => {
 requestPersistentStorage();
 initShop();
 onShopChange(renderTitle);
+initRanch();
+onRanchChange(renderTitle);
 initParent(() => {
   syncSettings();
   renderTitle();

@@ -3,7 +3,19 @@
  * 読み書きは全部 try/catch で包み、失敗しても遊べる状態を返す。
  */
 
-export type SkinId = 'cat' | 'dog' | 'robo' | 'usa' | 'pen' | 'kuma';
+export type SkinId =
+  | 'cat'
+  | 'dog'
+  | 'robo'
+  | 'usa'
+  | 'pen'
+  | 'kuma'
+  | 'fox'
+  | 'panda'
+  | 'sheep'
+  | 'tora'
+  | 'azarashi'
+  | 'dora';
 
 /** 式ごとの習熟度。m=0..5、ms=平均解答時間、miss=誤答回数、seen=出題回数 */
 export interface FactStat {
@@ -31,6 +43,10 @@ export interface Profile {
   skin: SkinId;
   /** ぼうしのアイテムID。'' はかぶらない */
   hat: string;
+  /** アクセサリーのアイテムID。'' はつけない */
+  acc: string;
+  /** からだの色のアイテムID。'' はキャラ本来の色 */
+  color: string;
   coins: number;
   /** "1-3" → 星の数 (1..3) */
   stars: Record<string, number>;
@@ -38,6 +54,10 @@ export interface Profile {
   facts: Record<string, FactStat>;
   /** ガチャで手に入れたアイテムID */
   unlocked: string[];
+  /** ペットID → 手に入れた数。1 で仲間、2回目からは なかよし度が上がる */
+  pets: Record<string, number>;
+  /** つれて歩くペットID。'' はひとり */
+  pet: string;
   daily: Daily;
   play: PlayTime;
 }
@@ -81,10 +101,14 @@ function freshProfile(): Profile {
     name: '',
     skin: 'cat',
     hat: '',
+    acc: '',
+    color: '',
     coins: 0,
     stars: {},
     facts: {},
     unlocked: [],
+    pets: {},
+    pet: '',
     daily: { date: '', streak: 0, done: false },
     play: { date: '', sec: 0 },
   };
@@ -171,6 +195,8 @@ function read(): SaveData {
         stars: p?.stars ?? {},
         facts: p?.facts ?? {},
         unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
+        // ペットは後から足した。古いセーブには無いので必ず既定値に落とす
+        pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
       })),
       active: Math.min(Math.max(parsed.active ?? 0, 0), parsed.players.length - 1),
       settings: { ...base.settings, ...(parsed.settings ?? {}) },

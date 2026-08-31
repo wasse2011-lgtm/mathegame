@@ -6,7 +6,9 @@
  */
 
 import { WORLDS, bossStage, type Fact } from './curriculum';
+import { activePet, ownedPets, rarityDef } from './pets';
 import { MASTERED } from './questions';
+import { powerText } from './ranch';
 import { SAVE_KEY, freezeSave, persist, profile, save, stageStars, today } from './save';
 import { zukanProgress } from './zukan';
 
@@ -78,6 +80,11 @@ export function renderParent(): void {
 
   $<HTMLSelectElement>('p-limit').value = String(save.settings.dailyLimitMin);
   $<HTMLInputElement>('p-slow').checked = save.settings.slow;
+
+  const pet = activePet();
+  $('p-pet').textContent = pet
+    ? `いま連れているのは「${pet.name}」（${rarityDef(pet.rarity).label}）。${powerText(pet)}。集めたペットは ${ownedPets().length} ひきです。`
+    : `いまはペットを連れていません。集めたペットは ${ownedPets().length} ひきです。`;
 
   try {
     $<HTMLTextAreaElement>('p-data').value = localStorage.getItem(KEY) ?? JSON.stringify(save);
