@@ -255,7 +255,7 @@ W1  3択 |  33.3%  36.7%  30.0%  | いちばん通る手 36.7%
 
 ```bash
 npm i @capacitor/core @capacitor/cli
-npx cap init "たしざんジャンプ" jp.example.tashizanjump --web-dir=dist
+npx cap init "ぴょんぴょんゲーム" jp.example.pyonpyon --web-dir=dist
 npm i @capacitor/ios @capacitor/android
 npm run build
 npx cap add ios && npx cap add android

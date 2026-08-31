@@ -6,18 +6,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#8fd0ef" />
   <meta name="color-scheme" content="light" />
-  <meta name="description" content="こたえをタップしてジャンプ！ 子ども向けのたしざんランナー。" />
+  <meta name="description" content="こたえをタップして ぴょんぴょん！ 子ども向けのたしざんゲーム。" />
 
   <!-- ホーム画面に追加したときのフルスクリーン表示 -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title" content="たしざんジャンプ" />
+  <meta name="apple-mobile-web-app-title" content="ぴょんぴょんゲーム" />
   <link rel="manifest" href="./manifest.json" />
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
   <link rel="icon" href="./icons/icon-192.png" />
 
-  <title>たしざんジャンプ</title>
+  <title>ぴょんぴょんゲーム</title>
 </head>
 <body>
   <div id="app">
@@ -25,7 +25,7 @@
     <!-- ===== ホーム ===== -->
     <section class="screen" id="screen-title" data-screen="title">
       <div class="title-inner">
-        <h1 class="logo" id="logo"><span class="logo-a">たしざん</span><span class="logo-b">ジャンプ</span></h1>
+        <h1 class="logo" id="logo"><span class="logo-a">ぴょんぴょん</span><span class="logo-b">ゲーム</span></h1>
 
         <p class="no-storage" id="no-storage" hidden>
           このひらきかたでは <b>きろくが のこりません</b>。<br>
@@ -144,6 +144,13 @@
         <p class="coin-badge"><span class="coin-dot"></span><b id="hud-coins">0</b></p>
       </header>
 
+      <!-- いまの1問がどういう問題か。にがて・ラスト・リベンジを言葉で出す -->
+      <div class="q-tags" id="q-tags">
+        <span class="q-tag weak" id="tag-weak" hidden>にがて</span>
+        <span class="q-tag final" id="tag-final" hidden>ラスト 1もん</span>
+        <span class="q-tag rev" id="tag-revenge" hidden>リベンジ</span>
+      </div>
+
       <p class="question" id="question" aria-live="polite">　</p>
 
       <!-- さくらんぼ分解のヒント。詰まったときだけ出る -->
@@ -189,9 +196,11 @@
 
           <ul class="result-rows">
             <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
+            <li id="result-revenge-row" hidden><span>リベンジ</span><b id="result-revenge">-</b></li>
             <li id="result-combo-row" hidden><span>さいこう れんぞく</span><b id="result-combo">-</b></li>
             <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
           </ul>
+          <p class="revenge-note" id="result-revenge-note" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
           <div class="result-btns">
@@ -223,6 +232,7 @@
       <p class="zukan-legend">
         <span class="lg new"></span>まだ
         <span class="lg mid"></span>れんしゅうちゅう
+        <span class="lg weak"></span>にがて
         <span class="lg done"></span>おぼえた
       </p>
     </section>

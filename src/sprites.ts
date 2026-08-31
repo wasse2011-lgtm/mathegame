@@ -676,6 +676,76 @@ export function drawObstacle(
       break;
     }
 
+    case 'weak': {
+      /*
+       * にがて（まちがえた回数の多い式）のときだけ出てくる相手。
+       *
+       * 景色のどのワールドにも属さない専用の姿にしてある。ここが要点で、
+       * 「岩がちょっと赤い」では気づけない。角・とげ・ふきだしの「にがて」まで
+       * 付けて、遠くから見た瞬間に「いつものやつじゃない」と分かるようにする。
+       */
+      const bob = Math.sin(t * 4) * size * 0.04;
+      const w = size * 0.96;
+      const h = size * 1.02;
+      const x = cx - w / 2;
+      const y = footY - h + bob;
+
+      // まとっているもや。近づいてくると分かりやすい
+      const aura = g.createRadialGradient(cx, y + h * 0.5, w * 0.34, cx, y + h * 0.5, w * 0.85);
+      aura.addColorStop(0, 'rgba(228,103,92,.36)');
+      aura.addColorStop(1, 'rgba(228,103,92,0)');
+      g.fillStyle = aura;
+      g.beginPath();
+      g.arc(cx, y + h * 0.5, w * 0.85, 0, Math.PI * 2);
+      g.fill();
+
+      // つの
+      g.fillStyle = '#b94439';
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(cx + dir * w * 0.3, y + h * 0.12);
+        g.lineTo(cx + dir * w * 0.46, y - h * 0.2);
+        g.lineTo(cx + dir * w * 0.08, y + h * 0.06);
+        g.closePath();
+        g.fill();
+      }
+
+      // からだ。下がぎざぎざで、岩ともスライムとも見まちがえない形にする
+      g.fillStyle = '#e4675c';
+      g.beginPath();
+      g.moveTo(x, footY);
+      g.lineTo(x, y + h * 0.34);
+      g.quadraticCurveTo(x, y, cx, y);
+      g.quadraticCurveTo(x + w, y, x + w, y + h * 0.34);
+      g.lineTo(x + w, footY);
+      for (let i = 5; i >= 0; i--) {
+        g.lineTo(x + (w / 6) * (i + 0.5), footY - h * 0.12);
+        g.lineTo(x + (w / 6) * i, footY);
+      }
+      g.closePath();
+      g.fill();
+
+      g.fillStyle = 'rgba(0,0,0,.14)';
+      roundRect(g, x, y + h * 0.66, w, h * 0.22, size * 0.16);
+      g.fill();
+
+      face(g, cx, y + h * 0.42, w * 0.2, size, { angry: true, mouth: h * 0.26 });
+
+      // 「にがて」のふきだし。ことばで言い切るのがいちばん確実
+      const fs = Math.max(9, size * 0.3);
+      g.font = `700 ${fs}px "Hiragino Maru Gothic ProN", sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      const tw = g.measureText('にがて').width;
+      const ty = y - h * 0.3;
+      g.fillStyle = '#b94439';
+      roundRect(g, cx - tw / 2 - fs * 0.34, ty - fs * 0.62, tw + fs * 0.68, fs * 1.24, fs * 0.62);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.fillText('にがて', cx, ty + fs * 0.04);
+      break;
+    }
+
     case 'slime': {
       // ぷるぷる。つぶれるほど横に広がる（体積が変わらないように見せる）
       const k = 1 + Math.sin(t * 7) * 0.14;

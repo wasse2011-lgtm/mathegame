@@ -7,7 +7,7 @@
 
 import { sfx } from './audio';
 import { BASIC_FACTS, ZUKAN_MAX, factKey, type Fact } from './curriculum';
-import { MASTERED } from './questions';
+import { MASTERED, isWeakFact } from './questions';
 import { peekFact, profile } from './save';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -32,17 +32,29 @@ function stateOf(f: Fact): 'new' | 'mid' | 'done' {
   return s.m >= MASTERED ? 'done' : 'mid';
 }
 
+/** いま「にがて」になっている式の数。子どもに見せる「たおすべき相手」の数 */
+function weakCount(): number {
+  let n = 0;
+  for (const f of BASIC_FACTS) if (isWeakFact(f)) n++;
+  return n;
+}
+
 function describe(f: Fact): string {
   const s = peekFact(factKey(f));
   if (s.seen === 0) return `${f.a} + ${f.b} は これから`;
   const parts = [s.m >= MASTERED ? 'おぼえた！' : 'れんしゅうちゅう', `${s.seen}かい`];
   if (s.ms) parts.push(`${(s.ms / 1000).toFixed(1)}びょう`);
+  // にがては、まちがえた回数まで見せる。「あと何回たおせばいいか」が見える
+  if (isWeakFact(f)) parts.push(`にがて（${s.miss}かい まちがえた）`);
   return `${f.a} + ${f.b} = ${f.a + f.b}　${parts.join('・')}`;
 }
 
 export function renderZukan(): void {
   const { done, total } = zukanProgress();
-  $('zukan-desc').textContent = `おぼえた カード ${done} / ${total}`;
+  const weak = weakCount();
+  $('zukan-desc').textContent = weak
+    ? `おぼえた カード ${done} / ${total}　にがて ${weak}`
+    : `おぼえた カード ${done} / ${total}`;
   $('zukan-bar2').style.width = `${(done / total) * 100}%`;
   $('zukan-detail').textContent = 'マスを タップすると くわしく みられます';
 
@@ -72,11 +84,12 @@ export function renderZukan(): void {
     for (let b = 1; b <= ZUKAN_MAX; b++) {
       const f = { a, b };
       const st = stateOf(f);
+      const weakCell = isWeakFact(f);
       const cell = document.createElement('button');
       cell.type = 'button';
-      cell.className = `zk ${st}`;
+      cell.className = `zk ${st}${weakCell ? ' weak' : ''}`;
       cell.textContent = st === 'new' ? '' : String(a + b);
-      cell.setAttribute('aria-label', `${a} たす ${b}`);
+      cell.setAttribute('aria-label', `${a} たす ${b}${weakCell ? ' にがて' : ''}`);
       cell.addEventListener('click', () => {
         sfx.tap();
         $('zukan-detail').textContent = describe(f);

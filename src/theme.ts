@@ -12,10 +12,13 @@
  * （きのうと違う、が起きると「あのステージ」として覚えられない）。
  */
 
-/** 障害物の種類。ワールドごとに出るものが変わる */
+/**
+ * 障害物の種類。ワールドごとに出るものが変わる。
+ * 'weak'（にがて）だけは景色に属さず、まちがえた回数の多い式のときに割りこむ。
+ */
 export type ObstacleKind =
   | 'rock' | 'bush' | 'slime' | 'log' | 'bird' | 'mushroom'
-  | 'ghost' | 'cone' | 'box' | 'snowman' | 'crystal' | 'crab' | 'boss';
+  | 'ghost' | 'cone' | 'box' | 'snowman' | 'crystal' | 'crab' | 'boss' | 'weak';
 
 /** 地面に生えているもの（遠景） */
 export type DecoKind = 'tree' | 'flower' | 'mushroom' | 'building' | 'pine' | 'palm' | 'rock' | 'cloud';

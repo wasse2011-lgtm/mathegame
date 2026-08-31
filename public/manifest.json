@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "たしざんジャンプ",
-  "short_name": "たしざん",
-  "description": "こたえをタップしてジャンプ！ 子ども向けのたしざんランナー。",
+  "name": "ぴょんぴょんゲーム",
+  "short_name": "ぴょんぴょん",
+  "description": "こたえをタップして ぴょんぴょん！ 子ども向けのたしざんゲーム。",
   "lang": "ja",
   "dir": "ltr",
   "categories": ["education", "games", "kids"],

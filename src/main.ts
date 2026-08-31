@@ -822,6 +822,7 @@ function coinLines(r: StageResult): CoinLine[] {
   const out: CoinLine[] = [];
   if (r.gain.correct) out.push({ label: `せいかい ${r.correct}もん`, value: r.gain.correct });
   if (r.gain.combo) out.push({ label: 'れんぞく ボーナス', value: r.gain.combo });
+  if (r.gain.weak) out.push({ label: 'にがて げきは', value: r.gain.weak });
   if (r.gain.perfect) out.push({ label: 'ノーミス ボーナス', value: r.gain.perfect });
   if (r.gain.bonus) out.push({ label: daily ? 'きょうの 5もん' : 'ボス ボーナス', value: r.gain.bonus });
   if (r.gain.lost) out.push({ label: 'おとした コイン', value: -r.gain.lost });
@@ -867,6 +868,19 @@ function renderResult(r: StageResult): void {
   const comboRow = $('result-combo-row');
   comboRow.hidden = r.maxCombo < 3;
   $('result-combo').textContent = `${r.maxCombo} れんぞく`;
+
+  // リベンジ（まちがえた式のやりなおし）。走った回だけ出す
+  const rev = r.revenge;
+  $('result-revenge-row').hidden = !rev;
+  const revNote = $('result-revenge-note');
+  revNote.hidden = !rev;
+  if (rev) {
+    $('result-revenge').textContent = `${rev.correct} / ${rev.total}`;
+    revNote.classList.toggle('ok', rev.cleared);
+    revNote.textContent = rev.cleared
+      ? 'リベンジ せいこう！ ミスを 1つ とりけした'
+      : 'まちがえた しきに もういちど ちょうせんした！';
+  }
 
   const learned = $('result-learned');
   if (r.learned.length) {

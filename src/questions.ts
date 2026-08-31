@@ -172,7 +172,14 @@ export class QuestionPicker {
   }
 
   next(): Question {
-    const fact = this.pickFact();
+    return this.question(this.pickFact());
+  }
+
+  /**
+   * 式を指定して1問つくる。リベンジ（まちがえた式のやりなおし）で使う。
+   * 出す式は決め打ちでも、選択肢の作りかたと正解の位置の散らしかたは next() と同じにする。
+   */
+  question(fact: Fact): Question {
     const sum = fact.a + fact.b;
     // 「10 の合成」は答えが必ず 10 なので、ふつうに出すと式を読まなくても当たる。
     // たす数のほうを空欄にして、分解そのものを問う。
@@ -210,6 +217,22 @@ export class QuestionPicker {
 
 /** 習熟度 4 以上を「おぼえた」とみなす（図鑑のカードが光る境目） */
 export const MASTERED = 4;
+
+/** これだけまちがえたら「にがて」。1回では、たまたま押しまちがえただけのことが多い */
+export const WEAK_MISS = 2;
+
+/**
+ * にがてな式か。
+ *
+ * miss はいままで親の画面でしか使っていなかったが、同じデータを子ども向けに
+ * 「たおすべき相手」として見せなおす（プレイ中の障害物と、図鑑のしるし）。
+ * おぼえた式は、まちがえた回数が残っていても外す。過去のミスをいつまでも
+ * 突きつけないため。
+ */
+export function isWeakFact(f: Fact): boolean {
+  const s = peekFact(factKey(f));
+  return s.miss >= WEAK_MISS && s.m < MASTERED;
+}
 
 /**
  * 正解／不正解を習熟度に反映する。戻り値は「いま初めておぼえた」かどうか。

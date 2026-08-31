@@ -13,9 +13,14 @@
  *  ・ボスは画面の右に立ち、石・炎・ビームを撃ってくる。正解＝跳んでよける。
  *  ・最後の4問は攻撃が1割はやくなり、いちばん最後はボスが突撃してくる。
  *    そこで正解すると、飛び上がって踏みつけて倒す。
+ *
+ * 通常ステージにも山場と救いを1つずつ置いてある:
+ *  ・最後の1問だけ、障害物がひとまわり大きく、低い持続音が鳴り、粒が倍になる。
+ *  ・10問のあとに「リベンジ」。まちがえた式だけをもう一度出し、ぜんぶ正解したら
+ *    ミスを1つ取り消す（まちがいが取り返せるものになる）。
  */
 
-import { sfx } from './audio';
+import { sfx, startDrone, stopDrone } from './audio';
 import { bossDef, drawBoss, drawShot, shotFor, type BossDef, type BossState, type Shot } from './boss';
 import {
   BOSS_RUSH_RATE,
@@ -28,9 +33,9 @@ import {
 } from './curriculum';
 import { drawPet } from './petart';
 import { activePet, petPower, type PetDef } from './pets';
-import { QuestionPicker, recordAnswer, type Question } from './questions';
+import { QuestionPicker, isWeakFact, recordAnswer, type Question } from './questions';
 import {
-  COIN_COMBO, COIN_CORRECT, COIN_MISS, COIN_PERFECT, gainTotal, type CoinGain,
+  COIN_COMBO, COIN_CORRECT, COIN_MISS, COIN_PERFECT, COIN_WEAK, gainTotal, type CoinGain,
 } from './rewards';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
@@ -72,9 +77,19 @@ export interface StageResult {
   failed: boolean;
   /** 倒した／やられたボスの名前。リザルトの文言に使う */
   bossName: string | null;
+  /** リベンジ（まちがえた式のやりなおし）。走らなかった回は null */
+  revenge: RevengeResult | null;
 }
 
-type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'dead' | 'over';
+export interface RevengeResult {
+  total: number;
+  correct: number;
+  /** ぜんぶ正解した（ミスを1つ取り消した） */
+  cleared: boolean;
+}
+
+/** 'wrap' はリベンジのしめくくり。帯を見せてからリザルトへ移る */
+type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'dead' | 'wrap' | 'over';
 
 /** よけた瞬間に広がる輪 */
 interface Ring {
@@ -103,6 +118,19 @@ const CLEAR_HOLD = 0.8;
 const REVEAL_HOLD = 1.25;
 const T_APEX = 0.32;
 
+/** 最後の1問で、障害物を何倍にするか */
+const FINAL_SCALE = 1.5;
+
+/**
+ * リベンジで出しなおす上限。
+ * 10問ぜんぶ落とした日に 20問走らせると、いちばん疲れている子がいちばん長く
+ * 走ることになる。多い日は、まちがえた順に先頭から5問だけ出す。
+ */
+const REVENGE_MAX = 5;
+
+/** リベンジは苦手な式ばかり。持ち時間を少しのばして、思い出す間をつくる */
+const REVENGE_TIME = 1.25;
+
 /** れんぞく数ごとの掛け声。上に行くほど短く強い言葉にする */
 const COMBO_CALLS: { at: number; text: string }[] = [
   { at: 3, text: 'いいね！' },
@@ -124,6 +152,9 @@ export class Runner {
   private elHint = document.getElementById('hint') as HTMLElement;
   private elCherry = document.getElementById('cherry') as unknown as SVGElement;
   private elHintText = document.getElementById('hint-text') as HTMLElement;
+  private elTagWeak = document.getElementById('tag-weak') as HTMLElement;
+  private elTagFinal = document.getElementById('tag-final') as HTMLElement;
+  private elTagRevenge = document.getElementById('tag-revenge') as HTMLElement;
   private elBossBar = document.getElementById('boss-bar') as HTMLElement;
   private elBossName = document.getElementById('boss-name') as HTMLElement;
   private elBossHp = document.getElementById('boss-hp') as HTMLElement;
@@ -145,7 +176,7 @@ export class Runner {
   private qIndex = 0;
   private correct = 0;
   private misses = 0;
-  private gain: CoinGain = { correct: 0, combo: 0, perfect: 0, bonus: 0, lost: 0 };
+  private gain: CoinGain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, lost: 0 };
   /** HUD に出しているコイン。飛んできたコインが着いた分だけ増える */
   private coinsShown = 0;
   private combo = 0;
@@ -162,9 +193,22 @@ export class Runner {
    */
   private qElapsed = 0;
   private wrongThisQ = false;
+  /** いまの問題が「最後の1問」か（ボス戦は突撃があるので使わない） */
+  private isFinal = false;
+  /** いまの問題が「にがて」な式か */
+  private isWeak = false;
   private phase: Phase = 'ask';
   private hold = 0;
   private hintShown = false;
+
+  // リベンジ（10問のあと、まちがえた式だけをもう一度）
+  /** この走りでまちがえた式。同じ式は1つにまとめる */
+  private missed = new Map<string, Fact>();
+  private revenge = false;
+  private revengeQ: Fact[] = [];
+  private revengeIndex = 0;
+  private revengeCorrect = 0;
+  private revengeResult: RevengeResult | null = null;
   /** この走りで遊んだ秒数。ステージが終わるかやめたときに保存する */
   private elapsed = 0;
 
@@ -262,7 +306,7 @@ export class Runner {
     this.qIndex = 0;
     this.correct = 0;
     this.misses = 0;
-    this.gain = { correct: 0, combo: 0, perfect: 0, bonus: 0, lost: 0 };
+    this.gain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, lost: 0 };
     this.coinsShown = 0;
     this.combo = 0;
     this.maxCombo = 0;
@@ -277,6 +321,15 @@ export class Runner {
     this.py = 0;
     this.vy = 0;
     this.char = { t: 0, air: false, hurt: 0, squash: 1 };
+
+    this.missed = new Map();
+    this.revenge = false;
+    this.revengeQ = [];
+    this.revengeIndex = 0;
+    this.revengeCorrect = 0;
+    this.revengeResult = null;
+    this.isFinal = false;
+    this.isWeak = false;
 
     this.bossDefn = bossDef(cfg.world.id);
     this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
@@ -335,14 +388,18 @@ export class Runner {
     addPlayTime(this.elapsed);
     this.elapsed = 0;
     this.hideHint();
+    stopDrone();
   }
 
   setPaused(p: boolean): void {
     // running を見て早期 return すると、start() の直前に裏へ回ったときに
     // 「ポーズ画面が出たまま裏で走り続ける」状態になる。状態は必ず持つ。
     this.paused = p;
+    // 止まっているあいだ持続音を鳴らしっぱなしにしない（裏に回したまま鳴り続ける）
+    if (p) stopDrone();
     if (!this.running) return;
     if (!p) {
+      if (this.isFinal && this.phase === 'ask') startDrone();
       this.lastTs = 0;
       cancelAnimationFrame(this.raf);
       this.raf = requestAnimationFrame(this.frame);
@@ -460,9 +517,26 @@ export class Runner {
     }
   }
 
+  /** リベンジのぶんを、本編の10個のうしろに足す（色を変えて別の列だと分かるように） */
+  private addRevengePips(): void {
+    for (let i = 0; i < this.revengeQ.length; i++) {
+      const pip = document.createElement('span');
+      pip.className = 'pip rev';
+      this.elPips.appendChild(pip);
+    }
+  }
+
   private markPip(ok: boolean): void {
-    const pip = this.elPips.children[this.qIndex] as HTMLElement | undefined;
+    const at = this.revenge ? this.total + this.revengeIndex : this.qIndex;
+    const pip = this.elPips.children[at] as HTMLElement | undefined;
     pip?.classList.add(ok ? 'done' : 'miss');
+  }
+
+  /** 式の上のしるし。いまの問題が「にがて」「ラスト」「リベンジ」かを言葉で出す */
+  private updateTags(): void {
+    this.elTagWeak.hidden = !this.isWeak;
+    this.elTagFinal.hidden = !this.isFinal;
+    this.elTagRevenge.hidden = !this.revenge;
   }
 
   /**
@@ -509,12 +583,21 @@ export class Runner {
   }
 
   private nextQuestion(): void {
-    this.q = this.picker.next();
+    // リベンジ中は、まちがえた式そのものを順に出す（引き直さない）
+    this.q = this.revenge
+      ? this.picker.question(this.revengeQ[this.revengeIndex])
+      : this.picker.next();
     this.wrongThisQ = false;
     this.dodgedThisQ = false;
     this.phase = 'ask';
     this.qElapsed = 0;
     this.hideHint();
+
+    // ボス戦の山場は突撃なので、最後の1問の特別扱いは通常ステージだけ
+    this.isFinal = !this.boss && !this.revenge && this.qIndex === this.total - 1;
+    // リベンジで出る式は、いま目の前でまちがえた式。文句なしに「にがて」
+    this.isWeak = this.revenge || isWeakFact(this.q.fact);
+    this.updateTags();
 
     this.elQuestion.textContent = this.q.text;
 
@@ -529,7 +612,14 @@ export class Runner {
     });
     this.elAnswers.append(...this.buttons);
 
-    this.launchObstacle(1);
+    this.launchObstacle(this.revenge ? REVENGE_TIME : 1);
+
+    // 最後の1問。大きな障害物・低い持続音・倍の粒で、ここが山場だと体で分かるようにする
+    if (this.isFinal) {
+      this.showBanner('ラスト 1もん！', 1.4);
+      sfx.final();
+      startDrone();
+    }
   }
 
   /**
@@ -543,13 +633,15 @@ export class Runner {
       this.startBossTurn(time);
       return;
     }
-    const kind = this.pickObstacle();
+    // にがてな式は専用の相手が出る。「たおすべき相手」が毎回おなじ姿だと伝わる
+    const kind = this.isWeak ? 'weak' : this.pickObstacle();
     this.ob = {
       x: this.spawnX(),
       v: (this.spawnX() - this.playerX) / time,
       kind,
-      // 同じ種類でも少しずつ大きさを変える。並べたときの「作りもの感」が減る
-      scale: 0.88 + Math.random() * 0.3,
+      // 最後の1問だけひとまわり大きい。ほかは同じ種類でも少しずつ大きさを変える
+      // （並べたときの「作りもの感」が減る）
+      scale: this.isFinal ? FINAL_SCALE : 0.88 + Math.random() * 0.3,
     };
   }
 
@@ -618,22 +710,37 @@ export class Runner {
       if (firstTry) {
         const key = factKey(q.fact);
         if (recordAnswer(q.fact, true, ms)) this.learned.push(key);
-        this.correct++;
+        // リベンジは「取り返す」ぶんなので、せいかい数（x / 10）には足さない
+        if (this.revenge) this.revengeCorrect++;
+        else this.correct++;
         this.combo++;
         this.maxCombo = Math.max(this.maxCombo, this.combo);
 
+        // リベンジぶんは「せいかい」に入れない。ここに足すと、リザルトの
+        // 「せいかい 8もん ＋27」のように、行の見出しと枚数が合わなくなる。
+        // やりなおしのごほうびは、にがて げきは のほうで払う（必ず にがて なので 0 にならない）
+        const base = this.revenge ? 0 : COIN_CORRECT;
         const bonus = this.combo >= 5 ? COIN_COMBO : 0;
-        this.gain.correct += COIN_CORRECT;
+        const weakBonus = this.isWeak ? COIN_WEAK : 0;
+        this.gain.correct += base;
         this.gain.combo += bonus;
-        this.spawnCoins(COIN_CORRECT + bonus);
+        this.gain.weak += weakBonus;
+        this.spawnCoins(base + bonus + weakBonus);
 
         if (!this.best || ms < this.best.ms) this.best = { key, ms };
         sfx.correct(this.combo - 1);
+        // にがてを初回で正解した＝倒した。ここは掛け声でいちばん強く返す
+        if (this.isWeak) {
+          this.cheer = { text: 'にがてを たおした！', life: 1.3 };
+          this.burst(this.px, this.groundY - 22 * this.s, 14, '#e4675c');
+          sfx.beat();
+        }
         this.callOut();
       } else {
         sfx.correct(0);
       }
       this.markPip(firstTry);
+      stopDrone();
 
       // 正解した瞬間に跳ぶ。突撃を踏むときだけ、いつもより高く跳び上がる
       this.vy = this.jumpV * (this.boss && this.charging ? 1.4 : 1);
@@ -665,12 +772,7 @@ export class Runner {
         return;
       }
 
-      if (!this.wrongThisQ) {
-        this.wrongThisQ = true;
-        this.misses++;
-        recordAnswer(q.fact, false, ms);
-        this.picker.markWrong(q.fact);
-      }
+      this.noteWrong(q, ms);
       this.combo = 0;
       this.char.hurt = 0.35;
       this.showHint();
@@ -684,6 +786,23 @@ export class Runner {
       sfx.wrong();
       this.updateHud(false);
     }
+  }
+
+  /**
+   * まちがい（誤答・時間切れ）を1問につき1回だけ記録する。
+   *
+   * リベンジ中はミス数に足さない。ここを数えると「まちがえた式にもう一度挑むと、
+   * さらにミスが増える」ことになり、やりなおしが罰になってしまう。
+   * 習熟度（recordAnswer）だけは本編と同じに付ける。★も図鑑も甘くしないため。
+   */
+  private noteWrong(q: Question, ms: number): void {
+    if (this.wrongThisQ) return;
+    this.wrongThisQ = true;
+    recordAnswer(q.fact, false, ms);
+    if (this.revenge) return;
+    this.misses++;
+    this.picker.markWrong(q.fact);
+    this.missed.set(factKey(q.fact), q.fact);
   }
 
   /** れんぞくが節目に届いたら、帯を出して音を鳴らす */
@@ -715,6 +834,8 @@ export class Runner {
     this.burst(this.playerX, this.groundY - 22 * this.s, 14, '#8fd8ff');
     // もう一度おなじ問題。少しだけ短い持ち時間で出しなおす
     this.launchObstacle(0.85);
+    // 最後の1問なら、時間切れで止めた持続音をここから鳴らしなおす
+    if (this.isFinal) startDrone();
     // 連打ガード（0.3秒）を入れなおす。助けられた勢いの指で誤答を押さないように
     this.qElapsed = 0;
     this.showHint();
@@ -724,14 +845,10 @@ export class Runner {
   private timeout(): void {
     const q = this.q;
     if (!q) return;
-    if (!this.wrongThisQ) {
-      this.wrongThisQ = true;
-      this.misses++;
-      recordAnswer(q.fact, false, this.qElapsed * 1000);
-      this.picker.markWrong(q.fact);
-    }
+    this.noteWrong(q, this.qElapsed * 1000);
     this.markPip(false);
     this.combo = 0;
+    stopDrone();
 
     // ペットが助けてくれる（1ステージに1回だけ）。コインも落とさずに済む。
     // まちがいの記録は上でもう付けてあるので、★も図鑑も甘くならない。
@@ -749,8 +866,9 @@ export class Runner {
       return;
     }
 
-    // 落とせるのは、いま持っている「この走りぶん」まで。マイナスにはしない
-    const drop = Math.min(COIN_MISS, Math.max(0, this.earned() - this.gain.lost));
+    // 落とせるのは、いま持っている「この走りぶん」まで。マイナスにはしない。
+    // リベンジではコインも落とさない（やりなおしで損をさせない）
+    const drop = this.revenge ? 0 : Math.min(COIN_MISS, Math.max(0, this.earned() - this.gain.lost));
     this.gain.lost += drop;
     if (drop > 0) {
       this.coinsShown = Math.max(0, this.coinsShown - drop);
@@ -930,17 +1048,73 @@ export class Runner {
 
   /** ここまでに稼いだぶん（落としたぶんを引く前） */
   private earned(): number {
-    return this.gain.correct + this.gain.combo;
+    return this.gain.correct + this.gain.combo + this.gain.weak;
   }
 
   private advance(): void {
+    if (this.revenge) {
+      this.revengeIndex++;
+      if (this.revengeIndex >= this.revengeQ.length) this.endRevenge();
+      else this.nextQuestion();
+      return;
+    }
+
     this.qIndex++;
-    if (this.qIndex >= this.total) this.finish();
-    else this.nextQuestion();
+    if (this.qIndex < this.total) {
+      this.nextQuestion();
+      return;
+    }
+    // 本編が終わった。まちがえた式が残っていれば、そこだけもう一度
+    if (!this.boss && !this.failed && this.missed.size > 0) this.startRevenge();
+    else this.finish();
+  }
+
+  // ---------------------------------------------------------------- リベンジ
+
+  /**
+   * まちがえた式だけを、もう一度出す。
+   *
+   * 直後の再テストがいちばん効くうえに、「まちがえたら、その場で取り返せる」に
+   * なると、まちがいそのものが怖くなくなる。だからここでは
+   * ・ミスは増えない（noteWrong）
+   * ・コインも落ちない（timeout）
+   * ・ぜんぶ正解すれば、ミスを1つ取り消す（endRevenge）
+   */
+  private startRevenge(): void {
+    this.revenge = true;
+    this.revengeQ = [...this.missed.values()].slice(0, REVENGE_MAX);
+    this.revengeIndex = 0;
+    this.revengeCorrect = 0;
+    this.addRevengePips();
+    this.showBanner('リベンジ！ もういちど', 1.8);
+    sfx.revenge();
+    this.nextQuestion();
+  }
+
+  private endRevenge(): void {
+    const cleared = this.revengeCorrect === this.revengeQ.length;
+    this.revengeResult = { total: this.revengeQ.length, correct: this.revengeCorrect, cleared };
+    if (cleared) {
+      // ミス1つぶんの取り消し。★の判定がここで1段上がることがある
+      this.misses = Math.max(0, this.misses - 1);
+      this.showBanner('ミスを 1つ とりけした！', 1.6);
+      this.burst(this.W / 2, this.H * 0.34, 22, '#ffe08a');
+      sfx.fanfare();
+    } else {
+      this.showBanner('つぎは たおせる！', 1.4);
+    }
+    this.revenge = false;
+    this.updateTags();
+    // 帯を見せてからリザルトへ移る
+    this.phase = 'wrap';
+    this.hold = cleared ? 1.7 : 1.4;
   }
 
   private finish(): void {
     this.phase = 'over';
+    this.isFinal = false;
+    this.isWeak = false;
+    this.updateTags();
     this.stop();
 
     // やられたときは★もボーナスも付かない。ただし、そこまでに稼いだコインは
@@ -972,6 +1146,7 @@ export class Runner {
       totalCoins: p.coins,
       failed: this.failed,
       bossName: this.boss ? this.bossDefn.name : null,
+      revenge: this.revengeResult,
     });
   }
 
@@ -1089,7 +1264,7 @@ export class Runner {
     if (this.hold > 0 && this.phase !== 'ask' && this.phase !== 'over') {
       this.hold -= dt;
       if (this.hold <= 0) {
-        if (this.phase === 'stomp' || this.phase === 'dead') this.finish();
+        if (this.phase === 'stomp' || this.phase === 'dead' || this.phase === 'wrap') this.finish();
         else this.advance();
       }
     }
@@ -1129,8 +1304,10 @@ export class Runner {
     }
   }
 
+  /** 粒をまく。最後の1問だけは倍にして、同じ動きでも手ごたえを変える */
   private burst(x: number, y: number, n: number, color: string): void {
-    for (let i = 0; i < n; i++) {
+    const count = this.isFinal ? n * 2 : n;
+    for (let i = 0; i < count; i++) {
       this.particles.push({
         x, y,
         vx: (Math.random() - 0.5) * 260,
