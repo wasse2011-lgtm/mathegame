@@ -128,6 +128,16 @@ body {
 }
 .logo-a { display: block; color: #fff; -webkit-text-stroke: 6px var(--blue-dark); paint-order: stroke fill; }
 .logo-b { display: block; color: #fff; -webkit-text-stroke: 6px var(--amber-dark); paint-order: stroke fill; }
+/* タイトルの字も ぴょんぴょん している。さわると広場のみんなが跳ねる */
+#logo { cursor: pointer; }
+.logo-a { animation: logo-hop 1.7s ease-in-out infinite; }
+.logo-b { animation: logo-hop 1.7s ease-in-out .2s infinite; }
+@keyframes logo-hop {
+  0%, 55%, 100% { transform: translateY(0) scaleY(1); }
+  20% { transform: translateY(-11px) scaleY(1.04); }
+  42% { transform: translateY(0) scaleY(.93); }
+}
+@media (prefers-reduced-motion: reduce) { .logo-a, .logo-b { animation: none; } }
 
 /* 名前はボタン。押すときろく（セーブデータ）を選びなおせる */
 .hello {
@@ -178,9 +188,18 @@ body {
 }
 
 /* ホームの草の上に、いま着せているキャラが立っている */
-#home-char { display: block; width: 120px; height: 120px; margin: -.4rem auto 0; }
+/* ぴょんぴょん広場。なかまが跳ねまわっていて、さわると反応する */
+.yard { width: 100%; margin-top: -.3rem; }
+.yard[hidden] { display: none; }
+#home-char { display: block; width: 100%; height: 116px; cursor: pointer; touch-action: manipulation; }
 #home-char[hidden] { display: none; }
-@media (max-height: 620px) { #home-char { display: none; } }
+.yard-hint {
+  margin: .1rem 0 0; text-align: center; font-size: .78rem; font-weight: 700;
+  color: #2f6b2a; text-shadow: 0 1px 0 rgba(255,255,255,.7);
+}
+@media (max-height: 720px) { #home-char { height: 94px; } }
+@media (max-height: 620px) { #home-char { height: 76px; } .yard-hint { display: none; } }
+@media (max-height: 540px) { .yard { display: none; } }
 
 /* ---------------- ホーム ---------------- */
 .home { width: 100%; display: flex; flex-direction: column; gap: .6rem; }
@@ -305,7 +324,10 @@ body {
 }
 .world-card:active { transform: translateY(3px); border-bottom-width: 3px; }
 .world-card.locked { background: var(--paper-2); border-color: var(--line); opacity: .85; }
-.world-card.here { box-shadow: 0 0 0 4px rgba(255,197,61,.45); }
+.world-card.here {
+  background: #fff8e6; border-color: var(--amber);
+  box-shadow: 0 0 0 4px rgba(255,197,61,.45);
+}
 
 .wc-badge {
   position: relative; width: 54px; height: 54px; border-radius: 17px;
@@ -389,12 +411,37 @@ body {
 .stage-node.locked:active, .stage-node[disabled]:active { transform: none; border-bottom-width: 6px; }
 .stage-node.cleared[disabled] { background: #c7d1d8; color: #fff; }
 
+/* いま挑むところ。この画面でいちばん目立たせる。
+   クリア済み（せかいの色）より強く出したいので、必ずこの下に書くこと。
+   色だけに頼らないよう「いま ここ」の札もいっしょに出す。 */
+.stage-node.now {
+  background: var(--amber);
+  border-color: var(--amber-dark);
+  color: #4a3400;
+  transform: scale(1.07);
+  animation: now-glow 1.8s ease-in-out infinite;
+}
+.stage-node.now .st { color: #a06b00; }
+.stage-node.now .st .off { opacity: .25; }
+.stage-node.now:active { transform: scale(1.07) translateY(3px); border-bottom-width: 3px; }
+@keyframes now-glow {
+  0%, 100% { box-shadow: 0 0 0 5px rgba(255,197,61,.4), 0 10px 18px -10px rgba(20,40,60,.7); }
+  50% { box-shadow: 0 0 0 13px rgba(255,197,61,.12), 0 10px 18px -10px rgba(20,40,60,.7); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-node.now { animation: none; box-shadow: 0 0 0 5px rgba(255,197,61,.4); }
+}
+
 .node-tag {
   position: absolute; left: 50%; transform: translateX(-50%);
   white-space: nowrap; font-size: .7rem; font-weight: 700;
   border-radius: 999px; padding: .12rem .55rem;
 }
-.node-tag.now { top: -12px; background: var(--amber); color: #4a3400; animation: here-pulse 1.6s ease-in-out infinite; }
+.node-tag.now {
+  top: -14px; background: var(--amber); color: #4a3400; border: 2px solid #fff;
+  font-size: .76rem; padding: .16rem .66rem;
+  animation: here-pulse 1.6s ease-in-out infinite;
+}
 .node-tag.boss-tag { bottom: -12px; background: var(--wc, var(--ink)); color: #fff; }
 .stage-node.locked .node-tag.boss-tag { background: var(--ink-2); }
 @media (prefers-reduced-motion: reduce) { .node-tag.now { animation: none; } }
@@ -484,6 +531,23 @@ body {
   .hint-text { font-size: .85rem; }
   .hint { padding: .2rem .5rem; }
 }
+
+/* ボスの体力バー。よけるたびに減るので、あと何発かが見える */
+.boss-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: .5rem;
+  margin: .25rem .2rem 0; padding: .35rem .7rem;
+  background: rgba(255,255,255,.92); border: 2px solid #f2b2ab; border-radius: 999px;
+}
+.boss-bar[hidden] { display: none !important; }
+.bb-name { font-size: .85rem; font-weight: 700; color: #b1483c; white-space: nowrap; }
+.bb-track { flex: 1 1 auto; min-width: 0; height: 12px; border-radius: 999px; background: #eee2dc; overflow: hidden; }
+.bb-track i {
+  display: block; height: 100%; width: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #ff8a5c, #e4675c); transition: width .35s ease;
+}
+.bb-warn { font-size: .72rem; font-weight: 700; color: var(--bad-dark); white-space: nowrap; }
+@media (max-width: 340px), (max-height: 480px) { .bb-warn { display: none; } }
+@media (prefers-reduced-motion: reduce) { .bb-track i { transition: none; } }
 
 /* 走る場所。高すぎると空ばかりになるので上限を決める。 */
 .world-wrap { flex: 0 1 auto; height: min(46vh, 380px); min-height: 120px; position: relative; }
@@ -630,6 +694,14 @@ body {
 }
 .learned[hidden] { display: none; }
 
+/* ボスに負けたとき。責める見た目にはせず、もう一度いこうと言うだけ */
+.fail-note {
+  margin: 0 0 .2rem; font-size: .88rem; font-weight: 700; color: var(--bad-dark); line-height: 1.5;
+  background: #fdeee9; border-radius: 12px; padding: .5rem .7rem; text-align: center; width: 100%;
+}
+.fail-note[hidden] { display: none; }
+.result-card.failed .result-head { color: var(--bad-dark); }
+
 /* ---------------- たしざん図鑑 ---------------- */
 #screen-zukan, #screen-shop, #screen-ranch {
   background: linear-gradient(180deg, var(--sky-2), #fff);
@@ -756,7 +828,7 @@ body {
   border: 3px solid #bcdfae; border-radius: var(--r-md); overflow: hidden;
   background: #e6f5fd;
 }
-#pasture { display: block; width: 100%; height: 100%; }
+#pasture { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: manipulation; }
 
 .egg-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; flex: 0 0 auto; }
 /* 横に2つ並ぶと幅が足りず、文字が折れる。小さいほうは縦積みにする */

@@ -28,7 +28,22 @@ export interface World {
 }
 
 export const QUESTIONS_PER_STAGE = 10;
-export const QUESTIONS_PER_BOSS = 15;
+
+/**
+ * ボス戦の問題数。
+ *
+ * ボスは1問でも落とすとその場で負けなので、通常ステージより長くしない。
+ * 15問のノーミスは6歳には遠すぎて、挑む前にあきらめる。10問なら
+ * 「あと3つ」が見えるところまで必ず届く。
+ * 内訳は 遠距離攻撃6発 → 1割はやい攻撃3発 → 最後に突撃1回。
+ */
+export const QUESTIONS_PER_BOSS = 10;
+
+/** 終盤（攻撃が1割はやくなる）に入る問題数。突撃をふくめた最後の4問 */
+export const BOSS_RUSH_TAIL = 4;
+
+/** 終盤で攻撃が何倍はやくなるか */
+export const BOSS_RUSH_RATE = 1.1;
 
 export function factKey(f: Fact): string {
   return `${f.a}+${f.b}`;

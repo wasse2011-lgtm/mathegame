@@ -5,12 +5,27 @@
  *  ・ジャンプのタイミング判定はしない。正解した瞬間に障害物のほうが加速して
  *    足元を通り抜ける。腕前ではなく計算だけで越えられるようにするため。
  *  ・タイマーは出さない。近づいてくる障害物そのものが残り時間。
- *  ・ぶつかってもゲームオーバーにしない。コインを数枚落として先へ進む。
+ *  ・通常ステージはぶつかってもゲームオーバーにしない。コインを数枚落として先へ進む。
  *  ・景色と障害物はステージごとに変える（theme.ts）。同じ絵が続くと飽きる。
+ *
+ * ボス戦だけはルールが違う（ここが「本気を出す場所」になる）:
+ *  ・まちがえたらその場で負け。だから問題数は10問と短い。
+ *  ・ボスは画面の右に立ち、石・炎・ビームを撃ってくる。正解＝跳んでよける。
+ *  ・最後の4問は攻撃が1割はやくなり、いちばん最後はボスが突撃してくる。
+ *    そこで正解すると、飛び上がって踏みつけて倒す。
  */
 
 import { sfx } from './audio';
-import { answerTimeFor, cherry, factKey, type Fact, type World } from './curriculum';
+import { bossDef, drawBoss, drawShot, shotFor, type BossDef, type BossState, type Shot } from './boss';
+import {
+  BOSS_RUSH_RATE,
+  BOSS_RUSH_TAIL,
+  answerTimeFor,
+  cherry,
+  factKey,
+  type Fact,
+  type World,
+} from './curriculum';
 import { drawPet } from './petart';
 import { activePet, petPower, type PetDef } from './pets';
 import { QuestionPicker, recordAnswer, type Question } from './questions';
@@ -53,9 +68,21 @@ export interface StageResult {
   maxCombo: number;
   /** クリア後に持っているコイン */
   totalCoins: number;
+  /** ボスにやられて終わった（★もボーナスも付かない） */
+  failed: boolean;
+  /** 倒した／やられたボスの名前。リザルトの文言に使う */
+  bossName: string | null;
 }
 
-type Phase = 'ask' | 'clear' | 'reveal' | 'over';
+type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'dead' | 'over';
+
+/** よけた瞬間に広がる輪 */
+interface Ring {
+  x: number; y: number; r: number; life: number; max: number; color: string;
+}
+
+/** よけるたびに出る掛け声。順に出るので、同じ言葉が続かない */
+const CHEERS = ['ナイス！', 'かわした！', 'すごい！', 'あぶない！', 'ばっちり！', 'やるね！'];
 
 interface Particle {
   x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; r: number;
@@ -97,6 +124,9 @@ export class Runner {
   private elHint = document.getElementById('hint') as HTMLElement;
   private elCherry = document.getElementById('cherry') as unknown as SVGElement;
   private elHintText = document.getElementById('hint-text') as HTMLElement;
+  private elBossBar = document.getElementById('boss-bar') as HTMLElement;
+  private elBossName = document.getElementById('boss-name') as HTMLElement;
+  private elBossHp = document.getElementById('boss-hp') as HTMLElement;
 
   private buttons: HTMLButtonElement[] = [];
   private raf = 0;
@@ -166,6 +196,29 @@ export class Runner {
   private bannerFull = 1.5;
   private bannerText = '';
 
+  // ボス戦の状態
+  private bossDefn: BossDef = bossDef(1);
+  private bossState: BossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
+  private bossX = 0;
+  private bossV = 0;
+  /** つぶれ具合の目標。踏むと 0.24 に向かってしぼむ */
+  private bossSquashTo = 1;
+  private shot: Shot | null = null;
+  /** 攻撃が出てきた位置。残り時間の割合を測るのに使う */
+  private shotFrom = 0;
+  /** 最後の問題（突撃）かどうか */
+  private charging = false;
+  /** よけた回数。そのままボスの体力になる */
+  private dodges = 0;
+  private dodgedThisQ = false;
+  /** ボスにやられた */
+  private failed = false;
+  private stomped = false;
+  /** 踏みつけ・被弾のとき、プレイヤーが前後に動く量 */
+  private pxOff = 0;
+  private rings: Ring[] = [];
+  private cheer = { text: '', life: 0 };
+
   // 画面寸法（CSS ピクセル）
   private W = 320;
   private H = 200;
@@ -225,6 +278,19 @@ export class Runner {
     this.vy = 0;
     this.char = { t: 0, air: false, hurt: 0, squash: 1 };
 
+    this.bossDefn = bossDef(cfg.world.id);
+    this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
+    this.bossSquashTo = 1;
+    this.shot = null;
+    this.charging = false;
+    this.dodges = 0;
+    this.dodgedThisQ = false;
+    this.failed = false;
+    this.stomped = false;
+    this.pxOff = 0;
+    this.rings = [];
+    this.cheer = { text: '', life: 0 };
+
     // つれているペットの力は、走り出すたびに読みなおす
     this.pet = activePet();
     const power = petPower();
@@ -234,10 +300,17 @@ export class Runner {
     this.petY = 0;
 
     this.elStage.textContent = cfg.label;
+    this.elBossBar.hidden = !cfg.boss;
+    this.elBossName.textContent = this.bossDefn.name;
+    this.elBossHp.style.width = '100%';
     this.elAnswers.style.setProperty('--cols', String(cfg.world.choices));
     this.buildPips();
     this.updateHud(false);
     this.resize();
+    if (cfg.boss) {
+      this.showBanner(`${this.bossDefn.name} が あらわれた！`, 2.2);
+      sfx.roar();
+    }
     this.nextQuestion();
 
     this.running = true;
@@ -286,6 +359,11 @@ export class Runner {
     // これがないと、横向きにしただけで期限が伸びたり、いきなり時間切れになる。
     const oldSpan = this.spawnX() - this.playerX;
     const oldLeft = this.ob.x - this.playerX;
+    // ボスの攻撃と突撃も同じ理由で割合を測っておく
+    const oldShotSpan = this.shotFrom - this.playerX;
+    const oldShotLeft = this.shot ? this.shot.x - this.playerX : 0;
+    const oldBossSpan = this.bossHomeX() - this.playerX;
+    const oldBossLeft = this.bossX - this.playerX;
 
     this.W = Math.round(rect.width);
     this.H = Math.round(rect.height);
@@ -319,10 +397,49 @@ export class Runner {
       this.ob.x = this.playerX + oldLeft * k;
       this.ob.v *= k;
     }
+
+    const newShotSpan = this.shotFrom0() - this.playerX;
+    this.shotFrom = this.shotFrom0();
+    if (this.shot && oldShotSpan > 1 && newShotSpan > 1) {
+      const k = newShotSpan / oldShotSpan;
+      this.shot.x = this.playerX + oldShotLeft * k;
+      this.shot.v *= k;
+      this.shot.y = this.groundY - 15 * this.s;
+      this.shot.r *= k;
+    }
+
+    const newBossSpan = this.bossHomeX() - this.playerX;
+    if (this.charging && oldBossSpan > 1 && newBossSpan > 1) {
+      const k = newBossSpan / oldBossSpan;
+      this.bossX = this.playerX + oldBossLeft * k;
+      this.bossV *= k;
+    } else {
+      this.bossX = this.bossHomeX();
+    }
   }
 
   private spawnX(): number {
     return this.W + 28 * this.s;
+  }
+
+  /** ボスが立っている位置（突撃していないとき）。はねと尾が入るよう少し内側 */
+  private bossHomeX(): number {
+    return this.W - 48 * this.s;
+  }
+
+  /** 攻撃が飛び出してくる位置 */
+  private shotFrom0(): number {
+    return this.bossHomeX() - 22 * this.s;
+  }
+
+  /** ボスの背の高さ。ワールドが進むほど大きい */
+  private bossSize(): number {
+    return 44 * this.s * (1 + this.bossDefn.tier * 0.035);
+  }
+
+  /** 描画に使うプレイヤーの横位置（踏みつけ・被弾のときだけ動く） */
+  private get px(): number {
+    return this.playerX + this.pxOff;
   }
 
   private view(): SceneView {
@@ -380,9 +497,8 @@ export class Runner {
     this.hintShown = false;
   }
 
-  /** つぎに出てくる障害物を引く。同じものが2回続かないようにする */
+  /** つぎに出てくる障害物を引く。同じものが2回続かないようにする（ボス戦では使わない） */
   private pickObstacle(): ObstacleKind {
-    if (this.boss) return 'boss';
     const pool = this.theme.obstacles;
     if (pool.length <= 1) return pool[0] ?? 'rock';
     let kind = pool[Math.floor(Math.random() * pool.length)];
@@ -395,6 +511,7 @@ export class Runner {
   private nextQuestion(): void {
     this.q = this.picker.next();
     this.wrongThisQ = false;
+    this.dodgedThisQ = false;
     this.phase = 'ask';
     this.qElapsed = 0;
     this.hideHint();
@@ -422,14 +539,60 @@ export class Runner {
    */
   private launchObstacle(k: number): void {
     const time = answerTimeFor(this.world, this.stage, save.settings.slow) * (1 + this.slow) * k;
+    if (this.boss) {
+      this.startBossTurn(time);
+      return;
+    }
     const kind = this.pickObstacle();
     this.ob = {
       x: this.spawnX(),
       v: (this.spawnX() - this.playerX) / time,
       kind,
       // 同じ種類でも少しずつ大きさを変える。並べたときの「作りもの感」が減る
-      scale: this.boss ? 1 : 0.88 + Math.random() * 0.3,
+      scale: 0.88 + Math.random() * 0.3,
     };
+  }
+
+  /**
+   * ボスの1手。ふつうは遠距離攻撃を1発、最後の問題だけは突撃。
+   * 終盤（最後の4問）は同じ距離を 1割 短い時間で詰めてくる。
+   */
+  private startBossTurn(base: number): void {
+    const rush = this.qIndex >= this.total - BOSS_RUSH_TAIL;
+    const time = rush ? base / BOSS_RUSH_RATE : base;
+    // ボス戦では通常の障害物を使わない。地面のスクロールだけ走る速さで動かす
+    this.ob = { x: this.spawnX(), v: 0, kind: 'boss', scale: 1 };
+    this.charging = this.qIndex === this.total - 1;
+    this.bossX = this.bossHomeX();
+
+    if (this.charging) {
+      this.shot = null;
+      this.bossState.mode = 'charge';
+      this.bossV = (this.bossX - this.playerX) / time;
+      this.showBanner('とつげき！ ふみつけろ！', 1.5);
+      sfx.roar();
+      return;
+    }
+
+    // 速くなる最初の1問で、そうと分かるように知らせる
+    if (rush && this.qIndex === this.total - BOSS_RUSH_TAIL) {
+      this.showBanner(`${this.bossDefn.name} が ほんきだ！`, 1.5);
+      sfx.roar();
+    }
+
+    const kind = shotFor(this.bossDefn, this.qIndex);
+    this.shotFrom = this.shotFrom0();
+    this.shot = {
+      kind,
+      x: this.shotFrom,
+      y: this.groundY - 15 * this.s,
+      v: (this.shotFrom - this.playerX) / time,
+      r: (kind === 'beam' ? 6.5 : 8.5) * this.s * (1 + this.bossDefn.tier * 0.05),
+      rot: 0,
+      t: 0,
+    };
+    this.bossState.mode = 'wind';
+    sfx.shoot(kind);
   }
 
   private answer(i: number): void {
@@ -472,23 +635,35 @@ export class Runner {
       }
       this.markPip(firstTry);
 
-      // 正解した瞬間、障害物が跳ぶ足元へ向かって加速する
-      this.vy = this.jumpV;
+      // 正解した瞬間に跳ぶ。突撃を踏むときだけ、いつもより高く跳び上がる
+      this.vy = this.jumpV * (this.boss && this.charging ? 1.4 : 1);
       this.char.air = true;
       this.char.squash = 1.18;
-      const dist = Math.max(this.ob.x - this.playerX, 10 * this.s);
-      this.ob.v = Math.min(dist / T_APEX, 4200);
       sfx.jump();
-      this.burst(this.playerX, this.groundY - 20 * this.s, 12, '#ffc53d');
+      this.burst(this.px, this.groundY - 20 * this.s, 12, '#ffc53d');
       this.flash = 0.22;
 
-      this.phase = 'clear';
-      this.hold = CLEAR_HOLD;
+      if (this.boss && this.charging) {
+        this.beginStomp();
+      } else {
+        // 跳んでいるあいだに、攻撃（障害物）のほうが加速して足元を通り抜ける
+        const target = this.boss && this.shot ? this.shot : this.ob;
+        const dist = Math.max(target.x - this.playerX, 10 * this.s);
+        target.v = Math.min(dist / T_APEX, 4200);
+        this.phase = 'clear';
+        this.hold = CLEAR_HOLD;
+      }
       this.updateHud(true);
     } else {
       btn.classList.add('wrong');
       btn.disabled = true;
       window.setTimeout(() => btn.classList.add('spent'), 260);
+
+      // ボスは1問でもまちがえたら終わり。やりなおしはさせない
+      if (this.boss) {
+        this.loseToBoss(q);
+        return;
+      }
 
       if (!this.wrongThisQ) {
         this.wrongThisQ = true;
@@ -559,10 +734,18 @@ export class Runner {
     this.combo = 0;
 
     // ペットが助けてくれる（1ステージに1回だけ）。コインも落とさずに済む。
-    // まちがいの記録は上でもう付けてあるので、★も図鑑も甘くならない
+    // まちがいの記録は上でもう付けてあるので、★も図鑑も甘くならない。
+    // ボス戦でも、攻撃が当たる「時間切れ」だけは身がわりになってもらえる
+    // （まちがえたときは helpers 抜きでその場で負け）
     if (this.rescueLeft > 0) {
       this.petRescue();
       this.updateHud(false);
+      return;
+    }
+
+    // ボスは助けがなければここで終わり
+    if (this.boss) {
+      this.loseToBoss(q);
       return;
     }
 
@@ -590,6 +773,161 @@ export class Runner {
     this.updateHud(false);
   }
 
+  // ---------------------------------------------------------------- ボス戦
+
+  /** 攻撃をよけた瞬間の演出。よけた数がそのままボスの体力を削る */
+  private dodgeFx(): void {
+    this.dodgedThisQ = true;
+    this.dodges++;
+    const y = this.groundY - 16 * this.s;
+    const kind = this.shot?.kind ?? 'rock';
+    this.rings.push({ x: this.playerX, y, r: 10 * this.s, life: 0.45, max: 0.45, color: '#ffffff' });
+    this.burst(this.playerX, y, 14, kind === 'fire' ? '#ffb02e' : kind === 'beam' ? '#8fe3ff' : '#e0d6c2');
+    this.cheer = { text: CHEERS[(this.dodges - 1) % CHEERS.length], life: 1 };
+    this.bossState.hit = 0.22;
+    this.flash = 0.14;
+    this.updateBossHp();
+    sfx.dodge();
+  }
+
+  private updateBossHp(): void {
+    const max = Math.max(1, this.total - 1);
+    this.elBossHp.style.width = `${Math.max(0, 1 - this.dodges / max) * 100}%`;
+  }
+
+  /** 突撃してきたボスに飛び乗って踏みつける。ここは当て判定なしの決め演出 */
+  private beginStomp(): void {
+    this.phase = 'stomp';
+    this.hold = 2.6;
+    this.stomped = false;
+    this.bossState.mode = 'hit';
+    this.bossV *= 0.3;
+    this.shake = 0.2;
+    this.flash = 0.3;
+  }
+
+  private stompHit(): void {
+    this.stomped = true;
+    this.dodges = Math.max(this.dodges, this.total - 1);
+    this.bossState.mode = 'down';
+    this.bossState.hit = 0.25;
+    this.bossSquashTo = 0.24;
+    this.bossV = 0;
+    this.vy = this.jumpV * 0.55; // 踏んだ反動で跳ね上がる
+    this.shake = 0.55;
+    this.flash = 0.32;
+    this.burst(this.bossX, this.groundY - 10 * this.s, 26, '#ffc53d');
+    this.burst(this.bossX, this.groundY - 10 * this.s, 14, '#ffffff');
+    this.rings.push({
+      x: this.bossX, y: this.groundY - 8 * this.s,
+      r: 12 * this.s, life: 0.6, max: 0.6, color: '#fff3c4',
+    });
+    this.cheer = { text: 'たおした！', life: 1.6 };
+    this.updateBossHp();
+    sfx.stomp();
+    sfx.legend();
+  }
+
+  /**
+   * ボス戦の負け。攻撃が直撃してその場で終わる。
+   * 正解だけは見せてから終わる（負けたまま答えが分からないのが一番よくない）。
+   */
+  private loseToBoss(q: Question): void {
+    if (!this.wrongThisQ) {
+      this.wrongThisQ = true;
+      this.misses++;
+      recordAnswer(q.fact, false, this.qElapsed * 1000);
+    }
+    this.markPip(false);
+    this.combo = 0;
+    this.failed = true;
+    this.char.hurt = 4;
+    this.char.air = true;
+    this.vy = this.jumpV * 0.4;
+    this.ride = 0;
+    this.shake = 0.7;
+    this.flash = 0.3;
+    this.bossState.mode = 'roar';
+
+    const at = this.shot ? this.shot.x : this.bossX;
+    const color = this.shot?.kind === 'fire' ? '#ff8a3c' : this.shot?.kind === 'beam' ? '#8fe3ff' : '#c8bda8';
+    this.burst(Math.min(at, this.playerX + 20 * this.s), this.groundY - 18 * this.s, 22, color);
+    this.burst(this.playerX, this.groundY - 20 * this.s, 12, '#e4675c');
+    this.shot = null;
+    sfx.stumble();
+    sfx.gameover();
+
+    const idx = q.choices.indexOf(q.answer);
+    this.buttons.forEach((b, i) => {
+      b.disabled = true;
+      if (i === idx) b.classList.add('correct');
+      else if (!b.classList.contains('wrong')) b.classList.add('spent');
+    });
+
+    this.phase = 'dead';
+    this.hold = 2.2;
+    this.updateHud(false);
+  }
+
+  private updateBoss(dt: number): void {
+    const st = this.bossState;
+    st.t += dt;
+    if (st.hit > 0) st.hit -= dt;
+    st.squash += (this.bossSquashTo - st.squash) * Math.min(1, dt * 9);
+    // 撃った直後だけ振りかぶった姿勢にする
+    if (st.mode === 'wind' && this.shot && this.shot.t > 0.3) st.mode = 'idle';
+
+    if (this.shot) {
+      const sh = this.shot;
+      sh.t += dt;
+      sh.x -= sh.v * dt;
+      sh.rot += (sh.v / (sh.r * 7)) * dt;
+      if (sh.x < -80 * this.s) this.shot = null;
+    }
+
+    if (this.charging && this.phase === 'ask') this.bossX -= this.bossV * dt;
+
+    // よけた瞬間（攻撃が足元を通り過ぎた）
+    if (this.phase === 'clear' && !this.dodgedThisQ && this.shot && this.shot.x < this.playerX) {
+      this.dodgeFx();
+    }
+
+    if (this.phase === 'stomp') {
+      // ボスは前のめりに止まり、プレイヤーはその頭の上へ跳び移る
+      this.bossV += (0 - this.bossV) * Math.min(1, dt * 4);
+      this.bossX -= this.bossV * dt;
+      this.bossX = Math.max(this.bossX, this.playerX + this.bossSize() * 0.42);
+      this.pxOff += (this.bossX - this.playerX - this.pxOff) * Math.min(1, dt * 5);
+      if (!this.stomped && this.vy > 0 && this.py >= -this.bossSize() * this.bossState.squash) {
+        this.stompHit();
+      }
+    }
+
+    if (this.phase === 'dead') {
+      // 吹き飛ばされて後ろへ下がる
+      this.pxOff = Math.max(this.pxOff - 40 * this.s * dt, -22 * this.s);
+    }
+  }
+
+  /** いま迫っている攻撃が、どこまで来たか（0 = 出たばかり、1 = 到達） */
+  private incoming(): number {
+    if (!this.boss) return (this.spawnX() - this.ob.x) / (this.spawnX() - this.playerX);
+    if (this.charging) {
+      const span = this.bossHomeX() - this.playerX;
+      return span > 0 ? (this.bossHomeX() - this.bossX) / span : 0;
+    }
+    if (!this.shot) return 0;
+    const span = this.shotFrom - this.playerX;
+    return span > 0 ? (this.shotFrom - this.shot.x) / span : 0;
+  }
+
+  /** 攻撃が届いてしまったか */
+  private arrived(): boolean {
+    if (!this.boss) return this.ob.x < this.playerX - 4 * this.s;
+    if (this.charging) return this.bossX < this.playerX + this.bossSize() * 0.42;
+    return Boolean(this.shot && this.shot.x < this.playerX - 4 * this.s);
+  }
+
   /** ここまでに稼いだぶん（落としたぶんを引く前） */
   private earned(): number {
     return this.gain.correct + this.gain.combo;
@@ -605,14 +943,18 @@ export class Runner {
     this.phase = 'over';
     this.stop();
 
-    const stars = this.misses === 0 ? 3 : this.misses <= 2 ? 2 : 1;
-    if (stars === 3) this.gain.perfect = COIN_PERFECT;
-    this.gain.bonus = this.cfg.bonusCoins ?? 0;
+    // やられたときは★もボーナスも付かない。ただし、そこまでに稼いだコインは
+    // 取り上げない（全部消すと、もう一度ボスに挑む気がなくなる）
+    const stars = this.failed ? 0 : this.misses === 0 ? 3 : this.misses <= 2 ? 2 : 1;
+    if (!this.failed) {
+      if (stars === 3) this.gain.perfect = COIN_PERFECT;
+      this.gain.bonus = this.cfg.bonusCoins ?? 0;
+    }
 
     const coins = gainTotal(this.gain);
     const p = profile();
     p.coins += coins;
-    if (this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars);
+    if (!this.failed && this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars);
     persist();
 
     this.onDone?.({
@@ -628,6 +970,8 @@ export class Runner {
       learned: this.learned,
       maxCombo: this.maxCombo,
       totalCoins: p.coins,
+      failed: this.failed,
+      bossName: this.boss ? this.bossDefn.name : null,
     });
   }
 
@@ -705,6 +1049,7 @@ export class Runner {
     if (this.shake > 0) this.shake -= dt;
     if (this.flash > 0) this.flash -= dt;
     if (this.banner > 0) this.banner -= dt;
+    if (this.cheer.life > 0) this.cheer.life -= dt;
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
 
     if (this.ride > 0) {
@@ -729,20 +1074,31 @@ export class Runner {
     this.petY += (this.py * 0.65 - this.petY) * Math.min(1, dt * 7);
 
     this.ob.x -= this.ob.v * dt;
-    this.scroll += Math.min(Math.max(this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
+    this.scroll += Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
+
+    if (this.boss) this.updateBoss(dt);
 
     if (this.phase === 'ask') {
       this.qElapsed += dt;
-      // 障害物が半分まで来ても答えが出ていなければヒントを出す。
+      // 攻撃が半分まで来ても答えが出ていなければヒントを出す。
       // 遅すぎると、読んで理解する時間が残らない。
-      const gone = (this.spawnX() - this.ob.x) / (this.spawnX() - this.playerX);
-      if (gone > 0.5) this.showHint();
-      if (this.ob.x < this.playerX - 4 * this.s) this.timeout();
+      if (this.incoming() > 0.5) this.showHint();
+      if (this.arrived()) this.timeout();
     }
 
-    if ((this.phase === 'clear' || this.phase === 'reveal') && this.hold > 0) {
+    if (this.hold > 0 && this.phase !== 'ask' && this.phase !== 'over') {
       this.hold -= dt;
-      if (this.hold <= 0) this.advance();
+      if (this.hold <= 0) {
+        if (this.phase === 'stomp' || this.phase === 'dead') this.finish();
+        else this.advance();
+      }
+    }
+
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i];
+      r.life -= dt;
+      r.r += 260 * this.s * dt;
+      if (r.life <= 0) this.rings.splice(i, 1);
     }
 
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -803,10 +1159,12 @@ export class Runner {
     const lift = Math.min(1, -this.py / (80 * s));
     g.fillStyle = `rgba(40,60,50,${0.22 * (1 - lift * 0.7)})`;
     g.beginPath();
-    g.ellipse(this.playerX, this.groundY + 3 * s, 17 * s * (1 - lift * 0.4), 5 * s, 0, 0, Math.PI * 2);
+    g.ellipse(this.px, this.groundY + 3 * s, 17 * s * (1 - lift * 0.4), 5 * s, 0, 0, Math.PI * 2);
     g.fill();
 
-    if (this.ob.x > -80 * s) {
+    if (this.boss) {
+      this.drawBossScene();
+    } else if (this.ob.x > -80 * s) {
       drawObstacle(g, this.ob.x, this.groundY, 30 * s * this.ob.scale, this.ob.kind, this.t);
       if (this.ob.v > this.runSpeed * 2.2) this.drawSpeedLines();
     }
@@ -816,7 +1174,7 @@ export class Runner {
     if (this.combo >= 3) this.drawTrail();
 
     this.drawFollower();
-    drawChar(g, this.playerX, this.groundY + this.py, 34 * s, currentLook(), this.char);
+    drawChar(g, this.px, this.groundY + this.py, 34 * s, currentLook(), this.char);
 
     for (const p of this.particles) {
       g.globalAlpha = Math.max(0, p.life / p.max);
@@ -828,8 +1186,10 @@ export class Runner {
     g.globalAlpha = 1;
 
     drawWeather(g, this.theme, this.view());
+    this.drawRings();
     this.drawFlyingCoins();
     this.drawFloats();
+    if (this.cheer.life > 0) this.drawCheer();
 
     if (this.flash > 0) {
       g.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`;
@@ -838,6 +1198,68 @@ export class Runner {
 
     if (this.banner > 0) this.drawBanner();
 
+    g.restore();
+  }
+
+  // ---------------------------------------------------------------- ボスの絵
+
+  private drawBossScene(): void {
+    const g = this.g;
+    const s = this.s;
+    const size = this.bossSize();
+
+    // 迫ってくるほど画面のふちが赤くなる。数字を出さない「残り時間」
+    const near = this.phase === 'ask' ? Math.max(0, this.incoming() - 0.55) / 0.45 : 0;
+    if (near > 0) {
+      const grad = g.createLinearGradient(0, 0, this.W * 0.5, 0);
+      grad.addColorStop(0, `rgba(228,103,92,${0.3 * near})`);
+      grad.addColorStop(1, 'rgba(228,103,92,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, this.W, this.H);
+    }
+
+    g.fillStyle = 'rgba(40,60,50,.2)';
+    g.beginPath();
+    g.ellipse(this.bossX, this.groundY + 3 * s, size * 0.6, 6 * s, 0, 0, Math.PI * 2);
+    g.fill();
+
+    drawBoss(g, this.bossX, this.groundY, size, this.bossDefn, this.bossState);
+
+    if (this.shot) drawShot(g, this.shot, this.bossDefn);
+  }
+
+  private drawRings(): void {
+    const g = this.g;
+    for (const r of this.rings) {
+      g.globalAlpha = Math.max(0, r.life / r.max) * 0.8;
+      g.strokeStyle = r.color;
+      g.lineWidth = Math.max(2, 4 * this.s * (r.life / r.max));
+      g.beginPath();
+      g.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+
+  /** よけたときの掛け声。上へ流れて消える */
+  private drawCheer(): void {
+    const g = this.g;
+    const s = this.s;
+    const k = 1 - this.cheer.life / 1.6;
+    g.save();
+    g.globalAlpha = Math.min(1, this.cheer.life * 2);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `700 ${22 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    // 画面のはしで切れないところに寄せる
+    const x = Math.min(Math.max(this.px, this.W * 0.24), this.W * 0.76);
+    const y = this.groundY - (46 + k * 26) * s;
+    g.lineWidth = 6 * s;
+    g.strokeStyle = '#fff';
+    g.lineJoin = 'round';
+    g.strokeText(this.cheer.text, x, y);
+    g.fillStyle = '#e07b1f';
+    g.fillText(this.cheer.text, x, y);
     g.restore();
   }
 
@@ -854,8 +1276,8 @@ export class Runner {
     // 1 に近いほど「せなかに乗せている」。降りるときは 0 へ戻り、位置も走る位置へ滑る
     const k = Math.min(1, Math.max(0, this.ride / 0.35));
     // 走る位置は、画面の左端で切れないところまで（狭い画面ほど後ろが詰まる）
-    const follow = Math.max(this.playerX - 26 * s, 20 * s);
-    const x = follow + (this.playerX - follow) * k;
+    const follow = Math.max(this.px - 26 * s, 20 * s);
+    const x = follow + (this.px - follow) * k;
     const y = this.groundY + this.petY + (this.py + size * 0.5 - this.petY) * k;
 
     if (k > 0.02) {
@@ -932,12 +1354,12 @@ export class Runner {
     const s = this.s;
     const y = this.groundY + this.py - 17 * s;
     const r = (25 + Math.sin(this.t * 8) * 2) * s;
-    const grad = g.createRadialGradient(this.playerX, y, r * 0.62, this.playerX, y, r);
+    const grad = g.createRadialGradient(this.px, y, r * 0.62, this.px, y, r);
     grad.addColorStop(0, 'rgba(255,213,90,0)');
     grad.addColorStop(1, 'rgba(255,197,61,.42)');
     g.fillStyle = grad;
     g.beginPath();
-    g.arc(this.playerX, y, r, 0, Math.PI * 2);
+    g.arc(this.px, y, r, 0, Math.PI * 2);
     g.fill();
   }
 
@@ -1011,7 +1433,7 @@ export class Runner {
     g.fillStyle = '#ffc53d';
     for (let i = 1; i <= 4; i++) {
       g.globalAlpha = 0.55 - i * 0.1;
-      const x = this.playerX - (12 + i * 8) * s;
+      const x = this.px - (12 + i * 8) * s;
       const y = this.groundY + this.py - 16 * s + Math.sin(this.t * 9 + i) * 3 * s;
       g.beginPath();
       g.arc(x, y, (4 - i * 0.6) * s, 0, Math.PI * 2);

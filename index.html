@@ -25,7 +25,7 @@
     <!-- ===== ホーム ===== -->
     <section class="screen" id="screen-title" data-screen="title">
       <div class="title-inner">
-        <h1 class="logo"><span class="logo-a">たしざん</span><span class="logo-b">ジャンプ</span></h1>
+        <h1 class="logo" id="logo"><span class="logo-a">たしざん</span><span class="logo-b">ジャンプ</span></h1>
 
         <p class="no-storage" id="no-storage" hidden>
           このひらきかたでは <b>きろくが のこりません</b>。<br>
@@ -80,7 +80,11 @@
           <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
         </div>
 
-        <canvas id="home-char" aria-hidden="true"></canvas>
+        <!-- ぴょんぴょん広場。じぶんの子と なかまが跳ねていて、さわると反応する -->
+        <div class="yard" id="yard">
+          <canvas id="home-char" aria-hidden="true"></canvas>
+          <p class="yard-hint">なかまを タップしてみて！</p>
+        </div>
       </div>
     </section>
 
@@ -148,6 +152,13 @@
         <p class="hint-text" id="hint-text"></p>
       </div>
 
+      <!-- ボス戦だけ出る体力バー。攻撃をよけるたびに減る -->
+      <div class="boss-bar" id="boss-bar" hidden>
+        <span class="bb-name" id="boss-name"></span>
+        <span class="bb-track"><i id="boss-hp"></i></span>
+        <span class="bb-warn">1ミスで おしまい</span>
+      </div>
+
       <div class="world-wrap">
         <canvas id="world"></canvas>
       </div>
@@ -164,6 +175,8 @@
           <p class="result-stage" id="result-stage">1-1</p>
           <div class="stars" id="result-stars" aria-label="ほし"></div>
           <p class="result-head" id="result-head">クリア！</p>
+          <!-- ボスに負けたときだけ出る。責めずに、もう一度いこうと言うだけ -->
+          <p class="fail-note" id="result-fail" hidden></p>
 
           <!-- もらったコイン。ここがこの画面のいちばん大きい数字 -->
           <div class="coin-hero" id="coin-hero">
@@ -182,6 +195,7 @@
           <p class="learned" id="result-learned" hidden></p>
 
           <div class="result-btns">
+            <button class="btn btn-primary btn-xl" id="result-retry" type="button" hidden>もういちど</button>
             <button class="btn btn-primary btn-xl" id="result-next" type="button">つづける</button>
             <div class="result-sub">
               <button class="btn btn-ghost" id="result-map" type="button">マップへ</button>

@@ -14,8 +14,8 @@ import {
   type World,
 } from './curriculum';
 import { initParent, makeGate, renderParent } from './parent';
-import { drawPet } from './petart';
-import { PET_COUNT, activePet, ownedPets } from './pets';
+import { PET_COUNT, activePet, ownedPets, type PetDef } from './pets';
+import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
 import { MASTERED, weakestFacts } from './questions';
@@ -76,47 +76,35 @@ function show(name: ScreenName): void {
   });
   // 動いている画面は、表に出たときに描画ループを起こしなおす
   if (name === 'title') startHomeIdle();
+  else yard.stop(); // 見ていないあいだは動かさない（電池を食う）
   if (name === 'shop') startShopIdle();
   if (name === 'ranch') startRanchIdle();
 }
 
-// ------------------------------------------------------------------ ホームのキャラ
+// ------------------------------------------------------------------ ぴょんぴょん広場
 
-const homeCanvas = $<HTMLCanvasElement>('home-char');
-let homeRaf = 0;
+/**
+ * タイトルの草の上。じぶんの子と集めたなかまが跳ねまわり、さわると反応する。
+ * ここは毎回いちばん最初に見る画面なので、さわれるほうが戻ってきたくなる。
+ */
+const yard = new Playground(
+  $<HTMLCanvasElement>('home-char'),
+  (g, x, y, size, t, squash, air) => {
+    drawChar(g, x, y, size, currentLook(), { t, air, hurt: 0, squash });
+  },
+);
 
-/** ホーム画面で、いま着せているキャラがその場で走っている */
-function paintHome(ts: number): void {
-  if (screens.title.hidden || homeCanvas.hidden) {
-    homeRaf = 0;
-    return;
-  }
-  const g = homeCanvas.getContext('2d');
-  if (g) {
-    const size = 120;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    if (homeCanvas.width !== Math.round(size * dpr)) {
-      homeCanvas.width = Math.round(size * dpr);
-      homeCanvas.height = Math.round(size * dpr);
-    }
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.clearRect(0, 0, size, size);
-    const t = ts / 1000;
-    const bob = Math.abs(Math.sin(t * 6)) * 3;
-    g.fillStyle = 'rgba(40,70,40,.16)';
-    g.beginPath();
-    g.ellipse(size * 0.62, size - 12, 24, 6, 0, 0, Math.PI * 2);
-    g.fill();
-    // つれている子も ホームで となりに立っている
-    const pet = activePet();
-    if (pet) drawPet(g, size * 0.2, size - 14, 30, pet.art, t);
-    drawChar(g, size * 0.62, size - 14 - bob, 52, currentLook(), { t, air: false, hurt: 0, squash: 1 });
-  }
-  homeRaf = requestAnimationFrame(paintHome);
+/** 広場に出す顔ぶれ。じぶんの子＋つれている子＋持っている子から数ひき */
+function yardCast(): (PetDef | null)[] {
+  const active = activePet();
+  const others = ownedPets().filter((p) => p.id !== active?.id).slice(0, active ? 3 : 4);
+  return [null, ...(active ? [active] : []), ...others];
 }
 
 function startHomeIdle(): void {
-  if (!homeRaf) homeRaf = requestAnimationFrame(paintHome);
+  if ($('yard').hidden) return;
+  yard.setCast(yardCast());
+  yard.start();
 }
 
 /** ホームに戻る。描き直しを忘れないよう、必ずここを通す */
@@ -182,7 +170,7 @@ function renderTitle(): void {
   $('skin-pick').hidden = !needsSetup;
   $('home').hidden = needsSetup;
   $('title-sub').hidden = needsSetup;
-  homeCanvas.hidden = needsSetup;
+  $('yard').hidden = needsSetup;
   $('btn-start').textContent = needsSetup ? 'はじめる' : 'あそぶ';
   if (!needsSetup) startHomeIdle();
 
@@ -375,6 +363,12 @@ $('erase-ok').addEventListener('click', () => {
   renderSlots();
 });
 
+// ロゴをさわると、広場のみんながいっせいに跳ねる
+$('logo').addEventListener('pointerdown', () => {
+  unlockAudio();
+  yard.cheerAll();
+});
+
 $('btn-zukan').addEventListener('click', () => {
   sfx.tap();
   renderZukan();
@@ -552,7 +546,11 @@ function renderStagePath(): void {
 
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}${!open ? ' locked' : ''}`;
+    const here = stage === next && open;
+    // いま挑むところはオレンジで光らせる。押す場所で迷わせない
+    b.className =
+      `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
+      `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
     b.disabled = !open || overDailyLimit();
     // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる
     b.innerHTML =
@@ -561,7 +559,8 @@ function renderStagePath(): void {
       `<span class="st">${starRow(got)}</span>`;
     b.setAttribute(
       'aria-label',
-      `${boss ? 'ボス' : `ステージ ${stage}`} ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
+      `${boss ? 'ボス' : `ステージ ${stage}`}${here ? '（いま ここ）' : ''}` +
+        ` ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
     );
 
     b.addEventListener('click', () => {
@@ -580,7 +579,7 @@ function renderStagePath(): void {
       tag.textContent = open ? 'ボス' : `★あと ${need}`;
       b.appendChild(tag);
     }
-    if (stage === next && open) {
+    if (here) {
       const tag = document.createElement('span');
       tag.className = 'node-tag now';
       tag.textContent = 'いま ここ';
@@ -603,6 +602,11 @@ function renderStagePath(): void {
       `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
   }
   path.appendChild(goal);
+
+  // 面が増えると「いま ここ」が画面の外にいることがある。開いた時点で見えるところへ寄せる
+  requestAnimationFrame(() => {
+    path.querySelector('.stage-node.now')?.scrollIntoView({ block: 'center' });
+  });
 
   const bossNeed = bossRequirement(w) - normalStars(w);
   $('map-hint').textContent = overDailyLimit()
@@ -829,12 +833,27 @@ function renderResult(r: StageResult): void {
 
   const daily = r.stage === 0;
   const w = worldById(r.worldId);
+  const boss = !daily && isBoss(w, r.stage);
   $('result-stage').textContent = daily
     ? 'きょうの 5もん'
-    : isBoss(w, r.stage)
-      ? `${w.id}-ボス  ${w.name}`
+    : boss
+      ? `${w.id}-ボス  ${r.bossName ?? w.name}`
       : `${w.id}-${r.stage}  ${w.name}`;
-  $('result-head').textContent = r.stars === 3 ? 'パーフェクト！' : r.stars === 2 ? 'クリア！' : 'ゴール！';
+
+  // ボスに負けたときだけ、別の顔で出す（★もコインのボーナスも付かない）
+  (document.querySelector('.result-card') as HTMLElement).classList.toggle('failed', r.failed);
+  $('result-head').textContent = r.failed
+    ? 'やられた…'
+    : boss
+      ? `${r.bossName ?? 'ボス'} を たおした！`
+      : r.stars === 3
+        ? 'パーフェクト！'
+        : r.stars === 2
+          ? 'クリア！'
+          : 'ゴール！';
+  const fail = $('result-fail');
+  fail.hidden = !r.failed;
+  if (r.failed) fail.textContent = 'ボスは 1もん まちがえると おしまい。おちついて いこう！';
   $('result-correct').textContent = `${r.correct} / ${r.total}`;
 
   const bestRow = $('result-best-row');
@@ -862,7 +881,7 @@ function renderResult(r: StageResult): void {
   const box = $('result-stars');
   box.innerHTML = STAR_SVG.repeat(3);
   const stars = Array.from(box.children) as HTMLElement[];
-  sfx.clear();
+  if (!r.failed) sfx.clear();
   stars.forEach((el, i) => {
     if (i < r.stars) {
       later(() => {
@@ -907,14 +926,19 @@ function renderResult(r: StageResult): void {
   const endAt = startAt + lines.length * 460 + 260;
   later(() => {
     countUp(total, r.totalCoins - r.coins, r.totalCoins, 700);
-    sfx.fanfare();
-    confetti(r.stars === 3 ? 90 : r.stars === 2 ? 50 : 28);
+    if (!r.failed) {
+      sfx.fanfare();
+      confetti(r.stars === 3 ? 90 : r.stars === 2 ? 50 : 28);
+    }
   }, endAt);
 
-  // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る
+  // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る。
+  // ボスに負けたときだけは、挑みなおすのが主役になる
   const over = overDailyLimit();
   const next = nextStageOf(r.worldId, r.stage);
   const nextBtn = $('result-next');
+  $('result-retry').hidden = r.failed ? over : true;
+  nextBtn.hidden = r.failed && !over;
   nextBtn.textContent = over
     ? 'きょうは おしまい'
     : next
@@ -923,9 +947,15 @@ function renderResult(r: StageResult): void {
         ? 'スタートへ'
         : 'マップへ';
   // つぎのボタンがマップ／スタートを兼ねているときは、同じ行き先を2つ出さない
-  $('result-map').hidden = over || !next;
+  $('result-map').hidden = over || (!next && !r.failed);
   $('result-home').hidden = over || (!next && daily);
 }
+
+$('result-retry').addEventListener('click', () => {
+  if (!lastRun) return;
+  sfx.tap();
+  startRun(lastRun);
+});
 
 $('result-next').addEventListener('click', () => {
   if (!lastResult) return;
