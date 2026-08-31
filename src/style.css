@@ -1,5 +1,5 @@
 /* =========================================================
-   たしざんジャンプ — スタイル
+   ぴょんぴょんゲーム — スタイル
    iOS Safari / ホーム画面 PWA を前提に、拡大・バウンス・選択を止め、
    すべての当たり判定を safe-area の内側に置く。
    ========================================================= */
@@ -469,6 +469,8 @@ body {
 .pip { flex: 1; max-width: 16px; height: 8px; border-radius: 99px; background: rgba(255,255,255,.75); }
 .pip.done { background: var(--good); }
 .pip.miss { background: var(--bad); }
+/* リベンジのぶん。本編の10個と別の列だと分かるように、輪郭を付ける */
+.pip.rev { background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 2px var(--blue); }
 .hud-combo { margin: 0; font-weight: 700; font-size: .9rem; color: var(--amber-dark); white-space: nowrap; }
 .hud-combo b { font-size: 1.15rem; }
 .hud-combo.pop { animation: pop .28s ease-out; }
@@ -484,6 +486,25 @@ body {
   box-shadow: inset 0 0 0 2px rgba(0,0,0,.08);
 }
 @keyframes pop { 0% { transform: scale(1); } 40% { transform: scale(1.35); } 100% { transform: scale(1); } }
+
+/* 式の上のしるし。出ていないときも高さを取り、式が上下に跳ねないようにする */
+.q-tags {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; gap: .35rem;
+  min-height: 28px; margin-top: .2rem;
+}
+.q-tag {
+  font-size: .8rem; font-weight: 700; line-height: 1;
+  padding: .3rem .7rem; border-radius: 999px; border: 2px solid transparent;
+  animation: tag-in .28s ease-out;
+}
+.q-tag[hidden] { display: none; }
+.q-tag.weak { background: #fdeee9; border-color: var(--bad); color: var(--bad-dark); }
+.q-tag.final { background: #fff2d4; border-color: var(--amber-dark); color: #7a5200; }
+.q-tag.rev { background: #e7f0fb; border-color: var(--blue); color: var(--blue-dark); }
+@keyframes tag-in { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .q-tag { animation: none; } }
+@media (max-height: 480px) { .q-tags { min-height: 0; margin-top: 0; } .q-tag { font-size: .72rem; padding: .2rem .5rem; } }
 
 /* 式は「空」のまんなかに浮かせる。あまった縦の余白はここが吸う。 */
 .question {
@@ -694,6 +715,14 @@ body {
 }
 .learned[hidden] { display: none; }
 
+/* リベンジの結果。せいこうしたときだけ、おぼえた式と同じ「よかった色」にする */
+.revenge-note {
+  margin: .2rem 0 0; font-size: .9rem; font-weight: 700; color: var(--blue-dark);
+  background: #e7f0fb; border-radius: 12px; padding: .5rem .7rem; text-align: center; width: 100%;
+}
+.revenge-note.ok { color: var(--good-dark); background: #e6f5ec; }
+.revenge-note[hidden] { display: none; }
+
 /* ボスに負けたとき。責める見た目にはせず、もう一度いこうと言うだけ */
 .fail-note {
   margin: 0 0 .2rem; font-size: .88rem; font-weight: 700; color: var(--bad-dark); line-height: 1.5;
@@ -727,6 +756,8 @@ body {
 .zk.new { background: var(--paper-2); color: transparent; border-color: #e6ecef; }
 .zk.mid { background: #fff; color: var(--ink-2); border-color: var(--line); }
 .zk.done { background: #fff2d4; color: var(--amber-dark); border-color: var(--amber); }
+/* にがて。プレイ中に出てくる相手と同じ色で、「あいつだ」と結びつくようにする */
+.zk.weak { background: #fdeee9; color: var(--bad-dark); border-color: var(--bad); }
 .zk.sel { outline: 3px solid var(--blue); outline-offset: 1px; }
 .zukan-detail {
   margin: 0; text-align: center; font-size: .9rem; font-weight: 700; color: var(--ink);
@@ -739,6 +770,7 @@ body {
 .lg { width: 13px; height: 13px; border-radius: 4px; display: inline-block; border: 2px solid var(--line); }
 .lg.new { background: var(--paper-2); }
 .lg.mid { background: #fff; }
+.lg.weak { background: #fdeee9; border-color: var(--bad); }
 .lg.done { background: #fff2d4; border-color: var(--amber); }
 .lg:not(:first-child) { margin-left: .5rem; }
 

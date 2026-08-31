@@ -71,6 +71,50 @@ function noise(dur: number, vol = 0.3): void {
   src.start();
 }
 
+/**
+ * 低い持続音。最後の1問のあいだだけ鳴らして、「ここが山場」を耳でも伝える。
+ *
+ * 携帯のスピーカーは 100Hz あたりから下がほとんど出ないので、「低い」といっても
+ * 110Hz より下げると無音になる。低さは音程ではなく、ゆっくりした脈で出す。
+ */
+let drone: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
+
+export function startDrone(): void {
+  if (!ctx || !master || !save.settings.sound || drone) return;
+  const t0 = ctx.currentTime;
+
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'triangle';
+  osc.frequency.setValueAtTime(110, t0);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(0.14, t0 + 0.6);
+
+  // 鼓動のように揺らす。まっ平らな持続音より、迫ってくる感じが出る
+  const lfo = ctx.createOscillator();
+  const depth = ctx.createGain();
+  lfo.frequency.setValueAtTime(3.1, t0);
+  depth.gain.setValueAtTime(0.055, t0);
+  lfo.connect(depth).connect(gain.gain);
+
+  osc.connect(gain).connect(master);
+  osc.start(t0);
+  lfo.start(t0);
+  drone = { osc, lfo, gain };
+}
+
+export function stopDrone(): void {
+  if (!ctx || !drone) return;
+  const { osc, lfo, gain } = drone;
+  drone = null;
+  const t0 = ctx.currentTime;
+  gain.gain.cancelScheduledValues(t0);
+  gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t0);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+  osc.stop(t0 + 0.25);
+  lfo.stop(t0 + 0.25);
+}
+
 // ドミソド — 連続正解で音が上がっていくと、耳だけでコンボが分かる
 const LADDER = [523.25, 659.25, 783.99, 1046.5, 1318.5];
 
@@ -111,6 +155,27 @@ export const sfx = {
       tone(f, 0.16, { at: i * 0.06, wave: 'square', vol: 0.26 });
     });
   },
+  /** 最後の1問が出た合図。持続音（startDrone）の入り口になる低い一撃 */
+  final(): void {
+    tone(146.83, 0.6, { wave: 'square', vol: 0.26, to: 98 });
+    tone(73.42, 0.7, { wave: 'triangle', vol: 0.18 });
+    noise(0.3, 0.14);
+  },
+
+  /** まちがえた式のやりなおし（リベンジ）が始まる */
+  revenge(): void {
+    [392, 523.25, 659.25].forEach((f, i) => {
+      tone(f, 0.2, { at: i * 0.1, wave: 'triangle', vol: 0.32 });
+    });
+  },
+
+  /** にがてな式を、初回で正解して倒した */
+  beat(): void {
+    tone(659.25, 0.12, { wave: 'square', vol: 0.26 });
+    tone(987.77, 0.18, { at: 0.08, wave: 'triangle', vol: 0.3 });
+    noise(0.12, 0.16);
+  },
+
   /** でんせつのペットが出た。ここだけ長めに鳴らす */
   legend(): void {
     noise(0.2, 0.2);

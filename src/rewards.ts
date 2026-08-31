@@ -19,6 +19,8 @@ export const COIN_BOSS = 60;
 export const COIN_DAILY = 60;
 /** 時間切れでぶつかったとき落とす枚数 */
 export const COIN_MISS = 3;
+/** にがてな式（まちがえた回数の多い式）を、初回で正解したときの上乗せ */
+export const COIN_WEAK = 3;
 
 /**
  * 旧レート（1問1枚）からの倍率。
@@ -33,6 +35,8 @@ export interface CoinGain {
   correct: number;
   /** れんぞく ボーナス */
   combo: number;
+  /** にがて げきは */
+  weak: number;
   /** ノーミス ボーナス */
   perfect: number;
   /** ボス／デイリー ボーナス */
@@ -42,5 +46,5 @@ export interface CoinGain {
 }
 
 export function gainTotal(g: CoinGain): number {
-  return Math.max(0, g.correct + g.combo + g.perfect + g.bonus - g.lost);
+  return Math.max(0, g.correct + g.combo + g.weak + g.perfect + g.bonus - g.lost);
 }
