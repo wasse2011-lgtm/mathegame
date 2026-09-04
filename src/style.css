@@ -148,6 +148,11 @@ body {
 .hello::after { content: ' ▾'; color: var(--ink-2); }
 .hello:active { transform: translateY(1px); }
 
+/* 「あそぶ」の下に、つぎに走るステージ名を出す。開いた時点で行き先が読める */
+#btn-start { display: flex; flex-direction: column; align-items: center; gap: .1rem; line-height: 1.15; }
+.start-sub { font-size: .8rem; font-weight: 700; color: #7a5a00; }
+.start-sub[hidden] { display: none; }
+
 .skin-pick { width: 100%; background: rgba(255,255,255,.82); border-radius: var(--r-lg); padding: 1rem; }
 .skin-label { margin: 0 0 .6rem; text-align: center; font-weight: 700; }
 .skin-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
@@ -677,32 +682,50 @@ body {
   .coin-lines li { animation: none; }
   .coin-hero.pop { animation: none; }
 }
-.coin-total {
-  margin: .1rem 0 .3rem; width: 100%; text-align: center;
-  font-size: .95rem; font-weight: 700; color: var(--ink-2);
-  background: var(--paper-2); border-radius: 999px; padding: .4rem .8rem;
+/* 上半分。左に縮小マップ、右に星と せいかい */
+.result-body { display: flex; align-items: center; gap: .7rem; width: 100%; }
+.result-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem;
 }
-.coin-total b { font-size: 1.3rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .result-stage { margin: 0; font-size: .95rem; font-weight: 700; color: var(--ink-2); }
 .stars { display: flex; gap: .3rem; }
-.star { width: 52px; height: 52px; opacity: .2; transform: scale(.6); }
+.star { width: 48px; height: 48px; opacity: .2; transform: scale(.6); }
 .star.on { opacity: 1; animation: star-in .42s cubic-bezier(.2,1.5,.4,1) forwards; }
 @keyframes star-in { from { transform: scale(.3) rotate(-40deg); } to { transform: scale(1) rotate(0); } }
 @media (prefers-reduced-motion: reduce) { .star.on { animation: none; transform: scale(1); } }
-.result-head { margin: .1rem 0 .3rem; font-size: 1.6rem; font-weight: 700; }
-.result-rows { list-style: none; margin: 0; padding: 0; width: 100%; }
-.result-rows li {
-  display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; flex-wrap: wrap;
-  padding: .5rem .2rem; border-bottom: 2px dotted var(--line); font-size: 1rem; color: var(--ink-2);
+.result-head { margin: 0; font-size: 1.5rem; font-weight: 700; text-align: center; line-height: 1.2; }
+/* 正解数はこの1行だけ。細かい記録は「おうちのかた」で見られる */
+.result-score {
+  margin: 0; font-size: .95rem; font-weight: 700; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
 }
-/* display:flex が UA の [hidden]{display:none} に勝ってしまうので、明示的に消す */
-.result-rows li[hidden] { display: none; }
-.result-rows li:last-child { border-bottom: 0; }
-.result-rows span { white-space: nowrap; }
-.result-rows b {
-  color: var(--ink); font-size: 1.15rem; font-variant-numeric: tabular-nums;
-  white-space: nowrap; margin-left: auto;
+
+/* 左の縮小マップ。マップの「みち」と同じ並びにして、指させるようにする */
+.mini-map {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  padding-left: 14px;                 /* ▶ の居場所 */
 }
+.mini-map[hidden] { display: none; }
+.mini-head { font-size: .68rem; font-weight: 700; color: var(--ink-2); padding-right: 2px; }
+.mini-cell {
+  position: relative; width: 22px; height: 22px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  font-size: .66rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  background: var(--paper-2); border: 2px solid var(--line); border-radius: 7px; color: #b9c4cc;
+}
+.mini-cell.boss { border-radius: 50%; font-size: .58rem; }
+.mini-cell.done { background: var(--wc, var(--amber)); border-color: rgba(0,0,0,.14); color: #fff; }
+.mini-cell.now {
+  background: #e7f3fb; border-color: var(--blue); color: var(--blue-dark);
+  box-shadow: 0 0 0 3px rgba(74,163,221,.2);
+}
+/* いまのマスを指す ▶。カードの中身に重ならないよう、列の内側に置く */
+.mini-cell.now::before {
+  content: '▶'; position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+  font-size: .6rem; color: var(--blue); line-height: 1;
+}
+
 .result-btns { display: flex; flex-direction: column; gap: .3rem; width: 100%; margin-top: .5rem; }
 .result-btns .btn-xl { width: 100%; }
 .result-sub { display: flex; gap: .4rem; }
@@ -722,6 +745,39 @@ body {
 }
 .revenge-note.ok { color: var(--good-dark); background: #e6f5ec; }
 .revenge-note[hidden] { display: none; }
+
+/* リザルトの「たまご」カード。コインで いま なにが できるかを、その場で見せる */
+.egg-cta {
+  display: flex; align-items: center; gap: .7rem; width: 100%;
+  font-family: inherit; text-align: left; cursor: pointer;
+  background: var(--paper-2); border: 3px solid var(--line); border-bottom-width: 5px;
+  border-radius: var(--r-md); padding: .5rem .7rem; min-height: 62px;
+}
+.egg-cta:active { transform: translateY(3px); border-bottom-width: 2px; }
+.egg-cta.ready { background: #fff8e6; border-color: var(--amber); }
+.egg-cta.ready .egg-emoji { animation: egg-wiggle 1.6s ease-in-out infinite; }
+@keyframes egg-wiggle {
+  0%, 68%, 100% { transform: none; }
+  74% { transform: rotate(-13deg); }
+  82% { transform: rotate(13deg); }
+  90% { transform: rotate(-7deg); }
+}
+@media (prefers-reduced-motion: reduce) { .egg-cta.ready .egg-emoji { animation: none; } }
+.egg-cta-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
+.egg-cta-text b { font-size: 1rem; color: var(--ink); }
+.egg-cta-text > span:not(.bar) { font-size: .78rem; font-weight: 700; color: var(--ink-2); }
+.egg-cta .bar { width: 100%; height: 8px; }
+.egg-cta .bar[hidden] { display: none; }
+.egg-cta-go { font-size: 1.5rem; color: var(--ink-2); line-height: 1; }
+
+/* ホームの「きせかえ」「ペット」に付く、たまごが割れる合図 */
+.title-sub .btn-ghost { position: relative; }
+.egg-badge { position: absolute; top: 5px; right: 7px; font-size: .78rem; line-height: 1; }
+.egg-badge[hidden] { display: none; }
+
+/* きせかえ／ぼくじょうの下に出る「つづきを あそぶ」 */
+.back-to-play { flex: 0 0 auto; width: 100%; }
+.back-to-play[hidden] { display: none; }
 
 /* ボスに負けたとき。責める見た目にはせず、もう一度いこうと言うだけ */
 .fail-note {
