@@ -35,7 +35,7 @@ async function load(entry) {
 }
 
 const { QuestionPicker, MASTERED } = await load('questions');
-const { WORLDS } = await load('curriculum');
+const { WORLDS, cherry } = await load('curriculum');
 
 const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
@@ -121,7 +121,35 @@ for (const w of WORLDS) {
 if (bad.length) failed++;
 console.log(bad.length ? '   ' + bad.join('\n   ') : '   すべて正常');
 
-console.log('\nD) 出題の例');
+/**
+ * D) さくらんぼヒントは、繰り上がる式にだけ出す。
+ *
+ * 出す条件を b そのもので見ると、2けた＋2けたのワールド（W8）で
+ * 「34 + 31 → 31 を 6 と 25 に分ける」のような、元の式より難しいヒントが出る。
+ * 繰り上がるかどうかは一の位どうしの和で決まるので、そこを見張る。
+ */
+console.log('\nD) さくらんぼヒント（繰り上がる式にだけ出ること）');
+const carries = (f) => (f.a % 10) + (f.b % 10) >= 10;
+const hintBad = [];
+for (const w of WORLDS) {
+  const hinted = w.facts.filter((f) => cherry(f));
+  for (const f of hinted) {
+    const c = cherry(f);
+    if (!carries(f)) hintBad.push(`W${w.id} ${f.a} + ${f.b} は繰り上がらないのにヒントが出る`);
+    else if (c.need + c.rest !== f.b) hintBad.push(`W${w.id} ${f.a} + ${f.b} の分解が合わない`);
+    else if (c.ten !== f.a + c.need || c.ten % 10 !== 0) hintBad.push(`W${w.id} ${f.a} + ${f.b} のきりのいい数が違う`);
+    else if (c.rest <= 0) hintBad.push(`W${w.id} ${f.a} + ${f.b} の のこりが 0 以下`);
+  }
+  const carry = w.facts.filter(carries).length;
+  console.log(
+    `   W${w.id}  式 ${String(w.facts.length).padStart(3)} ・ 繰り上がる ${String(carry).padStart(3)} ・ ` +
+      `ヒントが出る ${String(hinted.length).padStart(3)}`,
+  );
+}
+if (hintBad.length) failed++;
+console.log(hintBad.length ? '   ' + hintBad.slice(0, 5).join('\n   ') : '   すべて正常');
+
+console.log('\nE) 出題の例');
 for (const w of WORLDS) {
   const picker = new QuestionPicker(w.facts, w.choices, Boolean(w.blank));
   const q = picker.next();

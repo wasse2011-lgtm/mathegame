@@ -195,6 +195,10 @@ export interface Cherry {
 export function cherry(f: Fact): Cherry | null {
   const ones = f.a % 10;
   if (ones === 0) return null;
+  // 繰り上がるかどうかは「一の位どうしの和」で決まる。b そのものの大きさで
+  // 見ると、34 + 31（4 + 1 で繰り上がらない）まで対象に入り、
+  // 「31 を 6 と 25 に分ける」という、元の式より難しいヒントになる。
+  if (ones + (f.b % 10) < 10) return null;
   const need = 10 - ones;
   const rest = f.b - need;
   if (rest <= 0) return null;
