@@ -71,11 +71,15 @@
           <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかん・きせかえ・ぼくじょうは みられるよ。</p>
         </div>
 
-        <button class="btn btn-primary btn-xl" id="btn-start">あそぶ</button>
+        <button class="btn btn-primary btn-xl" id="btn-start">
+          <span id="start-main">あそぶ</span>
+          <span class="start-sub" id="start-sub" hidden></span>
+        </button>
 
         <div class="title-sub" id="title-sub">
-          <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ</button>
-          <button class="btn btn-ghost" id="btn-ranch" type="button">ペット</button>
+          <!-- たまごが割れるときは 🥚 が付く。コインの使いみちに気づかせる -->
+          <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ<span class="egg-badge" id="shop-badge" hidden aria-hidden="true">🥚</span></button>
+          <button class="btn btn-ghost" id="btn-ranch" type="button">ペット<span class="egg-badge" id="ranch-badge" hidden aria-hidden="true">🥚</span></button>
           <button class="btn btn-ghost" id="btn-zukan" type="button">ずかん</button>
           <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
         </div>
@@ -179,11 +183,19 @@
       <canvas id="confetti" aria-hidden="true"></canvas>
       <div class="result-scroll">
         <div class="result-card">
-          <p class="result-stage" id="result-stage">1-1</p>
-          <div class="stars" id="result-stars" aria-label="ほし"></div>
-          <p class="result-head" id="result-head">クリア！</p>
-          <!-- ボスに負けたときだけ出る。責めずに、もう一度いこうと言うだけ -->
-          <p class="fail-note" id="result-fail" hidden></p>
+          <div class="result-body">
+            <!-- 左の縮小マップ。いまどのステージにいるかを、この画面でも見せる -->
+            <aside class="mini-map" id="result-map-mini" aria-hidden="true"></aside>
+
+            <div class="result-main">
+              <p class="result-stage" id="result-stage">1-1</p>
+              <div class="stars" id="result-stars" aria-label="ほし"></div>
+              <p class="result-head" id="result-head">クリア！</p>
+              <p class="result-score" id="result-correct">0 / 10</p>
+              <!-- ボスに負けたときだけ出る。責めずに、もう一度いこうと言うだけ -->
+              <p class="fail-note" id="result-fail" hidden></p>
+            </div>
+          </div>
 
           <!-- もらったコイン。ここがこの画面のいちばん大きい数字 -->
           <div class="coin-hero" id="coin-hero">
@@ -192,14 +204,18 @@
             <span class="coin-hero-unit">コイン</span>
           </div>
           <ul class="coin-lines" id="coin-lines"></ul>
-          <p class="coin-total">ぜんぶで <b id="result-total">0</b> コイン</p>
 
-          <ul class="result-rows">
-            <li><span>せいかい</span><b id="result-correct">0 / 10</b></li>
-            <li id="result-revenge-row" hidden><span>リベンジ</span><b id="result-revenge">-</b></li>
-            <li id="result-combo-row" hidden><span>さいこう れんぞく</span><b id="result-combo">-</b></li>
-            <li id="result-best-row"><span>いちばん はやい</span><b id="result-best">-</b></li>
-          </ul>
+          <!-- 貯めたコインで いま なにが できるか。稼いだその場で見せる -->
+          <button class="egg-cta" id="result-egg" type="button">
+            <span class="egg-emoji" aria-hidden="true">🥚</span>
+            <span class="egg-cta-text">
+              <b id="result-egg-label">たまごを わる</b>
+              <span class="bar" id="result-egg-bar" hidden><i></i></span>
+              <span id="result-egg-sub"></span>
+            </span>
+            <span class="egg-cta-go" aria-hidden="true">›</span>
+          </button>
+
           <p class="revenge-note" id="result-revenge-note" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
@@ -266,6 +282,9 @@
       <div class="shop-scroll">
         <div class="item-grid" id="item-grid"></div>
       </div>
+
+      <!-- ゲームの途中から来たときだけ出る。着せ替えたら そのまま続きへ戻れる -->
+      <button class="btn btn-primary btn-xl back-to-play" id="shop-play" type="button" hidden>つづきを あそぶ</button>
     </section>
 
     <!-- ===== ペットぼくじょう ===== -->
@@ -306,6 +325,9 @@
         <div class="pet-grid" id="pet-grid"></div>
         <p class="p-note" id="dup-note"></p>
       </div>
+
+      <!-- ゲームの途中から来たときだけ出る。たまごを割ったら そのまま続きへ戻れる -->
+      <button class="btn btn-primary btn-xl back-to-play" id="ranch-play" type="button" hidden>つづきを あそぶ</button>
     </section>
 
     <!-- ===== おうちのかた ===== -->

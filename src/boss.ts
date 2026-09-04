@@ -363,10 +363,33 @@ export function drawShot(g: CanvasRenderingContext2D, sh: Shot, def: BossDef): v
   }
 }
 
+/**
+ * 投げてくる石。
+ *
+ * ここは「見えないと理不尽」になる唯一の絵なので、色に頼らない。
+ * ボス戦の空はどれも暗い紫〜赤（theme.ts の boss）で、丘と草もその色に
+ * 34% 寄せて塗る。灰茶色（#8e8578）の石はその明るさの帯にちょうど入るので、
+ * 丘に重なった瞬間に輪郭が消えていた。
+ *
+ * 直しかたは3つ重ね:
+ *   1. 明るい石にして、濃いふちどりを付ける（暗い背景から必ず浮く）
+ *   2. うしろに暗いにじみを敷く（明るい所に重なっても縁が切れる）
+ *   3. 土けむりも明るくして、来る方向が見える
+ */
 function drawRock(g: CanvasRenderingContext2D, sh: Shot, def: BossDef): void {
   const r = sh.r;
+
+  // うしろの暗いにじみ。背景が何色でも、ここで輪郭が切れる
+  const glow = g.createRadialGradient(sh.x, sh.y, r * 0.7, sh.x, sh.y, r * 2);
+  glow.addColorStop(0, 'rgba(20,14,30,.38)');
+  glow.addColorStop(1, 'rgba(20,14,30,0)');
+  g.fillStyle = glow;
+  g.beginPath();
+  g.arc(sh.x, sh.y, r * 2, 0, Math.PI * 2);
+  g.fill();
+
   // 転がるときの土けむり
-  g.fillStyle = 'rgba(160,140,110,.35)';
+  g.fillStyle = 'rgba(255,242,214,.5)';
   for (let i = 1; i <= 3; i++) {
     const d = r * (1.2 + i * 0.7);
     g.beginPath();
@@ -378,7 +401,6 @@ function drawRock(g: CanvasRenderingContext2D, sh: Shot, def: BossDef): void {
   g.translate(sh.x, sh.y);
   g.rotate(sh.rot);
   // ごつごつした多角形
-  g.fillStyle = def.tier >= 7 ? '#6b6470' : '#8e8578';
   g.beginPath();
   const n = 8;
   for (let i = 0; i < n; i++) {
@@ -390,14 +412,24 @@ function drawRock(g: CanvasRenderingContext2D, sh: Shot, def: BossDef): void {
     else g.lineTo(px, py);
   }
   g.closePath();
+  // 上を明るく、下を暗く。平らな1色より塊に見える
+  const body = g.createLinearGradient(0, -r, 0, r);
+  body.addColorStop(0, def.tier >= 7 ? '#e6e2ee' : '#efe7d6');
+  body.addColorStop(1, def.tier >= 7 ? '#8f88a0' : '#a99a80');
+  g.fillStyle = body;
   g.fill();
-  g.fillStyle = 'rgba(0,0,0,.18)';
+  g.strokeStyle = INK;
+  g.lineWidth = Math.max(2, r * 0.22);
+  g.lineJoin = 'round';
+  g.stroke();
+
+  g.fillStyle = 'rgba(43,52,64,.22)';
   g.beginPath();
-  g.arc(r * 0.22, r * 0.24, r * 0.55, 0, Math.PI * 2);
+  g.arc(r * 0.22, r * 0.28, r * 0.5, 0, Math.PI * 2);
   g.fill();
   // ひび
-  g.strokeStyle = 'rgba(0,0,0,.28)';
-  g.lineWidth = Math.max(1, r * 0.09);
+  g.strokeStyle = 'rgba(43,52,64,.5)';
+  g.lineWidth = Math.max(1, r * 0.11);
   g.beginPath();
   g.moveTo(-r * 0.5, -r * 0.2);
   g.lineTo(-r * 0.1, r * 0.12);
@@ -447,6 +479,12 @@ function drawBeam(g: CanvasRenderingContext2D, sh: Shot, def: BossDef): void {
   const r = sh.r;
   const len = r * 5.2;
   const core = def.tier >= 8 ? '#9ef3ff' : def.tier >= 7 ? '#d2a6ff' : '#8fe3ff';
+
+  // 石と同じ理由で、まず暗い下地を敷く。W7 のビームは紫で、
+  // ボス戦の紫の空と丘にそのまま溶ける
+  g.fillStyle = 'rgba(20,14,30,.34)';
+  roundRect(g, sh.x - r * 1.5, sh.y - r * 1.5, len + r * 2, r * 3, r * 1.5);
+  g.fill();
 
   // 外側の光
   const grad = g.createLinearGradient(sh.x - r, sh.y, sh.x + len, sh.y);

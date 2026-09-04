@@ -13,8 +13,16 @@ import {
   type Fact,
   type World,
 } from './curriculum';
+import { EGG_COST, lockedItems } from './items';
+import { renderMiniMap } from './minimap';
 import { initParent, makeGate, renderParent } from './parent';
-import { PET_COUNT, activePet, ownedPets, type PetDef } from './pets';
+import {
+  PET_COUNT,
+  PET_EGG_COST,
+  activePet,
+  ownedPets,
+  type PetDef,
+} from './pets';
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
@@ -66,6 +74,8 @@ let mapWorld = 1;
 let mapView: 'worlds' | 'stages' = 'worlds';
 let lastRun: RunConfig | null = null;
 let lastResult: StageResult | null = null;
+/** きせかえ／ぼくじょうをどこから開いたか。ゲームの途中なら続きへ戻す導線を出す */
+let shopFrom: 'home' | 'result' = 'home';
 
 function show(name: ScreenName): void {
   // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
@@ -166,6 +176,83 @@ function lastPlayedWorld(): number {
   return id;
 }
 
+/**
+ * 「いま」いる場所＝まだ★のついていない、いちばん手前のステージ。
+ * ★が足りなくてまだ入れないボスもここに出す。行き止まりを隠すより、
+ * 「つぎはボス、でも★が足りない」と見えているほうが分かりやすい。
+ */
+function currentSpot(): { worldId: number; stage: number } {
+  for (const w of WORLDS) {
+    if (!worldUnlocked(w.id)) continue;
+    for (let stage = 1; stage <= bossStage(w); stage++) {
+      if (stageStars(w.id, stage) === 0) return { worldId: w.id, stage };
+    }
+  }
+  // ぜんぶ★つき。最後のボスを「いま」にしておく
+  const last = WORLDS[WORLDS.length - 1];
+  return { worldId: last.id, stage: bossStage(last) };
+}
+
+function spotLabel(spot: { worldId: number; stage: number }): string {
+  const w = worldById(spot.worldId);
+  return isBoss(w, spot.stage) ? `${w.id}-ボス` : `${w.id}-${spot.stage}`;
+}
+
+// ------------------------------------------------------------------ コインの使いみち
+
+/**
+ * いま、コインで何ができるか。
+ *
+ * 貯めていても「それで何ができるのか」が画面のどこにも出ていないと、
+ * コインはただの数字になる。割れるなら割れると言い、足りないなら
+ * あと何枚かを言う。行き先（ペット／きせかえ）もここで決める。
+ *
+ * ペットを先に見るのは、子どもが割りたがるのがペットのたまごだから。
+ */
+interface EggState {
+  where: 'ranch' | 'shop';
+  /** いま割れる */
+  ready: boolean;
+  label: string;
+  /** 割れないとき、目標までの残り。割れるときは 0 */
+  need: number;
+  cost: number;
+}
+
+function eggState(): EggState {
+  const coins = profile().coins;
+  const petsLeft = ownedPets().length < PET_COUNT;
+  const itemsLeft = lockedItems().length > 0;
+
+  const goals: EggState[] = [];
+  if (petsLeft) {
+    goals.push({
+      where: 'ranch',
+      ready: coins >= PET_EGG_COST,
+      label: 'ペットの たまご',
+      need: Math.max(0, PET_EGG_COST - coins),
+      cost: PET_EGG_COST,
+    });
+  }
+  if (itemsLeft) {
+    goals.push({
+      where: 'shop',
+      ready: coins >= EGG_COST,
+      label: 'きせかえの たまご',
+      need: Math.max(0, EGG_COST - coins),
+      cost: EGG_COST,
+    });
+  }
+  // ぜんぶ集めたら、行き先は牧場（連れて歩く子を選びなおせる）
+  if (!goals.length) {
+    return { where: 'ranch', ready: false, label: 'ぜんぶ そろった！', need: 0, cost: 0 };
+  }
+  // 割れるものがあればそれを、なければ いちばん近い目標を見せる
+  const ready = goals.filter((g) => g.ready);
+  if (ready.length) return ready[0];
+  return goals.reduce((a, b) => (b.need < a.need ? b : a));
+}
+
 // ------------------------------------------------------------------ ホーム
 
 function renderTitle(): void {
@@ -175,7 +262,8 @@ function renderTitle(): void {
   $('home').hidden = needsSetup;
   $('title-sub').hidden = needsSetup;
   $('yard').hidden = needsSetup;
-  $('btn-start').textContent = needsSetup ? 'はじめる' : 'あそぶ';
+  $('start-main').textContent = needsSetup ? 'はじめる' : 'あそぶ';
+  $('start-sub').hidden = true;
   if (!needsSetup) startHomeIdle();
 
   if (needsSetup) {
@@ -214,7 +302,14 @@ function renderTitle(): void {
   const daily = $<HTMLButtonElement>('daily-card');
   startBtn.disabled = over;
   daily.disabled = over;
-  startBtn.textContent = over ? 'きょうは おしまい' : 'あそぶ';
+  $('start-main').textContent = over ? 'きょうは おしまい' : 'あそぶ';
+
+  // 開いた時点で「つぎはどこか」が読めるようにする
+  const spot = currentSpot();
+  const sub = $('start-sub');
+  sub.hidden = over;
+  sub.textContent = `つぎは ${spotLabel(spot)}`;
+
   $('over-note').hidden = !over;
 
   daily.classList.toggle('done', p.daily.done);
@@ -235,6 +330,10 @@ function renderTitle(): void {
   const pets = ownedPets().length;
   $('pet-count').textContent = `${pets} / ${PET_COUNT}`;
   $('pet-bar').style.width = `${(pets / PET_COUNT) * 100}%`;
+
+  // たまごが割れる入口にだけ 🥚 を出す（両方割れるなら両方）
+  $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= EGG_COST);
+  $('ranch-badge').hidden = !(pets < PET_COUNT && p.coins >= PET_EGG_COST);
 }
 
 $('btn-start').addEventListener('click', () => {
@@ -379,31 +478,64 @@ $('btn-zukan').addEventListener('click', () => {
   show('zukan');
 });
 
-$('btn-shop').addEventListener('click', () => {
-  sfx.tap();
-  renderShop();
-  show('shop');
-});
-
 $('zukan-back').addEventListener('click', () => {
   sfx.tap();
   goHome();
 });
 
-$('shop-back').addEventListener('click', () => {
+/**
+ * きせかえ／ぼくじょうを開く。
+ *
+ * ゲームの途中（リザルト）から来たときは、遊びが途切れないように
+ * 「つづきを あそぶ」を足し、← ではリザルトへ戻す。
+ * ホームまで戻らないと続きに行けないと、たまごを割ったところで手が止まる。
+ */
+function openCollection(where: 'shop' | 'ranch', from: 'home' | 'result'): void {
+  shopFrom = from;
+  if (where === 'shop') renderShop();
+  else renderRanch();
+
+  const play = $<HTMLButtonElement>(where === 'shop' ? 'shop-play' : 'ranch-play');
+  play.hidden = from !== 'result' || overDailyLimit();
+  if (!play.hidden) {
+    const next = lastResult && nextStageOf(lastResult.worldId, lastResult.stage);
+    play.textContent = next ? 'つづきを あそぶ' : nextLabel();
+  }
+  show(where);
+}
+
+/** きせかえ／ぼくじょうから戻る。来た場所へ返す */
+function leaveCollection(): void {
   sfx.tap();
-  goHome();
+  if (shopFrom === 'result' && lastResult) {
+    renderResultEgg();
+    show('result');
+  } else {
+    goHome();
+  }
+}
+
+$('btn-shop').addEventListener('click', () => {
+  sfx.tap();
+  openCollection('shop', 'home');
 });
 
 $('btn-ranch').addEventListener('click', () => {
   sfx.tap();
-  renderRanch();
-  show('ranch');
+  openCollection('ranch', 'home');
 });
 
-$('ranch-back').addEventListener('click', () => {
+$('shop-back').addEventListener('click', leaveCollection);
+$('ranch-back').addEventListener('click', leaveCollection);
+
+$('shop-play').addEventListener('click', () => {
   sfx.tap();
-  goHome();
+  goNext();
+});
+
+$('ranch-play').addEventListener('click', () => {
+  sfx.tap();
+  goNext();
 });
 
 // ------------------------------------------------------------------ デイリー
@@ -859,31 +991,25 @@ function renderResult(r: StageResult): void {
   const fail = $('result-fail');
   fail.hidden = !r.failed;
   if (r.failed) fail.textContent = 'ボスは 1もん まちがえると おしまい。おちついて いこう！';
-  $('result-correct').textContent = `${r.correct} / ${r.total}`;
+  $('result-correct').textContent = `せいかい ${r.correct} / ${r.total}`;
 
-  const bestRow = $('result-best-row');
-  if (r.bestKey) {
-    bestRow.hidden = false;
-    $('result-best').textContent = `${r.bestKey}　${(r.bestMs / 1000).toFixed(1)}びょう`;
-  } else {
-    bestRow.hidden = true;
+  // 縮小マップ。デイリーはマップ上のどこでもないので出さない
+  const mini = $('result-map-mini');
+  mini.hidden = daily;
+  if (!daily) {
+    const spot = currentSpot();
+    renderMiniMap(mini, r.worldId, spot.worldId === r.worldId ? spot.stage : r.stage);
   }
 
-  const comboRow = $('result-combo-row');
-  comboRow.hidden = r.maxCombo < 3;
-  $('result-combo').textContent = `${r.maxCombo} れんぞく`;
-
-  // リベンジ（まちがえた式のやりなおし）。走った回だけ出す
+  // リベンジ（まちがえた式のやりなおし）。走った回だけ、1行だけ出す
   const rev = r.revenge;
-  $('result-revenge-row').hidden = !rev;
   const revNote = $('result-revenge-note');
   revNote.hidden = !rev;
   if (rev) {
-    $('result-revenge').textContent = `${rev.correct} / ${rev.total}`;
     revNote.classList.toggle('ok', rev.cleared);
     revNote.textContent = rev.cleared
-      ? 'リベンジ せいこう！ ミスを 1つ とりけした'
-      : 'まちがえた しきに もういちど ちょうせんした！';
+      ? `リベンジ ${rev.correct}/${rev.total} せいこう！ ミスを 1つ とりけした`
+      : `リベンジ ${rev.correct}/${rev.total}　まちがえた しきに もういちど ちょうせんした！`;
   }
 
   const learned = $('result-learned');
@@ -905,19 +1031,21 @@ function renderResult(r: StageResult): void {
       later(() => {
         el.classList.add('on');
         sfx.star(i);
-      }, 260 + i * 300);
+      }, 220 + i * 240);
     }
   });
 
   const hero = $('result-coins');
-  const total = $('result-total');
   const list = $('coin-lines');
   hero.textContent = '+0';
-  total.textContent = String(r.totalCoins - r.coins);
   list.replaceChildren();
 
+  // たまごのカードは、走る前の枚数から始めて、数え終わりに更新する。
+  // 棒グラフが伸びるので「さっきより たまごに近づいた」が目で分かる
+  renderResultEgg(r.totalCoins - r.coins);
+
   const lines = coinLines(r);
-  const startAt = 300 + r.stars * 300;
+  const startAt = 260 + r.stars * 240;
   let running = 0;
 
   lines.forEach((line, i) => {
@@ -933,17 +1061,17 @@ function renderResult(r: StageResult): void {
 
       const from = running;
       running = Math.max(0, running + line.value);
-      countUp(hero, from, running, 420, '+');
+      countUp(hero, from, running, 340, '+');
       $('coin-hero').classList.remove('pop');
       void $('coin-hero').offsetWidth;
       $('coin-hero').classList.add('pop');
       sfx.star(Math.min(i, 2));
-    }, startAt + i * 460);
+    }, startAt + i * 340);
   });
 
-  const endAt = startAt + lines.length * 460 + 260;
+  const endAt = startAt + lines.length * 340 + 220;
   later(() => {
-    countUp(total, r.totalCoins - r.coins, r.totalCoins, 700);
+    renderResultEgg();
     if (!r.failed) {
       sfx.fanfare();
       confetti(r.stars === 3 ? 90 : r.stars === 2 ? 50 : 28);
@@ -969,16 +1097,63 @@ function renderResult(r: StageResult): void {
   $('result-home').hidden = over || (!next && daily);
 }
 
+/** 「つづける」の文字。きせかえ／ぼくじょうの「つづきを あそぶ」でも同じ行き先を使う */
+function nextLabel(): string {
+  if (overDailyLimit()) return 'きょうは おしまい';
+  if (!lastResult) return 'スタートへ';
+  if (nextStageOf(lastResult.worldId, lastResult.stage)) return 'つづける';
+  return lastResult.stage === 0 ? 'スタートへ' : 'マップへ';
+}
+
+/**
+ * リザルトの「たまご」カード。
+ *
+ * 「コインが増えた」で終わらせず、そのコインで いま何ができるのかを、
+ * 稼いだその場に置く。足りないときも棒グラフで残りを見せて、
+ * つぎの1ステージへつなげる。
+ *
+ * @param coins 表示に使う所持コイン。省略すると いまの所持数
+ */
+function renderResultEgg(coins = profile().coins): void {
+  const egg = eggState();
+  const btn = $<HTMLButtonElement>('result-egg');
+  const bar = $('result-egg-bar');
+  const fill = bar.firstElementChild as HTMLElement;
+  const need = Math.max(0, egg.cost - coins);
+  const ready = egg.cost > 0 && need === 0;
+
+  btn.classList.toggle('ready', ready);
+  if (egg.cost === 0) {
+    $('result-egg-label').textContent = 'ぼくじょうで あそぶ';
+    $('result-egg-sub').textContent = 'ぜんぶ そろった！';
+    bar.hidden = true;
+  } else if (ready) {
+    $('result-egg-label').textContent = `${egg.label}が われる！`;
+    $('result-egg-sub').textContent = `もっている コイン ${coins}`;
+    bar.hidden = true;
+  } else {
+    // 見出しを1行に収める。何のたまごかは下の行で言う
+    $('result-egg-label').textContent = `あと ${need} コインで たまご`;
+    $('result-egg-sub').textContent = `${egg.label}　${coins} / ${egg.cost}`;
+    bar.hidden = false;
+    fill.style.width = `${Math.min(100, (coins / egg.cost) * 100)}%`;
+  }
+}
+
+$('result-egg').addEventListener('click', () => {
+  sfx.tap();
+  openCollection(eggState().where, 'result');
+});
+
 $('result-retry').addEventListener('click', () => {
   if (!lastRun) return;
   sfx.tap();
   startRun(lastRun);
 });
 
-$('result-next').addEventListener('click', () => {
-  if (!lastResult) return;
-  sfx.tap();
-  if (overDailyLimit()) {
+/** 「つづける」の行き先。きせかえ／ぼくじょうから戻ってきたときも同じ場所へ進む */
+function goNext(): void {
+  if (!lastResult || overDailyLimit()) {
     goHome();
     return;
   }
@@ -993,6 +1168,11 @@ $('result-next').addEventListener('click', () => {
     renderMap();
     show('map');
   }
+}
+
+$('result-next').addEventListener('click', () => {
+  sfx.tap();
+  goNext();
 });
 
 $('result-map').addEventListener('click', () => {
@@ -1127,10 +1307,15 @@ window.addEventListener('visibilitychange', () => {
 });
 
 requestPersistentStorage();
+// たまごを割るとコインが減る。ホームも、裏にいるリザルトのカードも作りなおす
+const onCollectionChange = (): void => {
+  renderTitle();
+  renderResultEgg();
+};
 initShop();
-onShopChange(renderTitle);
+onShopChange(onCollectionChange);
 initRanch();
-onRanchChange(renderTitle);
+onRanchChange(onCollectionChange);
 initParent(() => {
   syncSettings();
   renderTitle();

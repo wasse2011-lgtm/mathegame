@@ -66,11 +66,8 @@ export interface StageResult {
   coins: number;
   /** その内訳。リザルトで1行ずつ見せる */
   gain: CoinGain;
-  bestKey: string | null;
-  bestMs: number;
   /** この回で初めておぼえた式 */
   learned: string[];
-  maxCombo: number;
   /** クリア後に持っているコイン */
   totalCoins: number;
   /** ボスにやられて終わった（★もボーナスも付かない） */
@@ -180,9 +177,7 @@ export class Runner {
   /** HUD に出しているコイン。飛んできたコインが着いた分だけ増える */
   private coinsShown = 0;
   private combo = 0;
-  private maxCombo = 0;
   private learned: string[] = [];
-  private best: { key: string; ms: number } | null = null;
   private onDone: ((r: StageResult) => void) | null = null;
 
   // 問題状態
@@ -309,9 +304,7 @@ export class Runner {
     this.gain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, lost: 0 };
     this.coinsShown = 0;
     this.combo = 0;
-    this.maxCombo = 0;
     this.learned = [];
-    this.best = null;
     this.onDone = onDone;
     this.elapsed = 0;
     this.particles = [];
@@ -714,7 +707,6 @@ export class Runner {
         if (this.revenge) this.revengeCorrect++;
         else this.correct++;
         this.combo++;
-        this.maxCombo = Math.max(this.maxCombo, this.combo);
 
         // リベンジぶんは「せいかい」に入れない。ここに足すと、リザルトの
         // 「せいかい 8もん ＋27」のように、行の見出しと枚数が合わなくなる。
@@ -727,7 +719,6 @@ export class Runner {
         this.gain.weak += weakBonus;
         this.spawnCoins(base + bonus + weakBonus);
 
-        if (!this.best || ms < this.best.ms) this.best = { key, ms };
         sfx.correct(this.combo - 1);
         // にがてを初回で正解した＝倒した。ここは掛け声でいちばん強く返す
         if (this.isWeak) {
@@ -1139,10 +1130,7 @@ export class Runner {
       total: this.total,
       coins,
       gain: { ...this.gain },
-      bestKey: this.best?.key ?? null,
-      bestMs: this.best?.ms ?? 0,
       learned: this.learned,
-      maxCombo: this.maxCombo,
       totalCoins: p.coins,
       failed: this.failed,
       bossName: this.boss ? this.bossDefn.name : null,
