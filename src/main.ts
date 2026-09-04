@@ -102,6 +102,10 @@ function yardCast(): (PetDef | null)[] {
 }
 
 function startHomeIdle(): void {
+  // ホームを見ていないときは動かさない。renderTitle() は きせかえ・ぼくじょうで
+  // 買ったときにも呼ばれるので、ここを見ないと「別の画面を見ているあいだ、
+  // 隠れた広場が回りっぱなし」になる（show() が止めるのは画面を切りかえた時だけ）
+  if (current !== 'title') return;
   if ($('yard').hidden) return;
   yard.setCast(yardCast());
   yard.start();
