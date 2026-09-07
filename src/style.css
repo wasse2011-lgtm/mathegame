@@ -393,13 +393,21 @@ body {
 }
 .path-goal { position: relative; z-index: 1; }
 .stage-node {
-  position: relative; width: 84px; height: 84px; border-radius: 27px;
+  position: relative; width: 92px; height: 98px; border-radius: 28px;
   font-family: inherit; font-weight: 700; color: var(--ink);
   background: var(--paper); border: 3px solid var(--wc, var(--line)); border-bottom-width: 6px;
-  display: grid; grid-template-rows: 1fr auto; place-items: center;
+  display: grid; grid-template-rows: 1fr auto auto; place-items: center;
   padding: .5rem 0 .4rem; cursor: pointer;
   box-shadow: 0 8px 16px -12px rgba(20,40,60,.7);
 }
+/* 何を練習する面なのかを、マスの中に入れる。
+   外にぶら下げると、道の間隔（gap .7rem）では隣の「いま ここ」札とぶつかる */
+.sn-name {
+  font-size: .6rem; line-height: 1.15; max-width: 80px; padding: 0 .2rem;
+  text-align: center; opacity: .82; overflow-wrap: anywhere;
+}
+.stage-node.cleared .sn-name { color: #fff; opacity: .95; }
+.stage-node.now .sn-name { opacity: 1; }
 .stage-node:active { transform: translateY(3px); border-bottom-width: 3px; }
 .sn-label { font-size: 1.9rem; line-height: 1; }
 .stage-node .st { font-size: .74rem; letter-spacing: -1px; line-height: 1; color: var(--amber-dark); }
@@ -494,9 +502,10 @@ body {
 
 /* 式の上のしるし。出ていないときも高さを取り、式が上下に跳ねないようにする */
 .q-tags {
+  position: relative;
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; gap: .35rem;
-  min-height: 28px; margin-top: .2rem;
+  min-height: 38px; margin-top: .2rem;
 }
 .q-tag {
   font-size: .8rem; font-weight: 700; line-height: 1;
@@ -508,6 +517,28 @@ body {
 .q-tag.final { background: #fff2d4; border-color: var(--amber-dark); color: #7a5200; }
 .q-tag.rev { background: #e7f0fb; border-color: var(--blue); color: var(--blue-dark); }
 @keyframes tag-in { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
+
+/* 自分から見にいくヒント。すこし考えたところで、ペットが差し出す。
+   この行はもともと高さを取ってあるので、出し入れしても canvas を測りなおさずに済む */
+.btn-hint {
+  position: absolute; right: .3rem; top: 50%; transform: translateY(-50%);
+  font-family: inherit; font-size: .78rem; font-weight: 700; line-height: 1;
+  display: flex; align-items: center; gap: .3rem;
+  padding: .42rem .7rem; min-height: 34px;
+  color: #7a5200; background: #fff6de;
+  border: 2px solid var(--amber); border-radius: 999px; cursor: pointer;
+  animation: hint-offer .4s ease-out;
+}
+.btn-hint[hidden] { display: none; }
+.btn-hint b { font-size: .72rem; opacity: .75; font-variant-numeric: tabular-nums; }
+.btn-hint b::before { content: 'あと'; }
+.btn-hint:active { transform: translateY(-50%) scale(.94); }
+.btn-hint:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+@keyframes hint-offer {
+  from { opacity: 0; transform: translateY(calc(-50% + 10px)) scale(.8); }
+  to { opacity: 1; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) { .btn-hint { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .q-tag { animation: none; } }
 @media (max-height: 480px) { .q-tags { min-height: 0; margin-top: 0; } .q-tag { font-size: .72rem; padding: .2rem .5rem; } }
 
@@ -532,17 +563,61 @@ body {
 @keyframes q-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
 /* さくらんぼ分解のヒント */
+/* 絵を上、ことばを下の2段にする。
+   横1列に並べると、スマホの幅では 10マスが数ミリまで潰れ、
+   ことばのほうが1文字ずつ縦に折れる。 */
 .hint {
   flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: center; gap: .6rem;
+  display: flex; flex-direction: column; align-items: center; gap: .3rem;
   background: rgba(255,255,255,.9); border: 2px solid var(--amber);
-  border-radius: var(--r-md); padding: .35rem .7rem; margin: .3rem .2rem 0;
+  border-radius: var(--r-md); padding: .4rem .7rem; margin: .3rem .2rem 0;
   animation: hint-in .3s ease-out;
+}
+.hint-arts {
+  display: flex; align-items: center; justify-content: center; gap: .7rem;
+  width: 100%; min-width: 0;
+}
+.hint-row {
+  display: flex; align-items: center; justify-content: center; gap: .6rem;
+  width: 100%; min-width: 0;
 }
 .hint[hidden] { display: none !important; }
 @keyframes hint-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .hint { animation: none; } }
-.cherry { width: 142px; height: 55px; flex: 0 0 auto; }
+/* 10マス。
+   max-height はレイアウトの生命線。#hint を出すと world-wrap が縮むが、
+   world-wrap は min-height: 120px までしか譲れず、それを超えると列があふれて
+   唯一の操作対象である答えボタンが画面の外へ出る。
+   preserveAspectRatio が既定（meet）なので、高さを抑えても切れずに縮む。 */
+.tenframe { flex: 1 1 auto; min-width: 0; width: 100%; max-width: 320px; max-height: 72px; height: auto; }
+.tenframe[hidden] { display: none; }
+.tf-cell { fill: #fff; stroke: var(--line); stroke-width: 2; }
+.tf-cell.ghost { fill: none; stroke: var(--amber); stroke-width: 2.5; stroke-dasharray: 5 4; animation: tf-wait 1.1s ease-in-out infinite; }
+.tf-dot { stroke: rgba(0,0,0,.12); stroke-width: 1; }
+.tf-dot.a { fill: var(--blue); }
+.tf-dot.b { fill: var(--amber); }
+.tf-dot.move { fill: var(--amber); stroke: var(--amber-dark); stroke-width: 2.5; animation: tf-wait 1.1s ease-in-out infinite; }
+.tf-arrow { stroke: var(--amber-dark); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes tf-wait { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .tf-cell.ghost, .tf-dot.move { animation: none; }
+}
+
+/* ヒントを閉じる（＝ペットが手をはなして、また動き出す） */
+.hint-close {
+  flex: 0 0 auto; font-family: inherit; font-size: .82rem; font-weight: 700;
+  padding: .45rem .8rem; min-height: 38px; cursor: pointer;
+  color: #4a3400; background: var(--amber);
+  border: 2px solid var(--amber-dark); border-bottom-width: 4px; border-radius: 999px;
+}
+.hint-close[hidden] { display: none; }
+.hint-close:active { transform: translateY(2px); border-bottom-width: 2px; }
+.hint-close:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+
+/* さくらんぼは「学校で習う書きかた」。10マスの絵の横に並べて、絵と記号を結びつける。
+   ただしスマホの幅では 10マスを潰してしまうので、広い画面のときだけ出す。 */
+.cherry { display: none; width: 132px; height: 52px; flex: 0 0 auto; }
+@media (min-width: 460px) { .cherry:not([hidden]) { display: block; } }
 .cherry .branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
 .cherry .top { fill: #fff; stroke: var(--ink-2); stroke-width: 3; }
 .cherry .leaf { fill: #fff; stroke: var(--amber); stroke-width: 3; }
@@ -551,11 +626,20 @@ body {
   font-family: var(--font); font-weight: 700; font-size: 19px; fill: var(--ink);
   text-anchor: middle; dominant-baseline: central;
 }
-.hint-text { margin: 0; font-size: 1rem; font-weight: 700; color: var(--ink); line-height: 1.4; }
+.hint-text {
+  margin: 0; font-size: .98rem; font-weight: 700; color: var(--ink); line-height: 1.35;
+  text-align: center; flex: 0 1 auto; min-width: 0;
+}
 @media (max-height: 480px) {
-  .cherry { width: 84px; height: 32px; }
+  /* 横持ちでは縦の余白が足りない。図はひとつに絞り、10マスも低くする */
+  .cherry, .cherry:not([hidden]) { display: none; }
+  .tenframe { max-height: 40px; }
+  .hint { gap: .15rem; }
   .hint-text { font-size: .85rem; }
   .hint { padding: .2rem .5rem; }
+  .hint-close { font-size: .72rem; padding: .3rem .55rem; min-height: 30px; }
+  .btn-hint { font-size: .68rem; padding: .28rem .5rem; min-height: 28px; }
+  .q-tags { min-height: 32px; }
 }
 
 /* ボスの体力バー。よけるたびに減るので、あと何発かが見える */
@@ -745,6 +829,13 @@ body {
 }
 .revenge-note.ok { color: var(--good-dark); background: #e6f5ec; }
 .revenge-note[hidden] { display: none; }
+
+/* ★3 の面をもう一度あそんだとき。減ったとは言わず、先の面をすすめる */
+.replay-note {
+  margin: .2rem 0 0; font-size: .86rem; font-weight: 700; color: #7a5200;
+  background: #fff6de; border-radius: 12px; padding: .5rem .7rem; text-align: center; width: 100%;
+}
+.replay-note[hidden] { display: none; }
 
 /* リザルトの「たまご」カード。コインで いま なにが できるかを、その場で見せる */
 .egg-cta {

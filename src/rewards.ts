@@ -29,6 +29,29 @@ export const COIN_WEAK = 3;
  */
 export const COIN_SCALE = 3;
 
+/**
+ * ★3 を取り終えたステージを、もう一度あそんだときの倍率。
+ *
+ * ここまで全ワールド・全周回で同じ枚数を払っていたので、
+ * 「いちばん速く終わる いちばん易しい面を回す」のが数え上げで最適だった。
+ * 子どもはそれを見つけただけ。練習は自由にできるまま、周回だけ割に合わなくする。
+ *
+ * ワールドごとの倍率は World.coinRate（curriculum.ts）にある。
+ * ここに id をキーにした表を置くと、ワールドの中身を入れかえたときに
+ * 黙ってずれる（theme.ts の LANDS と同じ罠）。
+ */
+export const REPLAY_RATE = 0.4;
+
+/** はじめて クリアした（★がついた）ときの上乗せ */
+export const COIN_FIRST_CLEAR = 20;
+/** はじめて ★3 を とったときの上乗せ */
+export const COIN_FIRST_PERFECT = 40;
+
+/** 倍率を掛けて整数にする。0枚にはしない（「もらった」という手ざわりが消える） */
+export function scaled(base: number, rate: number): number {
+  return base <= 0 ? 0 : Math.max(1, Math.round(base * rate));
+}
+
 /** ステージ1回ぶんのコインの内訳。リザルトで1行ずつ見せる */
 export interface CoinGain {
   /** せいかい */
@@ -41,10 +64,12 @@ export interface CoinGain {
   perfect: number;
   /** ボス／デイリー ボーナス */
   bonus: number;
+  /** はじめての クリア／★3。周回では 0 */
+  first: number;
   /** ぶつかって おとしたぶん（正の数で持つ） */
   lost: number;
 }
 
 export function gainTotal(g: CoinGain): number {
-  return Math.max(0, g.correct + g.combo + g.weak + g.perfect + g.bonus - g.lost);
+  return Math.max(0, g.correct + g.combo + g.weak + g.perfect + g.bonus + g.first - g.lost);
 }

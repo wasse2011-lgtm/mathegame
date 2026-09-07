@@ -4,11 +4,16 @@ import { sfx, unlockAudio } from './audio';
 import {
   DAILY_WORLD,
   WORLDS,
+  allFacts,
   answerTimeFor,
+  blankFor,
   bossRequirement,
   bossStage,
+  factsFor,
   isBoss,
   questionCount,
+  stageCount,
+  stepOf,
   worldById,
   type Fact,
   type World,
@@ -133,7 +138,8 @@ function goHome(): void {
 /** ワールドの通常ステージで集めた★ */
 function normalStars(w: World): number {
   let n = 0;
-  for (let s = 1; s <= w.stages; s++) n += stageStars(w.id, s);
+  // 「ボスの手前まで」。面数を直接書くと、ステップ数を変えたときにずれる
+  for (let s = 1; s < bossStage(w); s++) n += stageStars(w.id, s);
   return n;
 }
 
@@ -544,7 +550,7 @@ $('daily-card').addEventListener('click', () => {
   unlockAudio();
   sfx.tap();
   refreshDaily(profile()); // 日付をまたいだまま開きっぱなしのことがある
-  const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => x.facts);
+  const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => allFacts(x));
   startRun({
     world: DAILY_WORLD,
     stage: 0,
@@ -635,7 +641,7 @@ function renderWorldList(): void {
       `</span>` +
       `<span class="wc-right">` +
       `<span class="wc-stars">★ ${open ? stars : 0}<small>/${full}</small></span>` +
-      `<span class="wc-stages">${w.stages}めん＋ボス</span>` +
+      `<span class="wc-stages">${stageCount(w)}めん＋ボス</span>` +
       `</span>` +
       (done ? '<span class="wc-flag">クリア</span>' : open && w.id === here ? '<span class="wc-flag now">いま ここ</span>' : '');
 
@@ -663,10 +669,15 @@ function renderStagePath(): void {
   $('stage-view').hidden = false;
   screens.map.style.setProperty('--wc', w.color);
 
-  $('map-world').textContent = `${w.emoji} ${w.id}. ${w.name}`;
-  $('map-desc').textContent = `${w.desc}　・　${w.stages}めん＋ボス`;
-
   const next = nextStageIn(w);
+
+  $('map-world').textContent = `${w.emoji} ${w.id}. ${w.name}`;
+  // 「つぎに何を練習するか」を名前で見せる。ステージ番号だけだと中身が読めない
+  const nextStep = stepOf(w, next);
+  $('map-desc').textContent = nextStep
+    ? `${w.desc}　・　つぎは「${nextStep.name}」`
+    : `${w.desc}　・　${stageCount(w)}めん＋ボス`;
+
   const path = $('stage-path');
   path.replaceChildren();
 
@@ -683,19 +694,22 @@ function renderStagePath(): void {
     const b = document.createElement('button');
     b.type = 'button';
     const here = stage === next && open;
+    const step = stepOf(w, stage);
     // いま挑むところはオレンジで光らせる。押す場所で迷わせない
     b.className =
       `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
       `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
     b.disabled = !open || overDailyLimit();
-    // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる
+    // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる。
+    // 名前はマスの中に入れる。外にぶら下げると、隣のマスの「いま ここ」札とぶつかる
     b.innerHTML =
       `<span class="when" aria-hidden="true">${TIME_ICON[timeIdFor(stage, boss)]}</span>` +
       `<span class="sn-label">${!open ? '🔒' : boss ? '👑' : stage}</span>` +
+      (open && step ? `<span class="sn-name">${step.name}</span>` : '') +
       `<span class="st">${starRow(got)}</span>`;
     b.setAttribute(
       'aria-label',
-      `${boss ? 'ボス' : `ステージ ${stage}`}${here ? '（いま ここ）' : ''}` +
+      `${boss ? 'ボス' : `ステージ ${stage} ${step?.name ?? ''}`}${here ? '（いま ここ）' : ''}` +
         ` ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
     );
 
@@ -773,6 +787,9 @@ function startStage(world: World, stage: number): void {
     total: questionCount(world, stage),
     boss,
     label: boss ? `${world.id}-ボス` : `${world.id}-${stage}`,
+    stepName: boss ? null : (stepOf(world, stage)?.name ?? null),
+    facts: factsFor(world, stage),
+    blank: blankFor(world, stage),
     bonusCoins: boss ? COIN_BOSS : 0,
   });
 }
@@ -787,6 +804,9 @@ function startRun(cfg: RunConfig): void {
   // 設定オブジェクトを使いまわすので、ここで決めないと、その日のうちに
   // 何度でもデイリーのボーナスがもらえてしまう。
   if (cfg.stage === 0) cfg.bonusCoins = profile().daily.done ? 0 : COIN_DAILY;
+  // ★も同じ理由でここで読みなおす。startStage で決め打ちにすると、
+  // 同じ設定を使いまわす「もういちど」が、★3 のあとも初回レートで払い続ける。
+  cfg.prevStars = cfg.stage === 0 ? 0 : stageStars(cfg.world.id, cfg.stage);
 
   lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
@@ -960,6 +980,18 @@ function coinLines(r: StageResult): CoinLine[] {
   if (r.gain.combo) out.push({ label: 'れんぞく ボーナス', value: r.gain.combo });
   if (r.gain.weak) out.push({ label: 'にがて げきは', value: r.gain.weak });
   if (r.gain.perfect) out.push({ label: 'ノーミス ボーナス', value: r.gain.perfect });
+  // 周回を軽くしたぶんは「減った」とは出さない。初回の上乗せとしてだけ見せる
+  if (r.gain.first) {
+    out.push({
+      label:
+        r.firstKind === 'both'
+          ? 'はじめて クリア＆★3！'
+          : r.firstKind === 'perfect'
+            ? 'はじめての ★3！'
+            : 'はじめて クリア！',
+      value: r.gain.first,
+    });
+  }
   if (r.gain.bonus) out.push({ label: daily ? 'きょうの 5もん' : 'ボス ボーナス', value: r.gain.bonus });
   if (r.gain.lost) out.push({ label: 'おとした コイン', value: -r.gain.lost });
   return out;
@@ -971,11 +1003,13 @@ function renderResult(r: StageResult): void {
   const daily = r.stage === 0;
   const w = worldById(r.worldId);
   const boss = !daily && isBoss(w, r.stage);
+  // ワールド名はミニマップの見出しに出ているので、この行は小ステップの名まえに使う
+  const step = daily ? null : stepOf(w, r.stage);
   $('result-stage').textContent = daily
     ? 'きょうの 5もん'
     : boss
       ? `${w.id}-ボス  ${r.bossName ?? w.name}`
-      : `${w.id}-${r.stage}  ${w.name}`;
+      : `${w.id}-${r.stage}  ${step?.name ?? w.name}`;
 
   // ボスに負けたときだけ、別の顔で出す（★もコインのボーナスも付かない）
   (document.querySelector('.result-card') as HTMLElement).classList.toggle('failed', r.failed);
@@ -1010,6 +1044,13 @@ function renderResult(r: StageResult): void {
     revNote.textContent = rev.cleared
       ? `リベンジ ${rev.correct}/${rev.total} せいこう！ ミスを 1つ とりけした`
       : `リベンジ ${rev.correct}/${rev.total}　まちがえた しきに もういちど ちょうせんした！`;
+  }
+
+  // ★3 を取り終えた面の周回。「減った」とは言わず、先へ行くほうが得だとだけ伝える
+  const replay = $('result-replay');
+  replay.hidden = !r.replay || r.failed;
+  if (!replay.hidden) {
+    replay.textContent = 'ここは もう ★3！ まだの ステージなら もっと もらえるよ';
   }
 
   const learned = $('result-learned');

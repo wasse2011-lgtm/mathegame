@@ -148,19 +148,30 @@
         <p class="coin-badge"><span class="coin-dot"></span><b id="hud-coins">0</b></p>
       </header>
 
-      <!-- いまの1問がどういう問題か。にがて・ラスト・リベンジを言葉で出す -->
+      <!-- いまの1問がどういう問題か。にがて・ラスト・リベンジを言葉で出す。
+           ヒントボタンもこの行に入れる。ここは高さを確保してあるので、
+           出し入れしても canvas を測りなおさずに済む -->
       <div class="q-tags" id="q-tags">
         <span class="q-tag weak" id="tag-weak" hidden>にがて</span>
         <span class="q-tag final" id="tag-final" hidden>ラスト 1もん</span>
         <span class="q-tag rev" id="tag-revenge" hidden>リベンジ</span>
+        <button class="btn-hint" id="btn-hint" type="button" aria-label="ヒントを みる" hidden>
+          💡 みる<b id="btn-hint-left"></b>
+        </button>
       </div>
 
       <p class="question" id="question" aria-live="polite">　</p>
 
-      <!-- さくらんぼ分解のヒント。詰まったときだけ出る -->
+      <!-- 10マスの絵と、さくらんぼ分解のヒント -->
       <div class="hint" id="hint" hidden aria-live="polite">
-        <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true"></svg>
-        <p class="hint-text" id="hint-text"></p>
+        <div class="hint-arts">
+          <svg class="tenframe" id="hint-frame" viewBox="0 0 122 47" aria-hidden="true"></svg>
+          <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true" hidden></svg>
+        </div>
+        <div class="hint-row">
+          <p class="hint-text" id="hint-text"></p>
+          <button class="hint-close" id="hint-close" type="button" hidden>わかった！</button>
+        </div>
       </div>
 
       <!-- ボス戦だけ出る体力バー。攻撃をよけるたびに減る -->
@@ -217,6 +228,7 @@
           </button>
 
           <p class="revenge-note" id="result-revenge-note" hidden></p>
+          <p class="replay-note" id="result-replay" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
           <div class="result-btns">
