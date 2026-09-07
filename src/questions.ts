@@ -26,13 +26,19 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-interface Distractor {
+export interface Distractor {
   v: number;
   /** 小さいほど「ありがちな間違い」。選ぶときはこの順を優先する。 */
   tier: number;
 }
 
-function distractorPool(a: number, b: number, sum: number): Distractor[] {
+/**
+ * export しているのは verify のため。
+ * 「正解の下に置ける候補が何個あるか」で、位置だけで当てる手の上限が決まる。
+ * その上限を手で表に書くと、問題の中身を変えたときに黙ってずれるので、
+ * 検査のほうからこのプールを直接読ませる。
+ */
+export function distractorPool(a: number, b: number, sum: number): Distractor[] {
   const pool: Distractor[] = [];
   const push = (v: number, tier: number) => {
     if (v > 0 && v !== sum && !pool.some((d) => d.v === v)) pool.push({ v, tier });
@@ -68,7 +74,7 @@ function distractorPool(a: number, b: number, sum: number): Distractor[] {
  * 「9 + 0 = 10」を子どもに見せるかどうかの判断になる。いまは許していない。
  * verify の A) はこの 40.7% を下限として見張っている。
  */
-function blankPool(a: number, b: number, sum: number): Distractor[] {
+export function blankPool(a: number, b: number, sum: number): Distractor[] {
   const pool: Distractor[] = [];
   const push = (v: number, tier: number) => {
     if (v > 0 && v !== b && !pool.some((d) => d.v === v)) pool.push({ v, tier });

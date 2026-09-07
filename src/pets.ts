@@ -24,13 +24,20 @@ export interface RarityDef {
   slow: number;
   /** 1ステージに何回 助けてもらえるか */
   rescue: number;
+  /**
+   * 1ステージに何回 ヒントボタンを押せるか（基本回数への上乗せ）。
+   * ペットがいなくても押せる基本回数は runner.ts の BASE_HINTS にある。
+   * ここを「ペットがいないと 0 回」にすると、引きの悪い子だけ難しくなり、
+   * 上のコメントに書いた方針（やさしくする方向にだけ効く）に反する。
+   */
+  hints: number;
 }
 
 export const RARITIES: RarityDef[] = [
-  { id: 'n', label: 'ふつう', color: '#8aa0b0', soft: '#eef3f6', slow: 0, rescue: 0 },
-  { id: 'r', label: 'レア', color: '#4aa3dd', soft: '#e8f4fd', slow: 0.08, rescue: 0 },
-  { id: 'sr', label: 'スーパーレア', color: '#a86ad0', soft: '#f4ecfb', slow: 0.14, rescue: 0 },
-  { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1 },
+  { id: 'n', label: 'ふつう', color: '#8aa0b0', soft: '#eef3f6', slow: 0, rescue: 0, hints: 0 },
+  { id: 'r', label: 'レア', color: '#4aa3dd', soft: '#e8f4fd', slow: 0.08, rescue: 0, hints: 1 },
+  { id: 'sr', label: 'スーパーレア', color: '#a86ad0', soft: '#f4ecfb', slow: 0.14, rescue: 0, hints: 2 },
+  { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1, hints: 4 },
 ];
 
 /**
@@ -258,16 +265,23 @@ export interface PetPower {
   slow: number;
   /** 1ステージに何回 助けてくれるか */
   rescue: number;
+  /** 1ステージに何回 ヒントを見せてくれるか（基本回数への上乗せ） */
+  hints: number;
 }
 
-export const NO_POWER: PetPower = { slow: 0, rescue: 0 };
+export const NO_POWER: PetPower = { slow: 0, rescue: 0, hints: 0 };
 
 /** いま つれている子の力。なかよし度 1 あがるごとに +2%（最大 +8%） */
 export function powerOf(pet: PetDef | null): PetPower {
   if (!pet) return NO_POWER;
   const r = rarityDef(pet.rarity);
   const bonus = (friendLevel(pet.id) - 1) * 0.02;
-  return { slow: r.slow > 0 ? r.slow + bonus : 0, rescue: r.rescue };
+  return {
+    slow: r.slow > 0 ? r.slow + bonus : 0,
+    rescue: r.rescue,
+    // ヒントは なかよし度2つで1回ずつ増える。時間のばしより ゆっくり効かせる
+    hints: r.hints > 0 ? r.hints + Math.floor((friendLevel(pet.id) - 1) / 2) : 0,
+  };
 }
 
 /** つれて歩いている子（いなければ null） */
@@ -292,7 +306,8 @@ export function setActivePet(id: string): void {
 
 /** たまごの値段。コインは1ステージで 30〜100枚うごくので、その 1〜3回ぶん */
 export const PET_EGG_COST = 120;
-export const PET_EGG_SHINY_COST = 360;
+// キラたまごは 360 だと、ふつうのたまご3個ぶん。ねらって買うには遠すぎたので下げた
+export const PET_EGG_SHINY_COST = 200;
 /** おなじ子が出たときに もどってくるコイン */
 export const DUP_REFUND = 24;
 
