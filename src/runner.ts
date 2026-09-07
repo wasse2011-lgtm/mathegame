@@ -18,6 +18,12 @@
  *  ・最後の1問だけ、障害物がひとまわり大きく、低い持続音が鳴り、粒が倍になる。
  *  ・10問のあとに「リベンジ」。まちがえた式だけをもう一度出し、ぜんぶ正解したら
  *    ミスを1つ取り消す（まちがいが取り返せるものになる）。
+ *
+ * 「にがて たいじ」（mode: 'hunt'）だけは、走るのをやめて立ち止まる:
+ *  ・出る式は「にがて」と記録されたものだけ。敵は近づいてこない。
+ *  ・時間切れが無い。まちがえてもコインは落とさず、正解するまで何度でも押せる。
+ *  ・数秒かんがえて答えが出なければ、こちらからヒントを出す。
+ *  ・正解した瞬間、こちらがビームを撃って倒す。ここは急かさずに気持ちよく終わる場。
  */
 
 import { sfx, startDrone, stopDrone } from './audio';
@@ -35,7 +41,7 @@ import {
   type HintPolicy,
   type World,
 } from './curriculum';
-import { drawPet } from './petart';
+import { drawPet, paintPetIcon } from './petart';
 import { activePet, petPower, voiceOf, type PetDef } from './pets';
 import { QuestionPicker, isWeakFact, recordAnswer, type Question } from './questions';
 import {
@@ -58,6 +64,37 @@ import { themeFor, type ObstacleKind, type Theme } from './theme';
 const BASE_HINTS: Record<HintPolicy, number> = { always: 3, stuck: 2, none: 0 };
 
 /**
+ * 自動でヒントが出るのは、各せかいの 3面まで。
+ *
+ * どの面でも勝手にヒントが出ていたので、後半になっても絵を見てから答えれば
+ * 通れてしまい、「自分で思い出す」機会が無くなっていた。
+ * 1〜3面（＝そのせかいで はじめて習うところ）は今までどおり出し、
+ * 4面から先は、ペットのボタンを自分で押して呼ぶ。
+ * にがて たいじ だけは別で、時間をかけて考えたあとに必ず出す（HUNT_HINT_SEC）。
+ */
+const AUTO_HINT_STAGE_MAX = 3;
+
+/**
+ * 問題が出てから、ペットがヒントを差し出すまでの秒数。
+ * 問題と同時に押せるようにすると、読む前に押す癖がつく。
+ */
+const HINT_READY = 1.2;
+
+/** にがて たいじ で、答えが出ないときに自動でヒントを出すまでの秒数 */
+const HUNT_HINT_SEC = 5;
+
+/** ペットが つかれて画面から去るまでの秒数 */
+const PET_EXIT_SEC = 1.1;
+
+/** にがて たいじ で、敵が立っている位置（画面幅に対する割合） */
+const HUNT_ENEMY_X = 0.7;
+
+/** ビームの時間割（秒）。ため → 発射 → 命中 → 余韻 */
+const BEAM_CHARGE = 0.3;
+const BEAM_FLY = 0.12;
+const BEAM_HOLD = 1.5;
+
+/**
  * SVG の出し入れ。
  * hidden は HTMLElement のプロパティなので、SVGElement に代入しても
  * 属性に反映されず、黙って効かない。属性を直に付け外しする。
@@ -67,11 +104,24 @@ function showSvg(el: SVGElement, on: boolean): void {
   else el.setAttribute('hidden', '');
 }
 
+/**
+ * 走りの種類。
+ *   stage … マップのステージ（ボスもここ）。★が付く
+ *   daily … きょうの 5もん
+ *   hunt  … にがて たいじ（立ち止まってビームで倒す）
+ *
+ * stage === 0 で見分けていたが、マップに属さない走りが2種類になったので
+ * 名前で持つ。どちらも saveStars: false・stage: 0 で走る。
+ */
+export type RunMode = 'stage' | 'daily' | 'hunt';
+
 /** 1回の走りの設定。通常ステージもボスもデイリーもこれで表す */
 export interface RunConfig {
   world: World;
-  /** 0 はデイリーチャレンジ（星もマップも使わない） */
+  /** 0 はマップに属さない走り（デイリー・にがて たいじ） */
   stage: number;
+  /** 省略時は 'stage' */
+  mode?: RunMode;
   total: number;
   boss: boolean;
   label: string;
@@ -94,6 +144,7 @@ export interface RunConfig {
 export interface StageResult {
   worldId: number;
   stage: number;
+  mode: RunMode;
   stars: number;
   correct: number;
   total: number;
@@ -124,8 +175,11 @@ export interface RevengeResult {
   cleared: boolean;
 }
 
-/** 'wrap' はリベンジのしめくくり。帯を見せてからリザルトへ移る */
-type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'dead' | 'wrap' | 'over';
+/**
+ * 'wrap' はリベンジのしめくくり。帯を見せてからリザルトへ移る。
+ * 'beam' は にがて たいじ の とどめ（ためて・撃って・はじけるまで）。
+ */
+type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'beam' | 'dead' | 'wrap' | 'over';
 
 /** よけた瞬間に広がる輪 */
 interface Ring {
@@ -192,6 +246,11 @@ export class Runner {
   private elHintClose = document.getElementById('hint-close') as HTMLButtonElement;
   private elHintBtn = document.getElementById('btn-hint') as HTMLButtonElement;
   private elHintLeft = document.getElementById('btn-hint-left') as HTMLElement;
+  private elDock = document.getElementById('pet-dock') as HTMLElement;
+  private elPetFace = document.getElementById('pet-face') as HTMLCanvasElement;
+  private elPetEmoji = document.getElementById('pet-emoji') as HTMLElement;
+  private elPetState = document.getElementById('pet-state') as HTMLElement;
+  private elPetHp = document.getElementById('pet-hp-fill') as HTMLElement;
   private elTagWeak = document.getElementById('tag-weak') as HTMLElement;
   private elTagFinal = document.getElementById('tag-final') as HTMLElement;
   private elTagRevenge = document.getElementById('tag-revenge') as HTMLElement;
@@ -211,6 +270,9 @@ export class Runner {
   private theme: Theme = themeFor(1, 1, false);
   private stage = 1;
   private boss = false;
+  /** にがて たいじ（立ち止まって、ビームで倒す） */
+  private hunt = false;
+  private mode: RunMode = 'stage';
   private total = 0;
   private picker!: QuestionPicker;
   private qIndex = 0;
@@ -247,6 +309,15 @@ export class Runner {
   private tHold = 0;
   /** あと何回 ヒントボタンを押せるか。ステージごとに戻る */
   private hintsLeft = 0;
+  /** このステージで押せる回数（＝ペットの体力の満タン）。ゲージの分母 */
+  private hintMax = 0;
+  /**
+   * ヒントを出しきった。つぎにヒントを閉じたところで、ペットは やすみに行く。
+   * その場で消すと、敵を押しとどめている最中に消えて絵がつながらない。
+   */
+  private petTired = false;
+  /** 0 = いる、0〜1 = 去っていく途中、1 = いなくなった */
+  private petExit = 0;
   /** ワールドのコイン倍率だけ（「はじめて」のごほうびに使う） */
   private worldRate = 1;
   /** ワールド × 周回。ふだんのコインはこれを掛ける */
@@ -255,8 +326,12 @@ export class Runner {
   private prevStars = 0;
   /** ペットがヒントを差し出したか（1問につき1回） */
   private hintOffered = false;
+  /** いま ヒントボタンを押せるか（差し出したあと〜答えるまで） */
+  private hintReady = false;
   /** 差し出したときの 💡 吹き出しの残り秒数 */
   private offerPop = 0;
+  /** 画面に描いたペットの位置。ここをタップしてもヒントが出せる */
+  private petHit = { x: 0, y: 0, r: 0 };
 
   // リベンジ（10問のあと、まちがえた式だけをもう一度）
   /** この走りでまちがえた式。同じ式は1つにまとめる */
@@ -296,6 +371,14 @@ export class Runner {
   private banner = 0;
   private bannerFull = 1.5;
   private bannerText = '';
+
+  // にがて たいじ の状態
+  /** ビームを撃ちはじめてからの秒数（ため → 発射 → 命中） */
+  private beamT = 0;
+  /** ビームが命中したか（1問につき1回だけ はじけさせる） */
+  private beamHit = false;
+  /** 倒した敵。撃ちぬいたあとは描かない */
+  private obDead = false;
 
   // ボス戦の状態
   private bossDefn: BossDef = bossDef(1);
@@ -340,11 +423,16 @@ export class Runner {
         this.answer(this.buttons.indexOf(btn as HTMLButtonElement));
       }
     });
-    // 自分から見にいくヒント。押しているあいだ世界が止まる
-    this.elHintBtn.addEventListener('click', () => {
-      if (this.phase !== 'ask' || this.paused || this.hintPaused) return;
-      sfx.tap();
-      this.showHint('pull');
+    // 自分から見にいくヒント。押しているあいだ世界が止まる（ペットが敵を押しとどめる）
+    this.elHintBtn.addEventListener('click', () => this.pullHint());
+    // 絵のほうのペットをさわっても同じ。子どもは画面のペットを押しにいく
+    this.canvas.addEventListener('click', (e) => {
+      if (this.petHit.r <= 0) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (Math.hypot(x - this.petHit.x, y - this.petHit.y) > this.petHit.r) return;
+      this.pullHint();
     });
     this.elHintClose.addEventListener('click', () => {
       sfx.tap();
@@ -361,7 +449,9 @@ export class Runner {
   start(cfg: RunConfig, onDone: (r: StageResult) => void): void {
     this.cfg = cfg;
     this.world = cfg.world;
-    this.theme = themeFor(cfg.world.id, cfg.stage, cfg.boss);
+    this.mode = cfg.mode ?? 'stage';
+    this.hunt = this.mode === 'hunt';
+    this.theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, this.hunt ? 'hunt' : undefined);
     this.stage = cfg.stage;
     this.boss = cfg.boss;
     this.total = cfg.total;
@@ -401,6 +491,10 @@ export class Runner {
     this.isFinal = false;
     this.isWeak = false;
 
+    this.beamT = 0;
+    this.beamHit = false;
+    this.obDead = false;
+
     this.bossDefn = bossDef(cfg.world.id);
     this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
     this.bossSquashTo = 1;
@@ -421,11 +515,18 @@ export class Runner {
     this.rescueLeft = power.rescue;
     // 「しあげ」だけは、でんせつを連れていてもヒントを止める。ここが実力を見る場
     const base = BASE_HINTS[this.hintPolicy()];
-    this.hintsLeft = base === 0 ? 0 : base + power.hints;
+    this.hintMax = base === 0 ? 0 : base + power.hints;
+    this.hintsLeft = this.hintMax;
     this.hintPaused = false;
+    this.petTired = false;
+    this.petExit = 0;
+    this.hintReady = false;
     this.offerPop = 0;
+    this.petHit = { x: 0, y: 0, r: 0 };
     this.ride = 0;
     this.petY = 0;
+    this.paintPetFace();
+    this.renderDock();
 
     this.elStage.textContent = cfg.label;
     this.elBossBar.hidden = !cfg.boss;
@@ -463,7 +564,8 @@ export class Runner {
     addPlayTime(this.elapsed);
     this.elapsed = 0;
     this.hideHint();
-    this.elHintBtn.hidden = true;
+    this.hintReady = false;
+    this.renderDock();
     stopDrone();
   }
 
@@ -473,6 +575,7 @@ export class Runner {
     this.paused = p;
     // 止まっているあいだ持続音を鳴らしっぱなしにしない（裏に回したまま鳴り続ける）
     if (p) stopDrone();
+    this.renderDock();
     if (!this.running) return;
     if (!p) {
       if (this.isFinal && this.phase === 'ask') startDrone();
@@ -515,14 +618,18 @@ export class Runner {
     // 画面が広いほどキャラも大きく。縦でも頭打ちにして、はみ出さないようにする。
     this.s = Math.min(Math.max(Math.min(this.W / 210, this.H / 135), 0.85), 2.8);
     this.groundY = this.H - 22 * this.s;
-    // 左に寄せすぎるとコンボのトレイルが画面外に出るので 2割ほど内側に置く
-    this.playerX = Math.max(52, this.W * 0.2);
+    // 左に寄せすぎるとコンボのトレイルが画面外に出るので 2割ほど内側に置く。
+    // にがて たいじ は走らず向かい合うので、ペットと並んでも重ならないところまで下げる
+    this.playerX = this.hunt ? Math.max(70, this.W * 0.28) : Math.max(52, this.W * 0.2);
     this.runSpeed = 130 * this.s;
 
     // ジャンプは「頂点で障害物の上を通る」高さに合わせて逆算する
     const apex = 74 * this.s;
     this.gravity = (2 * apex) / (T_APEX * T_APEX);
     this.jumpV = -this.gravity * T_APEX;
+
+    // にがて たいじ の敵は動かない。割合ではなく、いつも同じ立ち位置に置きなおす
+    if (this.hunt) this.ob.x = this.huntX();
 
     const newSpan = this.spawnX() - this.playerX;
     if (oldSpan > 1 && newSpan > 1 && this.ob.v > 0) {
@@ -553,6 +660,11 @@ export class Runner {
 
   private spawnX(): number {
     return this.W + 28 * this.s;
+  }
+
+  /** にがて たいじ で、敵が立っている位置。近づいても遠ざかりもしない */
+  private huntX(): number {
+    return this.W * HUNT_ENEMY_X;
   }
 
   /** ボスが立っている位置（突撃していないとき）。はねと尾が入るよう少し内側 */
@@ -615,10 +727,23 @@ export class Runner {
     this.elTagRevenge.hidden = !this.revenge;
   }
 
-  /** この小ステップのヒント方針。ボス・リベンジは「詰まったときだけ」 */
+  /** この小ステップのヒント方針。ボス・リベンジ・マップ外の走りは「詰まったときだけ」 */
   private hintPolicy(): HintPolicy {
     if (this.boss || this.revenge || this.stage === 0) return 'stuck';
     return hintPolicyFor(this.world, this.stage);
+  }
+
+  /**
+   * 自動でヒントを出してよい場面か。
+   *
+   * ・にがて たいじ … 出す。時間制限が無いので、考えたあとに出しても急かさない
+   * ・通常ステージ … そのせかいの 3面まで（はじめて習うところ）
+   * ・4面から先・ボス・リベンジ・デイリー … 出さない。ペットのボタンで呼ぶ
+   */
+  private autoHintOk(): boolean {
+    if (this.hunt) return true;
+    if (this.boss || this.revenge) return false;
+    return this.stage >= 1 && this.stage <= AUTO_HINT_STAGE_MAX;
   }
 
   /**
@@ -637,7 +762,7 @@ export class Runner {
   private showHint(source: 'auto' | 'pull'): void {
     const q = this.q;
     if (!q) return;
-    if (source === 'auto' && (this.hintShown || this.hintPolicy() === 'none')) return;
+    if (source === 'auto' && (this.hintShown || this.hintPolicy() === 'none' || !this.autoHintOk())) return;
     const art = frameArt(q.fact, q.blank);
     if (!art) return;
 
@@ -647,13 +772,28 @@ export class Runner {
       // 1秒たらずしか押せる時間がなく、ボタンがあってないものになる。
       if (this.hintsLeft <= 0) return;
       this.hintsLeft--;
-      this.hintPaused = true;
-      this.tHold = 0;
-      stopDrone();
-      this.showBanner(this.pet ? `${this.pet.name}が おさえてる！` : 'とまってるよ', 1.2);
+      // 出しきった。この問題が片づいたら、ペットは やすみに行く（tireCheck）
+      if (this.hintsLeft <= 0 && this.pet && !this.petGone()) this.petTired = true;
+      this.hintReady = false;
+      // にがて たいじ の敵は最初から動かない。止めるものが無いので、そのまま見せる
+      if (!this.hunt) {
+        this.hintPaused = true;
+        this.tHold = 0;
+        stopDrone();
+      }
+      this.showBanner(
+        this.pet
+          ? this.hunt
+            ? `${this.pet.name}が おしえてくれた！`
+            : `${this.pet.name}が おさえてる！`
+          : this.hunt
+            ? 'ヒントを みよう'
+            : 'とまってるよ',
+        1.2,
+      );
       if (this.pet) sfx.voice(voiceOf(this.pet.art));
-      this.elHintBtn.hidden = true;
       this.elHintClose.hidden = false;
+      this.renderDock();
     }
 
     if (this.hintShown) return; // 絵はもう出ている。止めるだけでよい
@@ -709,10 +849,9 @@ export class Runner {
       this.hintShown = false;
     }
     // まだ残っていれば、もう一度止められる
-    if (this.hintsLeft > 0 && this.phase === 'ask') {
-      this.elHintLeft.textContent = String(this.hintsLeft);
-      this.elHintBtn.hidden = false;
-    }
+    if (this.hintsLeft > 0 && this.phase === 'ask') this.hintReady = true;
+    this.renderDock();
+    this.tireCheck();
   }
 
   private resume(): void {
@@ -726,18 +865,98 @@ export class Runner {
    *
    * 問題が出た瞬間からボタンがあると、考える前に押す癖がつく。
    * すこし経ってから、ペットが 💡 を出して知らせる形にする。
+   * ボタン自体は出しっぱなし（枠が動かないように）で、押せるようになるだけ。
    */
   private offerHint(): void {
     if (this.hintOffered) return;
     this.hintOffered = true;
     if (this.hintsLeft <= 0 || this.hintPolicy() === 'none') return;
     if (!this.q || !frameArt(this.q.fact, this.q.blank)) return;
-    this.elHintLeft.textContent = String(this.hintsLeft);
-    this.elHintBtn.hidden = false;
-    if (this.pet) {
+    this.hintReady = true;
+    this.renderDock();
+    if (this.pet && !this.petGone()) {
       this.offerPop = 0.9;
       sfx.voice(voiceOf(this.pet.art));
     }
+  }
+
+  /** ヒントボタン（と、絵のペット）を押したとき */
+  private pullHint(): void {
+    if (this.phase !== 'ask' || this.paused || this.hintPaused) return;
+    if (!this.hintReady || this.hintsLeft <= 0) return;
+    sfx.tap();
+    this.showHint('pull');
+  }
+
+  // ---------------------------------------------------------------- ペットの体力
+
+  private petGone(): boolean {
+    return this.petExit >= 1;
+  }
+
+  /**
+   * ヒントを出しきったペットは、やすみに行く。
+   *
+   * 「押せば いつでも出る」ままだと、考えずに押し続けることになる。
+   * 回数で止めるより、ペットが つかれて いなくなるほうが、
+   * 「あと何回」を数えられない年齢でも体で分かる（ゲージが空 → いなくなる）。
+   * つぎのステージでは元気になって戻ってくる（start でやりなおす）。
+   */
+  private tireCheck(): void {
+    if (!this.petTired || this.petGone() || this.petExit > 0) return;
+    this.petTired = false;
+    this.petExit = 0.001; // 去っていく途中（0 より大きく、1 未満）
+    // いない子には助けにも来られない。ここを残すと、消えたペットが
+    // 時間切れのときだけ現れて背中に乗せることになる
+    this.rescueLeft = 0;
+    if (this.pet) {
+      this.showBanner(`${this.pet.name}は つかれて やすんだ`, 1.6);
+      sfx.voice(voiceOf(this.pet.art));
+    }
+    this.renderDock();
+  }
+
+  /** ヒントボタンのペットの顔。走りはじめと、いなくなったときだけ描きなおす */
+  private paintPetFace(): void {
+    const pet = this.pet;
+    this.elPetFace.hidden = !pet;
+    this.elPetEmoji.hidden = Boolean(pet);
+    if (!pet) return;
+    paintPetIcon(this.elPetFace, pet.art, 44, { silhouette: this.petGone() });
+    // paintPetIcon は style に px を直書きするので、そのままだと横持ち用の
+    // 小さいサイズ（CSS）が効かず、ボタンから顔がはみ出す。絵の大きさは CSS に返す
+    this.elPetFace.style.width = '';
+    this.elPetFace.style.height = '';
+  }
+
+  /** ヒントボタンの見た目。押せるか・体力がどれだけ残っているか */
+  private renderDock(): void {
+    const gone = this.petGone();
+    const none = this.hintMax <= 0;
+    const ready = this.hintReady && this.hintsLeft > 0 && !none && !gone && this.running && !this.paused;
+
+    this.elHintBtn.disabled = !ready;
+    this.elDock.classList.toggle('none', none);
+    this.elDock.classList.toggle('gone', gone && !none);
+    this.elDock.classList.toggle('ready', ready);
+    this.elDock.classList.toggle('sleep', !ready && !none && !gone);
+
+    // 「かんがえて みよう」は、問題が出て まだ押せないあいだだけ。
+    // 倒しているあいだ（beam）や リザルト待ちにまで出すと、急かしているように見える
+    this.elPetState.textContent = none
+      ? 'じぶんの ちからで'
+      : gone
+        ? this.pet
+          ? `${this.pet.name}は やすみちゅう`
+          : 'ヒントは おしまい'
+        : ready || this.phase !== 'ask'
+          ? 'ヒント'
+          : 'かんがえて みよう';
+
+    this.elHintLeft.textContent = none || gone ? '' : String(this.hintsLeft);
+    const k = none ? 0 : this.hintsLeft / this.hintMax;
+    this.elPetHp.style.width = `${Math.max(0, k) * 100}%`;
+    this.elPetHp.classList.toggle('low', k > 0 && k <= 0.34);
   }
 
   /** つぎに出てくる障害物を引く。同じものが2回続かないようにする（ボス戦では使わない） */
@@ -752,23 +971,31 @@ export class Runner {
   }
 
   private nextQuestion(): void {
-    // リベンジ中は、まちがえた式そのものを順に出す（引き直さない）
+    // リベンジ中は、まちがえた式そのものを順に出す（引き直さない）。
+    // にがて たいじ も同じで、選んできた にがてを 1ぴきずつ順に出す
+    // （引き直すと、同じ式が2回出て、別の にがてが 出ないままになる）
     this.q = this.revenge
       ? this.picker.question(this.revengeQ[this.revengeIndex])
-      : this.picker.next();
+      : this.hunt
+        ? this.picker.question(this.huntFact())
+        : this.picker.next();
     this.wrongThisQ = false;
     this.dodgedThisQ = false;
     this.phase = 'ask';
     this.qElapsed = 0;
     this.hideHint();
-    // ボタンは毎問しまう。すこし経ってからペットが出しなおす
-    this.elHintBtn.hidden = true;
+    // 押せるのは毎問リセット。すこし経ってからペットが差し出しなおす
     this.hintOffered = false;
+    this.hintReady = false;
+    this.renderDock();
+    this.tireCheck();
 
-    // ボス戦の山場は突撃なので、最後の1問の特別扱いは通常ステージだけ
-    this.isFinal = !this.boss && !this.revenge && this.qIndex === this.total - 1;
-    // リベンジで出る式は、いま目の前でまちがえた式。文句なしに「にがて」
-    this.isWeak = this.revenge || isWeakFact(this.q.fact);
+    // ボス戦の山場は突撃なので、最後の1問の特別扱いは通常ステージだけ。
+    // にがて たいじ は急かさない場なので、持続音の鳴る「ラスト1問」も作らない
+    this.isFinal = !this.boss && !this.revenge && !this.hunt && this.qIndex === this.total - 1;
+    // リベンジで出る式は、いま目の前でまちがえた式。文句なしに「にがて」。
+    // にがて たいじ は、そもそも にがてしか連れてきていない
+    this.isWeak = this.revenge || this.hunt || isWeakFact(this.q.fact);
     this.updateTags();
 
     this.elQuestion.textContent = this.q.text;
@@ -798,12 +1025,26 @@ export class Runner {
     if (this.hintPolicy() === 'always') this.showHint('auto');
   }
 
+  /** にがて たいじ で、いま出す にがて。連れてきた順に 1ぴきずつ */
+  private huntFact(): Fact {
+    const pool = this.cfg.facts ?? [];
+    return pool[this.qIndex % Math.max(1, pool.length)] ?? { a: 1, b: 1 };
+  }
+
   /**
    * 障害物を右端から出しなおす。
    * ペットの力（this.slow）はここでだけ効かせる。倍率 k は
    * 「ペットに助けてもらった直後の、もう一度ぶん」を少し短くするために使う。
    */
   private launchObstacle(k: number): void {
+    // にがて たいじ の敵は、その場に立って待っている。速さも持ち時間も無い
+    if (this.hunt) {
+      this.ob = { x: this.huntX(), v: 0, kind: 'weak', scale: 1.35 };
+      this.obDead = false;
+      this.beamT = 0;
+      this.beamHit = false;
+      return;
+    }
     const time = answerTimeFor(this.world, this.stage, save.settings.slow) * (1 + this.slow) * k;
     if (this.boss) {
       this.startBossTurn(time);
@@ -875,7 +1116,9 @@ export class Runner {
     // update() が飛ばされたまま止まりつづける（跳べずに固まる）
     this.resume();
     this.elHintClose.hidden = true;
-    this.elHintBtn.hidden = true;
+    this.hintReady = false;
+    this.renderDock();
+    this.tireCheck();
 
     // 乗せてもらっている最中に答えたら、そこで降りる。
     // 乗っているあいだは重力を弱めているので、そのまま跳ぶと画面の外まで飛ぶ
@@ -911,8 +1154,9 @@ export class Runner {
         this.spawnCoins(base + bonus + weakBonus);
 
         sfx.correct(this.combo - 1);
-        // にがてを初回で正解した＝倒した。ここは掛け声でいちばん強く返す
-        if (this.isWeak) {
+        // にがてを初回で正解した＝倒した。ここは掛け声でいちばん強く返す。
+        // にがて たいじ では、ビームが当たった瞬間に出すので ここでは鳴らさない
+        if (this.isWeak && !this.hunt) {
           this.cheer = { text: 'にがてを たおした！', life: 1.3 };
           this.burst(this.px, this.groundY - 22 * this.s, 14, '#e4675c');
           sfx.beat();
@@ -923,6 +1167,13 @@ export class Runner {
       }
       this.markPip(firstTry);
       stopDrone();
+
+      // にがて たいじ は跳ばない。立ったまま構えて、ビームで撃ちぬく
+      if (this.hunt) {
+        this.beginBeam();
+        this.updateHud(true);
+        return;
+      }
 
       // 正解した瞬間に跳ぶ。突撃を踏むときだけ、いつもより高く跳び上がる
       this.vy = this.jumpV * (this.boss && this.charging ? 1.4 : 1);
@@ -1071,6 +1322,50 @@ export class Runner {
     this.phase = 'reveal';
     this.hold = REVEAL_HOLD;
     this.updateHud(false);
+  }
+
+  // ---------------------------------------------------------------- にがて たいじ
+
+  /**
+   * ビームを撃つ。にがて たいじ の とどめ。
+   *
+   * 走って よけるのではなく、こちらから当てにいく。時間切れが無いぶん、
+   * 「正解できた」が「たおした」に直につながるようにしてある。
+   * ため（BEAM_CHARGE）→ 発射（BEAM_FLY）→ はじける、の順に進む。
+   */
+  private beginBeam(): void {
+    this.phase = 'beam';
+    this.hold = BEAM_HOLD;
+    this.beamT = 0;
+    this.beamHit = false;
+    this.char.squash = 1.14;
+    sfx.charge();
+  }
+
+  /** ビームが当たった瞬間。ここが いちばん派手なところ */
+  private beamImpact(): void {
+    this.beamHit = true;
+    this.obDead = true;
+    const x = this.ob.x;
+    const y = this.groundY - 26 * this.s;
+    this.burst(x, y, 26, '#e4675c');
+    this.burst(x, y, 18, '#ffe08a');
+    this.burst(x, y, 12, '#ffffff');
+    this.rings.push({ x, y, r: 14 * this.s, life: 0.55, max: 0.55, color: '#fff3c4' });
+    this.rings.push({ x, y, r: 8 * this.s, life: 0.7, max: 0.7, color: '#ffb0a6' });
+    this.cheer = { text: 'たおした！', life: 1.4 };
+    this.shake = 0.42;
+    this.flash = 0.4;
+    sfx.blast();
+    sfx.beat();
+  }
+
+  private updateBeam(dt: number): void {
+    this.beamT += dt;
+    // 撃つときの反動。うしろへ ぐっと下がって、すぐ戻る
+    const kick = this.beamT - BEAM_CHARGE;
+    this.pxOff = kick > 0 && kick < 0.3 ? -6 * this.s * (1 - kick / 0.3) : 0;
+    if (!this.beamHit && this.beamT >= BEAM_CHARGE + BEAM_FLY) this.beamImpact();
   }
 
   // ---------------------------------------------------------------- ボス戦
@@ -1246,8 +1541,9 @@ export class Runner {
       this.nextQuestion();
       return;
     }
-    // 本編が終わった。まちがえた式が残っていれば、そこだけもう一度
-    if (!this.boss && !this.failed && this.missed.size > 0) this.startRevenge();
+    // 本編が終わった。まちがえた式が残っていれば、そこだけもう一度。
+    // にがて たいじ は そもそも「まちがえた式のやりなおし」なので、二重にはしない
+    if (!this.boss && !this.hunt && !this.failed && this.missed.size > 0) this.startRevenge();
     else this.finish();
   }
 
@@ -1309,8 +1605,13 @@ export class Runner {
 
       // 「はじめて」は周回では出ないので、周回の割引は掛けない。
       // prevStars を使うので、下の setStageStars との前後関係に依存しない。
-      const fc = this.prevStars === 0 && stars > 0 ? COIN_FIRST_CLEAR : 0;
-      const fp = this.prevStars < 3 && stars === 3 ? COIN_FIRST_PERFECT : 0;
+      //
+      // ★を保存しない走り（デイリー・にがて たいじ）では出さない。
+      // ★が付かない＝prevStars が永久に 0 なので、そのまま払うと
+      // 「はじめて クリア」のごほうびが毎回もらえてしまう。
+      const saves = this.cfg.saveStars !== false;
+      const fc = saves && this.prevStars === 0 && stars > 0 ? COIN_FIRST_CLEAR : 0;
+      const fp = saves && this.prevStars < 3 && stars === 3 ? COIN_FIRST_PERFECT : 0;
       this.gain.first = scaled(fc + fp, this.worldRate);
       firstKind = fc && fp ? 'both' : fp ? 'perfect' : fc ? 'clear' : null;
     }
@@ -1324,6 +1625,7 @@ export class Runner {
     this.onDone?.({
       worldId: this.world.id,
       stage: this.stage,
+      mode: this.mode,
       stars,
       correct: this.correct,
       total: this.total,
@@ -1416,7 +1718,9 @@ export class Runner {
   private update(dt: number): void {
     this.t += dt;
     this.elapsed += dt;
-    this.char.t = this.t;
+    // にがて たいじ では走らない。位相を止めておかないと、動かない地面の上で
+    // 足だけ動きつづけて「走っているのに進まない」絵になる
+    this.char.t = this.hunt ? 0 : this.t;
     if (this.char.hurt > 0) this.char.hurt -= dt;
     if (this.shake > 0) this.shake -= dt;
     if (this.flash > 0) this.flash -= dt;
@@ -1446,21 +1750,40 @@ export class Runner {
     this.petY += (this.py * 0.65 - this.petY) * Math.min(1, dt * 7);
 
     this.ob.x -= this.ob.v * dt;
-    this.scroll += Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
+    // にがて たいじ は立ち止まっている。地面まで流すと、動かない敵だけが
+    // 取り残されて滑って見える
+    if (!this.hunt) {
+      this.scroll += Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
+    }
 
     if (this.boss) this.updateBoss(dt);
+    if (this.phase === 'beam') this.updateBeam(dt);
 
     if (this.offerPop > 0) this.offerPop -= dt;
+    // つかれたペットが、画面の外へ歩いていくところ
+    if (this.petExit > 0 && this.petExit < 1) {
+      this.petExit = Math.min(1, this.petExit + dt / PET_EXIT_SEC);
+      if (this.petExit >= 1) {
+        this.paintPetFace();
+        this.renderDock();
+      }
+    }
 
     if (this.phase === 'ask') {
       this.qElapsed += dt;
       // まず、すこし考えたところでペットがヒントを差し出す。
-      // 最初から出すと、考える前に押す癖がつく。
-      if (this.incoming() > 0.35) this.offerHint();
-      // 攻撃が半分まで来ても答えが出ていなければ、こちらから出す。
-      // 遅すぎると、読んで理解する時間が残らない。
-      if (this.hintPolicy() === 'stuck' && this.incoming() > 0.5) this.showHint('auto');
-      if (this.arrived()) this.timeout();
+      // 最初から押せるようにすると、読む前に押す癖がつく。
+      if (this.qElapsed > HINT_READY) this.offerHint();
+      if (this.hunt) {
+        // 時間切れが無いかわりに、数秒かんがえて答えが出なければ こちらから出す。
+        // 急かすためではなく、止まったまま終わらないようにするため。
+        if (this.qElapsed > HUNT_HINT_SEC) this.showHint('auto');
+      } else {
+        // 攻撃が半分まで来ても答えが出ていなければ、こちらから出す。
+        // 遅すぎると、読んで理解する時間が残らない。
+        if (this.hintPolicy() === 'stuck' && this.incoming() > 0.5) this.showHint('auto');
+        if (this.arrived()) this.timeout();
+      }
     }
 
     if (this.hold > 0 && this.phase !== 'ask' && this.phase !== 'over') {
@@ -1543,6 +1866,9 @@ export class Runner {
 
     if (this.boss) {
       this.drawBossScene();
+    } else if (this.hunt) {
+      // 倒したあとは描かない。撃ちぬかれた粒だけが残る
+      if (!this.obDead) this.drawHuntEnemy();
     } else if (this.ob.x > -80 * s) {
       drawObstacle(g, this.ob.x, this.groundY, 30 * s * this.ob.scale, this.ob.kind, this.t);
       if (this.ob.v > this.runSpeed * 2.2) this.drawSpeedLines();
@@ -1558,6 +1884,8 @@ export class Runner {
     if (this.ride > 0) this.drawFollower();
     drawChar(g, this.px, this.groundY + this.py, 34 * s, currentLook(), this.char);
     if (this.ride <= 0) this.drawFollower();
+    // ビームは主人公の手もとから出る。キャラより手前に描く
+    if (this.phase === 'beam') this.drawBeam();
     // ペットを連れていなくても、止まっていることは画で分かるようにする
     if (this.hintPaused && !this.pet) this.drawStopMark();
 
@@ -1583,6 +1911,93 @@ export class Runner {
 
     if (this.banner > 0) this.drawBanner();
 
+    g.restore();
+  }
+
+  // ---------------------------------------------------------------- にがて たいじ の絵
+
+  /**
+   * 立ちはだかっている にがて。
+   *
+   * 走るステージの障害物と同じ絵を使うが、こちらは近づいてこない。
+   * 待っているあいだ ゆっくり息をしているように見せて、
+   * 「急かされてはいないが、たしかに相手がいる」ことを伝える。
+   */
+  private drawHuntEnemy(): void {
+    const g = this.g;
+    const s = this.s;
+    const size = 30 * s * this.ob.scale;
+
+    // 足もとの影。動かない相手なので、影も動かない
+    g.fillStyle = 'rgba(40,60,50,.22)';
+    g.beginPath();
+    g.ellipse(this.ob.x, this.groundY + 3 * s, size * 0.5, 5 * s, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // ため中はこちらを警戒して ふるえる
+    const shiver = this.phase === 'beam' ? Math.sin(this.beamT * 40) * 2 * s : 0;
+    drawObstacle(g, this.ob.x + shiver, this.groundY, size, this.ob.kind, this.t);
+  }
+
+  /**
+   * こちらのビーム。
+   *
+   * ため（光の玉がふくらむ）→ 発射（横一文字にのびる）→ 命中（はじける）。
+   * よけるのではなく こちらから当てにいく絵にすることで、
+   * 「にがてを たおした」が、正解した本人の手柄として残る。
+   */
+  private drawBeam(): void {
+    const g = this.g;
+    const s = this.s;
+    const y = this.groundY - 26 * s;
+    const from = this.px + 12 * s;
+    const to = this.ob.x;
+
+    if (this.beamT < BEAM_CHARGE) {
+      // ため。手もとの光が大きくなり、まわりの粒が吸いこまれてくる
+      const k = this.beamT / BEAM_CHARGE;
+      const r = (4 + k * 11) * s;
+      const grad = g.createRadialGradient(from, y, 0, from, y, r * 1.8);
+      grad.addColorStop(0, 'rgba(255,255,255,.95)');
+      grad.addColorStop(0.5, 'rgba(143,227,255,.75)');
+      grad.addColorStop(1, 'rgba(143,227,255,0)');
+      g.fillStyle = grad;
+      g.beginPath();
+      g.arc(from, y, r * 1.8, 0, Math.PI * 2);
+      g.fill();
+
+      g.strokeStyle = 'rgba(255,255,255,.85)';
+      g.lineWidth = 2 * s;
+      g.lineCap = 'round';
+      for (let i = 0; i < 5; i++) {
+        const a = this.beamT * 9 + (i * Math.PI * 2) / 5;
+        const d = (26 - k * 18) * s;
+        g.beginPath();
+        g.moveTo(from + Math.cos(a) * d, y + Math.sin(a) * d * 0.7);
+        g.lineTo(from + Math.cos(a) * (d - 7 * s), y + Math.sin(a) * (d - 7 * s) * 0.7);
+        g.stroke();
+      }
+      return;
+    }
+
+    // 発射。命中してからも すこしのあいだ残す（当たった手ごたえ）
+    const fly = Math.min(1, (this.beamT - BEAM_CHARGE) / BEAM_FLY);
+    const tip = from + (to - from) * fly;
+    const after = Math.max(0, this.beamT - BEAM_CHARGE - BEAM_FLY);
+    const fade = Math.max(0, 1 - after / 0.45);
+    if (fade <= 0) return;
+
+    g.save();
+    g.globalAlpha = fade;
+    const h = (7 + Math.sin(this.beamT * 40) * 1.5) * s;
+    const glow = g.createLinearGradient(0, y - h * 2, 0, y + h * 2);
+    glow.addColorStop(0, 'rgba(143,227,255,0)');
+    glow.addColorStop(0.5, 'rgba(143,227,255,.75)');
+    glow.addColorStop(1, 'rgba(143,227,255,0)');
+    g.fillStyle = glow;
+    g.fillRect(from, y - h * 2, tip - from, h * 4);
+    g.fillStyle = 'rgba(255,255,255,.95)';
+    g.fillRect(from, y - h * 0.5, tip - from, h);
     g.restore();
   }
 
@@ -1636,8 +2051,10 @@ export class Runner {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.font = `700 ${22 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
-    // 画面のはしで切れないところに寄せる
-    const x = Math.min(Math.max(this.px, this.W * 0.24), this.W * 0.76);
+    // 画面のはしで切れないところに寄せる。割合だけで寄せると、
+    // 「にがてを たおした！」のような長い掛け声は左端が切れて読めない
+    const half = g.measureText(this.cheer.text).width / 2 + 6 * s;
+    const x = Math.min(Math.max(this.px, half), Math.max(half, this.W - half));
     const y = this.groundY - (46 + k * 26) * s;
     g.lineWidth = 6 * s;
     g.strokeStyle = '#fff';
@@ -1657,6 +2074,14 @@ export class Runner {
     const g = this.g;
     const s = this.s;
     const size = 26 * s;
+
+    // ヒントを出しきった。うしろへ歩いて画面から出ていく
+    if (this.petExit > 0) {
+      this.petHit = { x: 0, y: 0, r: 0 };
+      if (this.petExit >= 1) return;
+      this.drawLeaving(size);
+      return;
+    }
 
     // ヒントで止めているあいだは、前に出て敵を押しとどめる
     if (this.hintPaused) {
@@ -1708,6 +2133,10 @@ export class Runner {
     drawPet(g, x, y + 4 * s * tight, size * (1 - 0.12 * tight), this.pet.art, this.t);
     g.restore();
 
+    // ここを覚えておいて、絵のペットをさわってもヒントが出せるようにする。
+    // 指はボタンより大きいので、見た目より広めに取る
+    this.petHit = { x, y: y - size * 0.45, r: size * 1.15 };
+
     // ペットが「ヒント あるよ」と差し出したところ
     if (this.offerPop > 0) {
       const pop = Math.min(1, (0.9 - this.offerPop) * 6);
@@ -1727,6 +2156,35 @@ export class Runner {
       g.fillText('💡', x, cy + 1 * s);
       g.restore();
     }
+  }
+
+  /**
+   * ヒントを出しきったペットが、やすみに行くところ。
+   *
+   * 「あと0回」と数字で言われても、数の大きさがまだ分からない年齢には届かない。
+   * 出しきったら ペットが 💤 を出して うしろへ歩いていく、という絵にしておくと、
+   * つぎからは押す前に一度考えるようになる（つぎのステージでは戻ってくる）。
+   */
+  private drawLeaving(size: number): void {
+    if (!this.pet) return;
+    const g = this.g;
+    const s = this.s;
+    const k = this.petExit;
+    const from = Math.max(this.px - 36 * s, 12 * s);
+    const x = from - k * (from + 40 * s);
+    const y = this.groundY;
+
+    g.save();
+    g.globalAlpha = Math.max(0, 1 - k * 0.8);
+    drawPet(g, x, y, size, this.pet.art, this.t);
+
+    // 💤。ふくらみながら上へ流れる
+    g.globalAlpha = Math.max(0, 1 - k) * 0.9;
+    g.font = `${(12 + k * 8) * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('💤', x + 12 * s, y - size * (1 + k * 0.9));
+    g.restore();
   }
 
   /** ペットを連れていないときの「いま止まっている」しるし */

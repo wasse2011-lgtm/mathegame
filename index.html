@@ -56,6 +56,15 @@
             <span class="streak" id="home-streak" hidden><b>0</b>にち れんぞく</span>
           </button>
 
+          <!-- にがて たいじ。きょうの5もんと ならべて、毎日ひらく場所に置く -->
+          <button class="daily-card hunt-card" id="hunt-card" type="button">
+            <span class="daily-main">
+              <span class="daily-title">にがて たいじ</span>
+              <span class="daily-state" id="hunt-state">にがて 0ひき</span>
+            </span>
+            <span class="hunt-face" aria-hidden="true">👹</span>
+          </button>
+
           <div class="zukan-mini" id="zukan-mini">
             <span class="zm-label">ずかん</span>
             <span class="bar"><i id="zukan-bar"></i></span>
@@ -148,16 +157,11 @@
         <p class="coin-badge"><span class="coin-dot"></span><b id="hud-coins">0</b></p>
       </header>
 
-      <!-- いまの1問がどういう問題か。にがて・ラスト・リベンジを言葉で出す。
-           ヒントボタンもこの行に入れる。ここは高さを確保してあるので、
-           出し入れしても canvas を測りなおさずに済む -->
+      <!-- いまの1問がどういう問題か。にがて・ラスト・リベンジを言葉で出す -->
       <div class="q-tags" id="q-tags">
         <span class="q-tag weak" id="tag-weak" hidden>にがて</span>
         <span class="q-tag final" id="tag-final" hidden>ラスト 1もん</span>
         <span class="q-tag rev" id="tag-revenge" hidden>リベンジ</span>
-        <button class="btn-hint" id="btn-hint" type="button" aria-label="ヒントを みる" hidden>
-          💡 みる<b id="btn-hint-left"></b>
-        </button>
       </div>
 
       <p class="question" id="question" aria-live="polite">　</p>
@@ -183,6 +187,25 @@
 
       <div class="world-wrap">
         <canvas id="world"></canvas>
+      </div>
+
+      <!-- ペットのヒントボタン。
+           答えのボタンのすぐ上に置く。画面の上のすみだと親指が届かず、
+           いちばん助けが要る子ほど押せなかった。
+           ここは出し入れせず高さを固定する（押すたびに canvas が縮まないように）。
+           ペットの体力ゲージも同じ場所に出して、押すと減るのが見えるようにする。 -->
+      <div class="pet-dock" id="pet-dock">
+        <button class="pet-btn" id="btn-hint" type="button" aria-label="ペットに ヒントを だしてもらう">
+          <span class="pet-pic">
+            <canvas id="pet-face" aria-hidden="true"></canvas>
+            <span class="pet-emoji" id="pet-emoji" aria-hidden="true">💡</span>
+          </span>
+          <span class="pet-info">
+            <b class="pet-state" id="pet-state">ヒント</b>
+            <span class="pet-hp"><i id="pet-hp-fill"></i></span>
+          </span>
+          <b class="pet-left" id="btn-hint-left"></b>
+        </button>
       </div>
 
       <div class="answers" id="answers"></div>
@@ -384,8 +407,14 @@
         <h3 class="p-h">ペットのちから</h3>
         <p class="p-note" id="p-pet"></p>
         <p class="p-note">
-          レアなペットの効果は「障害物が来るのが少し遅くなる」「1ステージに1回だけ時間切れを助けてくれる」の
-          2つだけです。助けてもらった問題もミスとして記録し、★・図鑑・習熟度の判定は変えていません。
+          レアなペットの効果は「障害物が来るのが少し遅くなる」「1ステージに1回だけ時間切れを助けてくれる」
+          「ヒントを見られる回数が増える」の3つだけです。助けてもらった問題もミスとして記録し、
+          ★・図鑑・習熟度の判定は変えていません。
+        </p>
+        <p class="p-note">
+          ヒントは答えのボタンのすぐ上（ペットのボタン）から呼びます。呼ぶたびにペットの体力が減り、
+          使いきるとそのステージのあいだは休みに入ります（次のステージで戻ってきます）。
+          自動で出るヒントは各ワールドの3面までと「にがて たいじ」だけで、4面から先は自分で呼びます。
         </p>
 
         <h3 class="p-h">セーブデータ</h3>

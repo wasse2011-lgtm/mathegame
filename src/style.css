@@ -231,6 +231,15 @@ body {
 .streak b { font-size: 1.05rem; }
 .streak[hidden] { display: none; }
 
+/* にがて たいじ。きょうの5もんと同じ形で、色だけ「たおす相手」の赤にする */
+.hunt-card { border-color: var(--bad); }
+.hunt-card .daily-state { color: var(--bad-dark); }
+.hunt-card .hunt-face { font-size: 1.7rem; line-height: 1; }
+/* にがてが1つも無い日。押せないが、なぜ押せないかは文字で言う */
+.hunt-card[disabled] { opacity: .55; cursor: default; border-color: var(--line); }
+.hunt-card[disabled]:active { transform: none; border-bottom-width: 6px; }
+.hunt-card[disabled] .daily-state { color: var(--ink-2); }
+
 .zukan-mini {
   display: flex; align-items: center; gap: .6rem;
   background: rgba(255,255,255,.85); border-radius: var(--r-md); padding: .55rem .9rem;
@@ -518,27 +527,6 @@ body {
 .q-tag.rev { background: #e7f0fb; border-color: var(--blue); color: var(--blue-dark); }
 @keyframes tag-in { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
 
-/* 自分から見にいくヒント。すこし考えたところで、ペットが差し出す。
-   この行はもともと高さを取ってあるので、出し入れしても canvas を測りなおさずに済む */
-.btn-hint {
-  position: absolute; right: .3rem; top: 50%; transform: translateY(-50%);
-  font-family: inherit; font-size: .78rem; font-weight: 700; line-height: 1;
-  display: flex; align-items: center; gap: .3rem;
-  padding: .42rem .7rem; min-height: 34px;
-  color: #7a5200; background: #fff6de;
-  border: 2px solid var(--amber); border-radius: 999px; cursor: pointer;
-  animation: hint-offer .4s ease-out;
-}
-.btn-hint[hidden] { display: none; }
-.btn-hint b { font-size: .72rem; opacity: .75; font-variant-numeric: tabular-nums; }
-.btn-hint b::before { content: 'あと'; }
-.btn-hint:active { transform: translateY(-50%) scale(.94); }
-.btn-hint:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
-@keyframes hint-offer {
-  from { opacity: 0; transform: translateY(calc(-50% + 10px)) scale(.8); }
-  to { opacity: 1; transform: translateY(-50%); }
-}
-@media (prefers-reduced-motion: reduce) { .btn-hint { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .q-tag { animation: none; } }
 @media (max-height: 480px) { .q-tags { min-height: 0; margin-top: 0; } .q-tag { font-size: .72rem; padding: .2rem .5rem; } }
 
@@ -633,13 +621,16 @@ body {
 @media (max-height: 480px) {
   /* 横持ちでは縦の余白が足りない。図はひとつに絞り、10マスも低くする */
   .cherry, .cherry:not([hidden]) { display: none; }
-  .tenframe { max-height: 40px; }
-  .hint { gap: .15rem; }
-  .hint-text { font-size: .85rem; }
-  .hint { padding: .2rem .5rem; }
+  .tenframe { max-height: 32px; }
+  .hint { gap: .1rem; }
+  .hint-text { font-size: .78rem; }
+  .hint { padding: .15rem .5rem; }
   .hint-close { font-size: .72rem; padding: .3rem .55rem; min-height: 30px; }
-  .btn-hint { font-size: .68rem; padding: .28rem .5rem; min-height: 28px; }
   .q-tags { min-height: 32px; }
+  /* ヒントを開くと、式の行がゼロまで潰れて絵の下に隠れてしまう。
+     開いているあいだだけ式を小さくして、式とヒントを同時に読めるようにする。
+     :has() が無いブラウザでは、これまでどおり式のほうが押し出される */
+  .screen-play:has(.hint:not([hidden])) .question { font-size: clamp(1.1rem, 5vh, 1.7rem); }
 }
 
 /* ボスの体力バー。よけるたびに減るので、あと何発かが見える */
@@ -662,6 +653,63 @@ body {
 /* 走る場所。高すぎると空ばかりになるので上限を決める。 */
 .world-wrap { flex: 0 1 auto; height: min(46vh, 380px); min-height: 120px; position: relative; }
 #world { display: block; width: 100%; height: 100%; }
+
+/* ペットのヒントボタン。
+   答えのボタンの すぐ上（親指の届くところ）に置く。
+   出し入れすると canvas の高さが変わってしまうので、行そのものは常に出したまま、
+   押せる・押せないは色と disabled で見せる。 */
+.pet-dock {
+  flex: 0 0 auto;
+  display: flex; align-items: center;
+  padding-top: .4rem; min-height: 54px;
+}
+.pet-btn {
+  font-family: inherit; display: flex; align-items: center; gap: .5rem;
+  padding: .3rem .7rem .3rem .35rem; min-height: 50px; cursor: pointer;
+  background: rgba(255,255,255,.92); color: var(--ink);
+  border: 3px solid var(--amber); border-bottom-width: 5px; border-radius: 999px;
+  transition: opacity .2s, border-color .2s, background-color .2s;
+}
+.pet-btn:active { transform: translateY(2px); border-bottom-width: 3px; }
+.pet-btn:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+.pet-btn[disabled] { cursor: default; opacity: .58; border-color: var(--line); }
+/* まだ考えている途中。ボタンは見えているが、押せるのは少しあと。
+   ここで薄くしすぎると、ペットが誰なのか分からなくなる */
+.pet-dock.sleep .pet-btn { opacity: .62; border-color: var(--line); }
+/* ペットが「ヒント あるよ」と差し出したところ */
+.pet-dock.ready .pet-btn { animation: pet-offer .45s ease-out; box-shadow: 0 0 0 4px rgba(255,197,61,.35); }
+/* つかれて いなくなった／もともと使えない面 */
+.pet-dock.gone .pet-btn, .pet-dock.none .pet-btn { opacity: .45; border-color: var(--line); }
+.pet-pic { position: relative; width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; }
+#pet-face { display: block; width: 44px; height: 44px; }
+#pet-face[hidden] { display: none; }
+.pet-emoji { font-size: 1.5rem; line-height: 1; }
+.pet-emoji[hidden] { display: none; }
+.pet-info { display: flex; flex-direction: column; align-items: flex-start; gap: .22rem; }
+.pet-state { font-size: .92rem; font-weight: 700; line-height: 1; white-space: nowrap; }
+/* ペットの体力。ヒントを出すたびに減り、空になると ペットは やすみに行く */
+.pet-hp { display: block; width: 78px; height: 9px; border-radius: 999px; background: #e6e0d6; overflow: hidden; }
+.pet-hp i {
+  display: block; height: 100%; width: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, #7ed37c, #4fae6a); transition: width .3s ease;
+}
+.pet-hp i.low { background: linear-gradient(90deg, #ffb02e, #e4675c); }
+.pet-left { font-size: .78rem; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.pet-left:not(:empty)::before { content: 'あと'; }
+@keyframes pet-offer { from { transform: scale(.86); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .pet-dock.ready .pet-btn { animation: none; } }
+/* 横持ちは縦が足りない。ヒントの絵を開くと、答えのボタンが画面の外へ出るところまで
+   詰まっているので、この行はぎりぎりまで低くする（顔・ことば・ゲージは残す） */
+@media (max-height: 480px) {
+  .pet-dock { min-height: 34px; padding-top: .15rem; }
+  .pet-btn { min-height: 32px; gap: .3rem; padding: .12rem .5rem .12rem .2rem; border-bottom-width: 3px; }
+  .pet-pic, #pet-face { width: 26px; height: 26px; }
+  .pet-emoji { font-size: 1.1rem; }
+  .pet-info { gap: 1px; }
+  .pet-state { font-size: .68rem; }
+  .pet-hp { width: 48px; height: 5px; }
+  .pet-left { font-size: .68rem; }
+}
 
 .answers {
   flex: 0 0 auto;
@@ -698,15 +746,21 @@ body {
 .screen-play.dark .pip { background: rgba(255,255,255,.4); }
 .screen-play.dark .hint { background: rgba(255,255,255,.94); }
 
+.screen-play.dark .pet-btn { background: rgba(255,255,255,.94); }
+
 /* ひだりきき: ポーズと答えの並びを左右反転する */
 .screen-play.lefty .hud { flex-direction: row-reverse; }
 .screen-play.lefty .answers { direction: rtl; }
+.screen-play.lefty .pet-dock { justify-content: flex-end; }
 
-/* 横持ちでは式とボタンを詰めて、走る場所を確保する */
+/* 横持ちでは式とボタンを詰めて、走る場所を確保する。
+   ヒントの絵を開いたときの高さがぎりぎりなので、走る場所は 96px まで譲る
+   （唯一の操作対象である答えボタンを画面の外に出さないほうが先） */
 @media (max-height: 480px) {
   .question { font-size: clamp(1.6rem, 7vh, 2.2rem); margin: .1rem 0; }
-  .answer { min-height: 58px; font-size: clamp(1.3rem, 6vh, 2rem); border-bottom-width: 5px; }
+  .answer { min-height: 52px; font-size: clamp(1.3rem, 6vh, 2rem); border-bottom-width: 5px; }
   .answers { gap: .4rem; padding-top: .3rem; }
+  .world-wrap { min-height: 84px; }
 }
 
 /* ---------------- リザルト ---------------- */

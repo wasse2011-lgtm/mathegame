@@ -263,6 +263,35 @@ export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
 }
 
 /**
+ * にがて たいじ に出す式。
+ *
+ * デイリー（weakestFacts）とちがって、ほんとうに「にがて」と記録された式
+ * （isWeakFact）だけを返す。1ぴきも居ないときは空配列で、そのときは
+ * ステージそのものを出さない（ホームのカードが押せなくなる）。
+ * にがてでもない式を水増しして並べると、「にがてを たおした」が嘘になる。
+ *
+ * 並び順は にがてな順（習熟度が低く、まちがえた回数が多いほど先）。
+ * 最初の1ぴきがいちばん手ごわい相手になるが、時間切れが無いモードなので
+ * ここで詰まってもゲームは止まらない。
+ */
+export function weakFacts(pool: Fact[], n: number): Fact[] {
+  return pool
+    .filter(isWeakFact)
+    .map((f) => {
+      const s = peekFact(factKey(f));
+      return { f, score: s.m * 10 - Math.min(s.miss, 9) };
+    })
+    .sort((a, b) => a.score - b.score)
+    .slice(0, n)
+    .map((x) => x.f);
+}
+
+/** いま にがてな式が いくつあるか。ホームのカードに出す */
+export function weakFactCount(pool: Fact[]): number {
+  return pool.reduce((n, f) => n + (isWeakFact(f) ? 1 : 0), 0);
+}
+
+/**
  * デイリーチャレンジ用に「いま苦手な式」を選ぶ。
  * 一度でも出した式を習熟度の低い順に取り、足りなければ未出題から埋める。
  */
