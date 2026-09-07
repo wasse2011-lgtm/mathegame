@@ -55,7 +55,7 @@ import { themeFor, type ObstacleKind, type Theme } from './theme';
  * ペットは「やさしくする方向にだけ」効かせる（pets.ts の方針）。
  * 'none'（各ワールドの「しあげ」）だけは、何を連れていても 0 のまま。
  */
-const BASE_HINTS: Record<HintPolicy, number> = { always: 99, stuck: 2, none: 0 };
+const BASE_HINTS: Record<HintPolicy, number> = { always: 3, stuck: 2, none: 0 };
 
 /**
  * SVG の出し入れ。
@@ -342,13 +342,13 @@ export class Runner {
     });
     // 自分から見にいくヒント。押しているあいだ世界が止まる
     this.elHintBtn.addEventListener('click', () => {
-      if (this.phase !== 'ask' || this.paused || this.hintShown) return;
+      if (this.phase !== 'ask' || this.paused || this.hintPaused) return;
       sfx.tap();
       this.showHint('pull');
     });
     this.elHintClose.addEventListener('click', () => {
       sfx.tap();
-      this.hideHint();
+      this.closeHint();
     });
     window.addEventListener('resize', () => this.resize());
     if ('ResizeObserver' in window) {
@@ -463,6 +463,7 @@ export class Runner {
     addPlayTime(this.elapsed);
     this.elapsed = 0;
     this.hideHint();
+    this.elHintBtn.hidden = true;
     stopDrone();
   }
 
@@ -621,24 +622,42 @@ export class Runner {
   }
 
   /**
-   * ヒントを出す。
+   * ヒントを出す。ヒントには2種類ある。
    *
-   * source が 'pull' なら、自分から見にきたということ。方針にかかわらず出し、
-   * ゲームを止めて（ペットが敵を押しとどめて）じっくり見られるようにする。
-   * ★・コイン・ずかんには一切ひびかせない。助けるのは気持ちの面だけ、
+   * ・'auto' … 走りながら見える。止まらない。回数の制限もない。
+   *   詰まったとき（一度まちがえた／障害物が近づいた）だけ出す。
+   *   最初から出すと考えなくなるので、出すタイミングがすべて。
+   * ・'pull' … 自分から見にきた。ゲームを止めて（ペットが敵を押しとどめて）
+   *   じっくり見られるようにする。止まるぶんだけ回数に限りがあり、
+   *   レアなペットを連れていると増える。
+   *
+   * どちらも ★・コイン・ずかんには一切ひびかせない。助けるのは気持ちの面だけ、
    * という petRescue と同じ考えかた。
-   *
-   * 自動で出すぶん（'auto'）は、詰まったとき（一度まちがえた／障害物が近づいた）だけ。
-   * 最初から出すと考えなくなるので、出すタイミングがすべて。
    */
   private showHint(source: 'auto' | 'pull'): void {
     const q = this.q;
-    if (!q || this.hintShown) return;
-    if (source === 'auto' && this.hintPolicy() === 'none') return;
+    if (!q) return;
+    if (source === 'auto' && (this.hintShown || this.hintPolicy() === 'none')) return;
     const art = frameArt(q.fact, q.blank);
     if (!art) return;
+
+    if (source === 'pull') {
+      // 自動ヒントがもう出ていても、止めて見なおすことはできる。
+      // ここで打ち切ると、ボタンが出てから自動ヒントに上書きされるまでの
+      // 1秒たらずしか押せる時間がなく、ボタンがあってないものになる。
+      if (this.hintsLeft <= 0) return;
+      this.hintsLeft--;
+      this.hintPaused = true;
+      this.tHold = 0;
+      stopDrone();
+      this.showBanner(this.pet ? `${this.pet.name}が おさえてる！` : 'とまってるよ', 1.2);
+      if (this.pet) sfx.voice(voiceOf(this.pet.art));
+      this.elHintBtn.hidden = true;
+      this.elHintClose.hidden = false;
+    }
+
+    if (this.hintShown) return; // 絵はもう出ている。止めるだけでよい
     this.hintShown = true;
-    this.elHintBtn.hidden = true;
 
     // viewBox はモードごとに変わる。設定しそこねると絵がつぶれる
     this.elFrame.setAttribute('viewBox', art.viewBox);
@@ -662,30 +681,44 @@ export class Runner {
     }
 
     this.elHintText.textContent = art.text;
-    this.elHintClose.hidden = source !== 'pull';
     this.elHint.hidden = false;
     // レイアウトが縮むぶんは ResizeObserver が拾って canvas を測りなおす
-
-    if (source === 'pull') {
-      this.hintsLeft--;
-      this.hintPaused = true;
-      this.tHold = 0;
-      stopDrone();
-      this.showBanner(this.pet ? `${this.pet.name}が おさえてる！` : 'とまってるよ', 1.2);
-      if (this.pet) sfx.voice(voiceOf(this.pet.art));
-    }
   }
 
-  /** ヒントを閉じる。止めていたなら、ここで世界が動きだす */
+  /** 問題が変わるとき。絵も止めも全部たたむ */
   private hideHint(): void {
     this.elHint.hidden = true;
     showSvg(this.elCherry, false);
     this.elHintClose.hidden = true;
     this.hintShown = false;
-    if (this.hintPaused) {
-      this.hintPaused = false;
-      if (this.isFinal && this.phase === 'ask') startDrone();
+    this.resume();
+  }
+
+  /**
+   * 「わかった！」。止めるのをやめる。
+   *
+   * 絵まで消すのは、詰まったときだけ出す面のとき。はじめて習う面
+   * （hint: 'always'）では絵は出しっぱなしが正しいので、止めだけ解く。
+   */
+  private closeHint(): void {
+    this.resume();
+    this.elHintClose.hidden = true;
+    if (this.hintPolicy() !== 'always') {
+      this.elHint.hidden = true;
+      showSvg(this.elCherry, false);
+      this.hintShown = false;
     }
+    // まだ残っていれば、もう一度止められる
+    if (this.hintsLeft > 0 && this.phase === 'ask') {
+      this.elHintLeft.textContent = String(this.hintsLeft);
+      this.elHintBtn.hidden = false;
+    }
+  }
+
+  private resume(): void {
+    if (!this.hintPaused) return;
+    this.hintPaused = false;
+    if (this.isFinal && this.phase === 'ask') startDrone();
   }
 
   /**
@@ -695,7 +728,7 @@ export class Runner {
    * すこし経ってから、ペットが 💡 を出して知らせる形にする。
    */
   private offerHint(): void {
-    if (this.hintOffered || this.hintShown) return;
+    if (this.hintOffered) return;
     this.hintOffered = true;
     if (this.hintsLeft <= 0 || this.hintPolicy() === 'none') return;
     if (!this.q || !frameArt(this.q.fact, this.q.blank)) return;
@@ -837,6 +870,12 @@ export class Runner {
     if (this.qElapsed < 0.3) return;
     const btn = this.buttons[i];
     if (!btn || btn.disabled) return;
+
+    // ヒントで止めたまま答えることもある。ここで動かしなおさないと、
+    // update() が飛ばされたまま止まりつづける（跳べずに固まる）
+    this.resume();
+    this.elHintClose.hidden = true;
+    this.elHintBtn.hidden = true;
 
     // 乗せてもらっている最中に答えたら、そこで降りる。
     // 乗っているあいだは重力を弱めているので、そのまま跳ぶと画面の外まで飛ぶ
@@ -1721,7 +1760,7 @@ export class Runner {
     const s = this.s;
 
     // 迫ってきているものの手前へ、0.25秒かけて回りこむ
-    const target = (this.boss ? (this.shot?.x ?? this.bossX) : this.ob.x) - 22 * s;
+    const target = (this.boss ? (this.shot?.x ?? this.bossX) : this.ob.x) - 30 * s;
     const from = Math.max(this.px - 36 * s, 12 * s);
     const k = Math.min(1, this.tHold / 0.25);
     const x = from + (Math.max(target, this.px + 18 * s) - from) * (k * k * (3 - 2 * k));

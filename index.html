@@ -164,10 +164,14 @@
 
       <!-- 10マスの絵と、さくらんぼ分解のヒント -->
       <div class="hint" id="hint" hidden aria-live="polite">
-        <svg class="tenframe" id="hint-frame" viewBox="0 0 122 47" aria-hidden="true"></svg>
-        <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true" hidden></svg>
-        <p class="hint-text" id="hint-text"></p>
-        <button class="hint-close" id="hint-close" type="button" hidden>わかった！</button>
+        <div class="hint-arts">
+          <svg class="tenframe" id="hint-frame" viewBox="0 0 122 47" aria-hidden="true"></svg>
+          <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true" hidden></svg>
+        </div>
+        <div class="hint-row">
+          <p class="hint-text" id="hint-text"></p>
+          <button class="hint-close" id="hint-close" type="button" hidden>わかった！</button>
+        </div>
       </div>
 
       <!-- ボス戦だけ出る体力バー。攻撃をよけるたびに減る -->
