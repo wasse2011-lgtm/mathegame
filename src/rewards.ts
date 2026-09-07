@@ -17,6 +17,12 @@ export const COIN_PERFECT = 30;
 export const COIN_BOSS = 60;
 /** きょうの5もんのごほうび */
 export const COIN_DAILY = 60;
+/**
+ * にがて たいじ を やりきったごほうび。
+ * デイリーより軽いのは、にがてが残っているかぎり何度でも挑めるから。
+ * （倒した式は「にがて」から外れていくので、稼ぎ続けることはできない）
+ */
+export const COIN_HUNT = 30;
 /** 時間切れでぶつかったとき落とす枚数 */
 export const COIN_MISS = 3;
 /** にがてな式（まちがえた回数の多い式）を、初回で正解したときの上乗せ */

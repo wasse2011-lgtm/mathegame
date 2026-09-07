@@ -319,6 +319,33 @@ export const DAILY_WORLD: World = {
   steps: [{ name: 'きょうの 5もん', facts: [] }],
 };
 
+/**
+ * にがて たいじ 専用のワールド。
+ *
+ * デイリー（きょうの 5もん）と同じで、マップにも★にも属さない走り。
+ * ちがうのは中身のほうで、
+ *  ・出るのは「にがて」と記録された式だけ（weakFacts が選ぶので facts は空でよい）
+ *  ・敵は近づいてこない。時間切れが無いので answerTime も使わない
+ *  ・こちらからビームで倒す
+ * ようになっている（runner.ts の hunt モード）。
+ *
+ * id は 9。WORLDS（1〜8）と DAILY_WORLD（0）のどちらとも重ならない番号にすること。
+ * 重ねると、★の保存キー "9-0" が本物のステージとぶつかる。
+ */
+export const HUNT_WORLD: World = {
+  id: 9,
+  emoji: '👹',
+  color: '#e4675c',
+  name: 'にがて たいじ',
+  desc: 'にがてな しきを たおす',
+  // 時間切れが無いモードなので使わない。0 を置くと万一の割り算で壊れるため既定値のまま
+  answerTime: 7.0,
+  // 苦手な式ばかりが並ぶ。当てにくさより「たおせた」を優先して 3択
+  choices: 3,
+  coinRate: 1,
+  steps: [{ name: 'にがて たいじ', facts: [] }],
+};
+
 export interface Cherry {
   /** 起点。ここを きりのいい数まで もっていく（＝大きいほうの数） */
   base: number;

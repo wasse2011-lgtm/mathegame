@@ -3,6 +3,7 @@ import './style.css';
 import { sfx, unlockAudio } from './audio';
 import {
   DAILY_WORLD,
+  HUNT_WORLD,
   WORLDS,
   allFacts,
   answerTimeFor,
@@ -31,8 +32,8 @@ import {
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
-import { MASTERED, weakestFacts } from './questions';
-import { COIN_BOSS, COIN_DAILY } from './rewards';
+import { MASTERED, weakFactCount, weakFacts, weakestFacts } from './questions';
+import { COIN_BOSS, COIN_DAILY, COIN_HUNT } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
   clearSlot,
@@ -306,8 +307,18 @@ function renderTitle(): void {
   const over = overDailyLimit();
   const startBtn = $<HTMLButtonElement>('btn-start');
   const daily = $<HTMLButtonElement>('daily-card');
+  const hunt = $<HTMLButtonElement>('hunt-card');
   startBtn.disabled = over;
   daily.disabled = over;
+
+  // にがて たいじ。相手がいないと始まらないので、何ひきいるかを先に出す
+  const weak = weakFactCount(unlockedFacts());
+  hunt.disabled = over || weak === 0;
+  $('hunt-state').textContent = over
+    ? 'また あした'
+    : weak === 0
+      ? 'にがては いないよ！'
+      : `にがて ${Math.min(weak, HUNT_MAX)}ひき`;
   $('start-main').textContent = over ? 'きょうは おしまい' : 'あそぶ';
 
   // 開いた時点で「つぎはどこか」が読めるようにする
@@ -544,20 +555,60 @@ $('ranch-play').addEventListener('click', () => {
   goNext();
 });
 
-// ------------------------------------------------------------------ デイリー
+// ------------------------------------------------------------------ デイリー・にがて たいじ
+
+/** いま出しても良い式。まだ開いていないせかいの式は出さない */
+function unlockedFacts(): Fact[] {
+  return WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => allFacts(x));
+}
+
+/**
+ * にがて たいじ に出す にがての数。
+ *
+ * 5ひきは、10問のステージの半分。倒すたびに演出が入るぶん、
+ * 数を増やすとテンポが落ちる。残りは つぎに挑んだときの相手になる。
+ */
+const HUNT_MAX = 5;
 
 $('daily-card').addEventListener('click', () => {
   unlockAudio();
   sfx.tap();
   refreshDaily(profile()); // 日付をまたいだまま開きっぱなしのことがある
-  const pool: Fact[] = WORLDS.filter((x) => worldUnlocked(x.id)).flatMap((x) => allFacts(x));
   startRun({
     world: DAILY_WORLD,
     stage: 0,
+    mode: 'daily',
     total: 5,
     boss: false,
     label: 'きょうの 5もん',
-    facts: weakestFacts(pool, 5),
+    facts: weakestFacts(unlockedFacts(), 5),
+    saveStars: false,
+  });
+});
+
+/**
+ * にがて たいじ。
+ *
+ * 「きょうの 5もん」は日に1回で終わってしまうので、いつでも挑める場をもう1つ置く。
+ * こちらは にがてと記録された式だけを相手にして、時間制限なしで倒していく。
+ * 相手が1ひきもいない日は、そもそもカードが押せない（renderTitle）。
+ */
+$('hunt-card').addEventListener('click', () => {
+  unlockAudio();
+  sfx.tap();
+  const facts = weakFacts(unlockedFacts(), HUNT_MAX);
+  if (facts.length === 0) return;
+  startRun({
+    world: HUNT_WORLD,
+    stage: 0,
+    mode: 'hunt',
+    total: facts.length,
+    boss: false,
+    label: 'にがて たいじ',
+    facts,
+    // にがては 1けたどうしとは限らない。ワールドの穴埋め設定は借りない
+    blank: false,
+    bonusCoins: COIN_HUNT,
     saveStars: false,
   });
 });
@@ -565,11 +616,13 @@ $('daily-card').addEventListener('click', () => {
 // ------------------------------------------------------------------ マップ
 
 /** ステージの時間帯。みちのマスに小さく出す */
+// 'hunt' はマップに出てこない（にがて たいじ はホームから入る）が、
+// Record の型を満たすために置いておく
 const TIME_ICON: Record<TimeId, string> = {
-  day: '☀️', dawn: '🌅', sunset: '🌇', night: '🌙', boss: '⚡',
+  day: '☀️', dawn: '🌅', sunset: '🌇', night: '🌙', boss: '⚡', hunt: '👹',
 };
 const TIME_NAME: Record<TimeId, string> = {
-  day: 'ひるま', dawn: 'あさ', sunset: 'ゆうがた', night: 'よる', boss: 'ボス',
+  day: 'ひるま', dawn: 'あさ', sunset: 'ゆうがた', night: 'よる', boss: 'ボス', hunt: 'にがて',
 };
 
 /** そのワールドで、つぎに遊ぶステージ（ぜんぶクリア済みなら 0） */
@@ -803,7 +856,7 @@ function startRun(cfg: RunConfig): void {
   // デイリーのおまけは走り出すたびに計算しなおす。
   // 設定オブジェクトを使いまわすので、ここで決めないと、その日のうちに
   // 何度でもデイリーのボーナスがもらえてしまう。
-  if (cfg.stage === 0) cfg.bonusCoins = profile().daily.done ? 0 : COIN_DAILY;
+  if (cfg.mode === 'daily') cfg.bonusCoins = profile().daily.done ? 0 : COIN_DAILY;
   // ★も同じ理由でここで読みなおす。startStage で決め打ちにすると、
   // 同じ設定を使いまわす「もういちど」が、★3 のあとも初回レートで払い続ける。
   cfg.prevStars = cfg.stage === 0 ? 0 : stageStars(cfg.world.id, cfg.stage);
@@ -812,7 +865,7 @@ function startRun(cfg: RunConfig): void {
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
   // canvas の外（式やボタンの後ろ）も、そのステージの空の色にそろえる。
   // 夜とボスは空が暗いので、式やコインの数字を白抜きに切りかえる
-  const theme = themeFor(cfg.world.id, cfg.stage, cfg.boss);
+  const theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, cfg.mode === 'hunt' ? 'hunt' : undefined);
   screens.play.style.background = skyCss(theme);
   screens.play.classList.toggle('dark', theme.dark);
   $('overlay-pause').hidden = true;
@@ -820,7 +873,7 @@ function startRun(cfg: RunConfig): void {
   // 画面を出してからレイアウトが確定するので、次のフレームで開始する
   requestAnimationFrame(() => {
     runner.start(cfg, (r) => {
-      if (cfg.stage === 0) {
+      if (cfg.mode === 'daily') {
         const p = profile();
         refreshDaily(p); // 日付をまたいで走り終えることがある
         if (!p.daily.done) {
@@ -974,7 +1027,6 @@ interface CoinLine { label: string; value: number; }
 
 /** もらったコインの内訳。0 の行は出さない（読む量が増えるだけ） */
 function coinLines(r: StageResult): CoinLine[] {
-  const daily = r.stage === 0;
   const out: CoinLine[] = [];
   if (r.gain.correct) out.push({ label: `せいかい ${r.correct}もん`, value: r.gain.correct });
   if (r.gain.combo) out.push({ label: 'れんぞく ボーナス', value: r.gain.combo });
@@ -992,7 +1044,11 @@ function coinLines(r: StageResult): CoinLine[] {
       value: r.gain.first,
     });
   }
-  if (r.gain.bonus) out.push({ label: daily ? 'きょうの 5もん' : 'ボス ボーナス', value: r.gain.bonus });
+  if (r.gain.bonus) {
+    const label =
+      r.mode === 'daily' ? 'きょうの 5もん' : r.mode === 'hunt' ? 'にがて たいじ' : 'ボス ボーナス';
+    out.push({ label, value: r.gain.bonus });
+  }
   if (r.gain.lost) out.push({ label: 'おとした コイン', value: -r.gain.lost });
   return out;
 }
@@ -1000,16 +1056,22 @@ function coinLines(r: StageResult): CoinLine[] {
 function renderResult(r: StageResult): void {
   stopResultAnim();
 
-  const daily = r.stage === 0;
+  const daily = r.mode === 'daily';
+  const hunt = r.mode === 'hunt';
+  // マップに属さない走り（デイリー・にがて たいじ）は、ワールドを引いてはいけない。
+  // worldById は知らない id を W1 に落とすので、W1 のステージ名が出てしまう
+  const onMap = r.mode === 'stage';
   const w = worldById(r.worldId);
-  const boss = !daily && isBoss(w, r.stage);
+  const boss = onMap && isBoss(w, r.stage);
   // ワールド名はミニマップの見出しに出ているので、この行は小ステップの名まえに使う
-  const step = daily ? null : stepOf(w, r.stage);
+  const step = onMap ? stepOf(w, r.stage) : null;
   $('result-stage').textContent = daily
     ? 'きょうの 5もん'
-    : boss
-      ? `${w.id}-ボス  ${r.bossName ?? w.name}`
-      : `${w.id}-${r.stage}  ${step?.name ?? w.name}`;
+    : hunt
+      ? 'にがて たいじ'
+      : boss
+        ? `${w.id}-ボス  ${r.bossName ?? w.name}`
+        : `${w.id}-${r.stage}  ${step?.name ?? w.name}`;
 
   // ボスに負けたときだけ、別の顔で出す（★もコインのボーナスも付かない）
   (document.querySelector('.result-card') as HTMLElement).classList.toggle('failed', r.failed);
@@ -1017,20 +1079,24 @@ function renderResult(r: StageResult): void {
     ? 'やられた…'
     : boss
       ? `${r.bossName ?? 'ボス'} を たおした！`
-      : r.stars === 3
-        ? 'パーフェクト！'
-        : r.stars === 2
-          ? 'クリア！'
-          : 'ゴール！';
+      // まちがえても、正解するまで撃てるので必ず全部たおして終わる。
+      // ここは「たおした数」なので total、下の「せいかい」は一発で当てた数
+      : hunt
+        ? `にがてを ${r.total}ひき たおした！`
+        : r.stars === 3
+          ? 'パーフェクト！'
+          : r.stars === 2
+            ? 'クリア！'
+            : 'ゴール！';
   const fail = $('result-fail');
   fail.hidden = !r.failed;
   if (r.failed) fail.textContent = 'ボスは 1もん まちがえると おしまい。おちついて いこう！';
   $('result-correct').textContent = `せいかい ${r.correct} / ${r.total}`;
 
-  // 縮小マップ。デイリーはマップ上のどこでもないので出さない
+  // 縮小マップ。デイリーと にがて たいじ はマップ上のどこでもないので出さない
   const mini = $('result-map-mini');
-  mini.hidden = daily;
-  if (!daily) {
+  mini.hidden = !onMap;
+  if (onMap) {
     const spot = currentSpot();
     renderMiniMap(mini, r.worldId, spot.worldId === r.worldId ? spot.stage : r.stage);
   }
@@ -1130,12 +1196,12 @@ function renderResult(r: StageResult): void {
     ? 'きょうは おしまい'
     : next
       ? 'つづける'
-      : daily
-        ? 'スタートへ'
-        : 'マップへ';
+      : onMap
+        ? 'マップへ'
+        : 'スタートへ';
   // つぎのボタンがマップ／スタートを兼ねているときは、同じ行き先を2つ出さない
   $('result-map').hidden = over || (!next && !r.failed);
-  $('result-home').hidden = over || (!next && daily);
+  $('result-home').hidden = over || (!next && !onMap);
 }
 
 /** 「つづける」の文字。きせかえ／ぼくじょうの「つづきを あそぶ」でも同じ行き先を使う */

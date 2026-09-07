@@ -76,6 +76,7 @@ export function renderParent(): void {
   }
   $('p-weak-note').textContent = weak.length
     ? 'まちがえた割合の高い順です。紙のドリルで補うならこの5つから。'
+      + 'ホームの「にがて たいじ」は、この式だけを時間制限なしで出します。'
     : 'まだ十分なデータがありません。何ステージか遊ぶと出てきます。';
 
   $<HTMLSelectElement>('p-limit').value = String(save.settings.dailyLimitMin);

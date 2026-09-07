@@ -26,7 +26,8 @@ export type DecoKind = 'tree' | 'flower' | 'mushroom' | 'building' | 'pine' | 'p
 /** 画面を流れる粒 */
 export type WeatherKind = 'none' | 'petal' | 'leaf' | 'snow' | 'bubble' | 'star' | 'firefly' | 'rain';
 
-export type TimeId = 'day' | 'sunset' | 'night' | 'dawn' | 'boss';
+/** 'hunt'（にがて たいじ）はステージ番号からは決まらない。themeFor の引数で名ざしする */
+export type TimeId = 'day' | 'sunset' | 'night' | 'dawn' | 'boss' | 'hunt';
 
 /** ワールドの土地。空の色は時間帯のほうが決める */
 interface Land {
@@ -119,6 +120,13 @@ const LANDS: Record<number, Land> = {
     deco: 'cloud', decoA: '#ffffff', decoB: '#dbe7fb', weather: 'star',
     obstacles: ['crystal', 'bird', 'ghost', 'slime'],
   },
+  // にがて たいじ（HUNT_WORLD.id = 9）。どのワールドでもない、岩だらけの決闘場。
+  // 走らない場所なので、地面は動かない前提の落ち着いた色にしてある。
+  9: {
+    hillFar: '#7c5f7a', hillNear: '#5a4460', grass: '#6b5566', grassEdge: '#4c3a4b', dirt: '#5a4550',
+    deco: 'rock', decoA: '#4e3c4c', decoB: '#3a2c39', weather: 'firefly',
+    obstacles: ['weak'],
+  },
 };
 
 const TIMES: Record<TimeId, TimeDef> = {
@@ -147,6 +155,11 @@ const TIMES: Record<TimeId, TimeDef> = {
     sky: ['#54245a', '#c85160'], tint: '#5f2340', tintK: 0.34,
     sun: 'none', sunColor: '#ffd0a0', stars: true, cloud: 'rgba(255,186,204,.34)', dark: true,
   },
+  hunt: {
+    label: 'にがて たいじ',
+    sky: ['#2f2350', '#e2915f'], tint: '#43284a', tintK: 0.3,
+    sun: 'none', sunColor: '#ffd0a0', stars: true, cloud: 'rgba(255,204,178,.3)', dark: true,
+  },
 };
 
 /** ステージ番号から時間帯を決める。ボスだけは必ず特別な空にする */
@@ -172,21 +185,25 @@ function mix(a: string, b: string, k: number): string {
   return `#${hex(ch(16))}${hex(ch(8))}${hex(ch(0))}`;
 }
 
-export function themeFor(worldId: number, stage: number, boss: boolean): Theme {
+/**
+ * @param time 時間帯を名ざしで決める。ステージ番号を持たない走り
+ *             （にがて たいじ）だけが使う。
+ */
+export function themeFor(worldId: number, stage: number, boss: boolean, time?: TimeId): Theme {
   const land = LANDS[worldId] ?? LANDS[1];
-  const timeId = timeIdFor(stage, boss);
-  const time = TIMES[timeId];
-  const t = (c: string) => mix(c, time.tint, time.tintK);
+  const timeId = time ?? timeIdFor(stage, boss);
+  const def = TIMES[timeId];
+  const t = (c: string) => mix(c, def.tint, def.tintK);
 
   return {
     timeId,
-    timeLabel: time.label,
-    sky: time.sky,
-    sun: time.sun,
-    sunColor: time.sunColor,
-    stars: time.stars,
-    cloud: time.cloud,
-    dark: time.dark,
+    timeLabel: def.label,
+    sky: def.sky,
+    sun: def.sun,
+    sunColor: def.sunColor,
+    stars: def.stars,
+    cloud: def.cloud,
+    dark: def.dark,
     hillFar: t(land.hillFar),
     hillNear: t(land.hillNear),
     grass: t(land.grass),
