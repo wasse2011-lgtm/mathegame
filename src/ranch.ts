@@ -44,7 +44,8 @@ export function powerText(pet: PetDef): string {
   const pw = powerOf(pet);
   const parts: string[] = [];
   if (pw.slow > 0) parts.push(`しょうがいぶつが ${Math.round(pw.slow * 100)}％ ゆっくり`);
-  if (pw.hints > 0) parts.push(`ヒントを ${pw.hints}かい ふやしてくれる`);
+  // ヒントに回数があるのは さいごのボスだけ。そこだけの力だと分かる言いかたにする
+  if (pw.hints > 0) parts.push(`さいごの ボスで ヒントを ${pw.hints}かい ふやす`);
   if (pw.rescue > 0) parts.push('1かい せなかに のせてくれる');
   return parts.length ? parts.join('・') : 'いっしょに はしってくれる';
 }

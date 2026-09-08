@@ -554,20 +554,25 @@ body {
 /* 絵を上、ことばを下の2段にする。
    横1列に並べると、スマホの幅では 10マスが数ミリまで潰れ、
    ことばのほうが1文字ずつ縦に折れる。 */
+/* 式とのあいだは、いつも指1本ぶん（.5rem）あける。ここを詰めると、
+   式が大きい端末でヒントの枠が式に食いこんで、どちらも読めなくなる。
+   背景も透かさない（万一かぶっても、ヒントのほうは必ず読める） */
 .hint {
   flex: 0 0 auto;
   display: flex; flex-direction: column; align-items: center; gap: .3rem;
-  background: rgba(255,255,255,.9); border: 2px solid var(--amber);
-  border-radius: var(--r-md); padding: .4rem .7rem; margin: .3rem .2rem 0;
+  background: rgba(255,255,255,.96); border: 2px solid var(--amber);
+  border-radius: var(--r-md); padding: .4rem .7rem; margin: .5rem .2rem 0;
   animation: hint-in .3s ease-out;
 }
 .hint-arts {
   display: flex; align-items: center; justify-content: center; gap: .7rem;
   width: 100%; min-width: 0;
 }
+/* 絵の読みかた（左）と、その先のひと押し（右）。
+   狭い画面では2段になる。1行に押しこむと、どちらも1文字ずつ折れて読めない */
 .hint-row {
-  display: flex; align-items: center; justify-content: center; gap: .6rem;
-  width: 100%; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+  flex-wrap: wrap; width: 100%; min-width: 0;
 }
 .hint[hidden] { display: none !important; }
 @keyframes hint-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -591,16 +596,14 @@ body {
   .tf-cell.ghost, .tf-dot.move { animation: none; }
 }
 
-/* ヒントを閉じる（＝ペットが手をはなして、また動き出す） */
-.hint-close {
-  flex: 0 0 auto; font-family: inherit; font-size: .82rem; font-weight: 700;
-  padding: .45rem .8rem; min-height: 38px; cursor: pointer;
-  color: #4a3400; background: var(--amber);
-  border: 2px solid var(--amber-dark); border-bottom-width: 4px; border-radius: 999px;
+/* 最後のひと押し。「のこり 3 だから…？」で止める。
+   ボタンではないので押せない（閉じるのは、答えたとき） */
+.hint-nudge {
+  flex: 0 0 auto; margin: 0; font-size: .88rem; font-weight: 700; line-height: 1.2;
+  padding: .35rem .75rem; border-radius: 999px;
+  color: #4a3400; background: var(--amber); border: 2px solid var(--amber-dark);
 }
-.hint-close[hidden] { display: none; }
-.hint-close:active { transform: translateY(2px); border-bottom-width: 2px; }
-.hint-close:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+.hint-nudge:empty { display: none; }
 
 /* さくらんぼは「学校で習う書きかた」。10マスの絵の横に並べて、絵と記号を結びつける。
    ただしスマホの幅では 10マスを潰してしまうので、広い画面のときだけ出す。 */
@@ -618,19 +621,28 @@ body {
   margin: 0; font-size: .98rem; font-weight: 700; color: var(--ink); line-height: 1.35;
   text-align: center; flex: 0 1 auto; min-width: 0;
 }
+/* ヒントを開いているあいだ。
+   式は flex: 1 1 auto で余白を吸う役なので、ヒントの枠が開くと
+   箱のほうだけが潰れ、中の文字（clamp で 4rem まで育つ）がはみ出して
+   ヒントの絵に重なっていた。開いているあいだは式を「中身の高さ」に戻し、
+   文字も一段小さくして、式とヒントが上下に並ぶようにする。
+   クラスは runner.ts が付け外しする（:has() の無いブラウザでも効く） */
+.screen-play.hinting .question {
+  flex: 0 1 auto;
+  max-height: 18vh;
+  font-size: clamp(1.5rem, 7vw, 2.5rem);
+}
+
 @media (max-height: 480px) {
   /* 横持ちでは縦の余白が足りない。図はひとつに絞り、10マスも低くする */
   .cherry, .cherry:not([hidden]) { display: none; }
   .tenframe { max-height: 32px; }
   .hint { gap: .1rem; }
   .hint-text { font-size: .78rem; }
-  .hint { padding: .15rem .5rem; }
-  .hint-close { font-size: .72rem; padding: .3rem .55rem; min-height: 30px; }
+  .hint { padding: .15rem .5rem; margin-top: .3rem; }
+  .hint-nudge { font-size: .74rem; padding: .22rem .5rem; }
   .q-tags { min-height: 32px; }
-  /* ヒントを開くと、式の行がゼロまで潰れて絵の下に隠れてしまう。
-     開いているあいだだけ式を小さくして、式とヒントを同時に読めるようにする。
-     :has() が無いブラウザでは、これまでどおり式のほうが押し出される */
-  .screen-play:has(.hint:not([hidden])) .question { font-size: clamp(1.1rem, 5vh, 1.7rem); }
+  .screen-play.hinting .question { font-size: clamp(1.1rem, 5vh, 1.7rem); max-height: 14vh; }
 }
 
 /* ボスの体力バー。よけるたびに減るので、あと何発かが見える */
@@ -673,11 +685,11 @@ body {
 .pet-btn:active { transform: translateY(2px); border-bottom-width: 3px; }
 .pet-btn:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
 .pet-btn[disabled] { cursor: default; opacity: .58; border-color: var(--line); }
-/* まだ考えている途中。ボタンは見えているが、押せるのは少しあと。
+/* いまは押せない（答えたあと・ヒントを開いているあいだ）。
    ここで薄くしすぎると、ペットが誰なのか分からなくなる */
 .pet-dock.sleep .pet-btn { opacity: .62; border-color: var(--line); }
-/* ペットが「ヒント あるよ」と差し出したところ */
-.pet-dock.ready .pet-btn { animation: pet-offer .45s ease-out; box-shadow: 0 0 0 4px rgba(255,197,61,.35); }
+/* いつでも押せる。ふちの光だけで「ここにあるよ」と言う（動かすと急かして見える） */
+.pet-dock.ready .pet-btn { box-shadow: 0 0 0 4px rgba(255,197,61,.35); }
 /* つかれて いなくなった／もともと使えない面 */
 .pet-dock.gone .pet-btn, .pet-dock.none .pet-btn { opacity: .45; border-color: var(--line); }
 .pet-pic { position: relative; width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; }
@@ -696,8 +708,10 @@ body {
 .pet-hp i.low { background: linear-gradient(90deg, #ffb02e, #e4675c); }
 .pet-left { font-size: .78rem; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .pet-left:not(:empty)::before { content: 'あと'; }
-@keyframes pet-offer { from { transform: scale(.86); } to { transform: none; } }
-@media (prefers-reduced-motion: reduce) { .pet-dock.ready .pet-btn { animation: none; } }
+/* 回数の制限があるのは、いちばん最後のボスだけ。
+   ふだんは体力ゲージも「あと○かい」も出さない（数えるものが無いのに
+   ゲージだけ出ていると、押すのをためらう） */
+.pet-dock.free .pet-hp, .pet-dock.free .pet-left { display: none; }
 /* 横持ちは縦が足りない。ヒントの絵を開くと、答えのボタンが画面の外へ出るところまで
    詰まっているので、この行はぎりぎりまで低くする（顔・ことば・ゲージは残す） */
 @media (max-height: 480px) {

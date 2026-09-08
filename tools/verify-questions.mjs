@@ -39,9 +39,9 @@ async function load(entry) {
 }
 
 const { QuestionPicker, MASTERED, distractorPool, blankPool } = await load('questions');
-const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, hintPolicyFor, stepOf } =
+const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
-const { frameArt } = await load('tenframe');
+const { frameArt, PLACE_MAX } = await load('tenframe');
 
 const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
@@ -58,7 +58,6 @@ function stepsOf(w) {
     name: st.name,
     facts: st.facts,
     blank: blankFor(w, i + 1),
-    hint: hintPolicyFor(w, i + 1),
   }));
 }
 
@@ -256,36 +255,46 @@ if (missing.length || extra.length) {
 /**
  * F) ヒントの絵。
  *
- * hint: 'always' の小ステップは「かならず出す」と言っているので、
- * そこに絵の出ない式が混じっていると、約束だけして何も出ないことになる。
+ * ヒントは、押されたときにだけ出る（自動では出ない）。押して何も出ない式は
+ * ボタンが死んでいるのと同じなので、絵の出ない式がどこにどれだけあるかを数える。
  * 枠が4つ以上になる絵は、答えボタンを画面の外へ押し出す。
+ * 「だから…？」の一文（nudge）は、絵といっしょに必ず出す約束になっている。
  */
 console.log('\nF) ヒントの絵（10マス）');
 const artBad = [];
+const noArtSteps = [];
 let noArt = 0;
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {
+    let drawable = 0;
     for (const f of st.facts) {
       const art = frameArt(f, st.blank);
       if (!art) {
         noArt++;
-        if (st.hint === 'always') artBad.push(`W${w.id}-${st.stage}「${st.name}」 ${f.a}+${f.b} に絵が無い`);
         continue;
       }
+      drawable++;
       const tag = `W${w.id} ${f.a}+${f.b}`;
       if (art.frames > 3) artBad.push(`${tag} の枠が ${art.frames} こ（答えボタンが画面外に出る）`);
       else if (art.viewBox.split(' ').filter((n) => n !== '' && Number.isFinite(+n)).length !== 4) {
         artBad.push(`${tag} の viewBox が読めない（${art.viewBox}）`);
       } else if (art.mode === 'carry' && !cherry(f)) artBad.push(`${tag} が carry なのに分解できない`);
       else if (!art.text) artBad.push(`${tag} に ことばが無い`);
+      else if (!art.nudge.endsWith('…？')) artBad.push(`${tag} の ひと押しが「…？」で終わっていない`);
     }
+    // 1問も絵にできない面。ヒントボタンはあるが、その面では一度も押せない
+    if (st.facts.length && drawable === 0) noArtSteps.push(`W${w.id}-${st.stage}「${st.name}」`);
   }
 }
 if (artBad.length) {
   failed++;
   console.log('   ' + artBad.slice(0, 5).join('\n   '));
 } else {
-  console.log(`   すべて正常（絵にしない式は ${noArt} こ。どれも hint: 'always' の外）`);
+  console.log(`   すべて正常（絵にしない式は ${noArt} こ。和が ${PLACE_MAX} を超えるもの）`);
+}
+// 失敗にはしない。2けた同士は 10マスで描くと画面に入らない、という設計上の限界
+if (noArtSteps.length) {
+  console.log(`   ヒントが1問も出ない面（${noArtSteps.length}）: ${noArtSteps.join(' / ')}`);
 }
 
 console.log('\nG) 出題の例');
