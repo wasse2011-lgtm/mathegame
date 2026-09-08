@@ -267,6 +267,126 @@ export function drawHat(g: CanvasRenderingContext2D, cx: number, headY: number, 
       g.stroke();
       break;
     }
+    case 'hat-mimi': {
+      // カチューシャ。頭の丸みに沿わせる（直線で渡すと浮いて見える）
+      g.strokeStyle = '#ec7fa4';
+      g.lineWidth = Math.max(2, s * 0.06);
+      g.beginPath();
+      g.arc(cx, headY + s * 0.3, s * 0.46, Math.PI * 1.14, Math.PI * 1.86);
+      g.stroke();
+      for (const dir of [-1, 1]) {
+        g.fillStyle = '#ec7fa4';
+        g.beginPath();
+        g.moveTo(cx + dir * s * 0.1, headY + s * 0.02);
+        g.lineTo(cx + dir * s * 0.24, headY - s * 0.28);
+        g.lineTo(cx + dir * s * 0.36, headY + s * 0.02);
+        g.closePath();
+        g.fill();
+        g.fillStyle = '#fbd0dd';
+        g.beginPath();
+        g.moveTo(cx + dir * s * 0.17, headY + s * 0.01);
+        g.lineTo(cx + dir * s * 0.24, headY - s * 0.17);
+        g.lineTo(cx + dir * s * 0.31, headY + s * 0.01);
+        g.closePath();
+        g.fill();
+      }
+      break;
+    }
+    case 'hat-wizard': {
+      g.fillStyle = '#5b4b9e';
+      g.beginPath();
+      g.ellipse(cx, headY + s * 0.04, s * 0.44, s * 0.1, 0, 0, Math.PI * 2);
+      g.fill();
+      // とんがりは まっすぐ立てず、先を少し曲げる（まほう使いらしくなる）
+      g.beginPath();
+      g.moveTo(cx - s * 0.26, headY + s * 0.03);
+      g.quadraticCurveTo(cx - s * 0.12, headY - s * 0.3, cx + s * 0.16, headY - s * 0.52);
+      g.quadraticCurveTo(cx + s * 0.08, headY - s * 0.14, cx + s * 0.26, headY + s * 0.03);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#ffd75e';
+      star(g, cx + s * 0.02, headY - s * 0.19, s * 0.1);
+      g.fill();
+      break;
+    }
+    case 'hat-helmet': {
+      g.fillStyle = '#e05a4a';
+      g.beginPath();
+      g.arc(cx, headY + s * 0.06, s * 0.38, Math.PI, 0);
+      g.closePath();
+      g.fill();
+      g.strokeStyle = '#fff4ee';
+      g.lineWidth = Math.max(2, s * 0.07);
+      g.beginPath();
+      g.moveTo(cx, headY - s * 0.3);
+      g.lineTo(cx, headY + s * 0.04);
+      g.stroke();
+      g.fillStyle = '#b8493c';
+      roundRect(g, cx - s * 0.42, headY + s * 0.02, s * 0.84, s * 0.1, s * 0.05);
+      g.fill();
+      break;
+    }
+    case 'hat-donut': {
+      // まんなかの穴は「塗らない」ことで開ける。円を2枚重ねて消すと頭まで消える
+      g.lineCap = 'butt';
+      g.strokeStyle = '#e2a86a';
+      g.lineWidth = s * 0.15;
+      g.beginPath();
+      g.ellipse(cx, headY - s * 0.06, s * 0.24, s * 0.15, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.strokeStyle = '#f2a0c0';
+      g.lineWidth = s * 0.1;
+      g.beginPath();
+      g.ellipse(cx, headY - s * 0.09, s * 0.24, s * 0.15, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.strokeStyle = '#fff';
+      g.lineWidth = Math.max(1.4, s * 0.026);
+      g.lineCap = 'round';
+      for (const a of [0.3, 1.2, 2.1, 3.6, 4.4, 5.4]) {
+        const px = cx + Math.cos(a) * s * 0.24;
+        const py = headY - s * 0.09 + Math.sin(a) * s * 0.15;
+        g.beginPath();
+        g.moveTo(px - s * 0.03, py - s * 0.02);
+        g.lineTo(px + s * 0.03, py + s * 0.02);
+        g.stroke();
+      }
+      break;
+    }
+    case 'hat-mikan': {
+      g.fillStyle = '#f39a2e';
+      g.beginPath();
+      g.ellipse(cx, headY - s * 0.09, s * 0.22, s * 0.19, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#e07f1c';
+      g.beginPath();
+      g.ellipse(cx - s * 0.07, headY - s * 0.04, s * 0.06, s * 0.05, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#5da84f';
+      g.beginPath();
+      g.ellipse(cx, headY - s * 0.27, s * 0.06, s * 0.04, 0, 0, Math.PI * 2);
+      g.fill();
+      g.beginPath();
+      g.ellipse(cx + s * 0.13, headY - s * 0.31, s * 0.1, s * 0.05, -0.5, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'hat-headphone': {
+      g.strokeStyle = '#3d4653';
+      g.lineWidth = Math.max(2.5, s * 0.09);
+      g.lineCap = 'round';
+      g.beginPath();
+      g.arc(cx, headY + s * 0.22, s * 0.44, Math.PI * 1.12, Math.PI * 1.88);
+      g.stroke();
+      for (const dir of [-1, 1]) {
+        g.fillStyle = '#4aa3dd';
+        roundRect(g, cx + dir * s * 0.42 - s * 0.09, headY + s * 0.04, s * 0.18, s * 0.26, s * 0.08);
+        g.fill();
+        g.fillStyle = '#2f7fb5';
+        roundRect(g, cx + dir * s * 0.42 - s * 0.05, headY + s * 0.1, s * 0.1, s * 0.14, s * 0.05);
+        g.fill();
+      }
+      break;
+    }
     default:
       break;
   }
@@ -327,6 +447,64 @@ function drawAccBack(g: CanvasRenderingContext2D, acc: string, x: number, y: num
       g.fill();
       break;
     }
+    case 'acc-shell': {
+      g.fillStyle = '#7a9b4e';
+      g.beginPath();
+      g.ellipse(x - s * 0.04, y + s * 0.56, s * 0.34, s * 0.4, -0.16, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#5f7d3a';
+      for (const [dx, dy] of [
+        [-0.14, 0.4],
+        [-0.02, 0.64],
+        [-0.24, 0.7],
+      ] as const) {
+        g.beginPath();
+        g.arc(x + s * dx, y + s * dy, s * 0.075, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
+    case 'acc-balloon': {
+      // ふわふわ。走っていない画面（きせかえの見本）でも動くように t だけで揺らす
+      const sway = Math.sin(t * 3) * s * 0.05;
+      const bx = x - s * 0.14 + sway;
+      const by = y - s * 0.4;
+      g.strokeStyle = 'rgba(56,68,80,.5)';
+      g.lineWidth = Math.max(1, s * 0.022);
+      g.beginPath();
+      g.moveTo(x + s * 0.08, y + s * 0.5);
+      g.quadraticCurveTo(bx - s * 0.06, y + s * 0.02, bx, by + s * 0.18);
+      g.stroke();
+      g.fillStyle = '#e4675c';
+      g.beginPath();
+      g.ellipse(bx, by, s * 0.19, s * 0.22, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.45)';
+      g.beginPath();
+      g.ellipse(bx - s * 0.06, by - s * 0.07, s * 0.05, s * 0.07, -0.4, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'acc-jet': {
+      const fire = 0.55 + Math.abs(Math.sin(t * 18)) * 0.5;
+      // からだの左うしろ。奥ゆき側に寄せすぎると、からだに隠れて筋しか見えない
+      for (const dx of [-0.34, -0.15] as const) {
+        g.fillStyle = '#9fb0bd';
+        roundRect(g, x + s * dx, y + s * 0.3, s * 0.17, s * 0.44, s * 0.085);
+        g.fill();
+        g.fillStyle = '#6f8493';
+        roundRect(g, x + s * dx + s * 0.02, y + s * 0.72, s * 0.13, s * 0.07, s * 0.03);
+        g.fill();
+        g.fillStyle = '#ffb03a';
+        g.beginPath();
+        g.moveTo(x + s * dx + s * 0.025, y + s * 0.78);
+        g.lineTo(x + s * dx + s * 0.145, y + s * 0.78);
+        g.lineTo(x + s * dx + s * 0.085, y + s * (0.78 + 0.26 * fire));
+        g.closePath();
+        g.fill();
+      }
+      break;
+    }
     default:
       break;
   }
@@ -363,6 +541,60 @@ function drawAccFront(g: CanvasRenderingContext2D, acc: string, x: number, y: nu
       g.arc(x + s * 0.32, ey, s * 0.15, 0, Math.PI * 2);
       g.arc(x + s * 0.68, ey, s * 0.15, 0, Math.PI * 2);
       g.fill();
+      break;
+    }
+    case 'acc-bowtie': {
+      const bx = x + s * 0.5;
+      // くちの弧（y + 0.58 から 半径 0.13）にかからない高さに置く
+      const by = y + s * 0.83;
+      g.fillStyle = '#e4675c';
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + dir * s * 0.2, by - s * 0.11);
+        g.lineTo(bx + dir * s * 0.2, by + s * 0.11);
+        g.closePath();
+        g.fill();
+      }
+      g.fillStyle = '#b94439';
+      g.beginPath();
+      g.arc(bx, by, s * 0.055, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'acc-medal': {
+      const mx = x + s * 0.5;
+      const my = y + s * 0.85;
+      g.strokeStyle = '#4a7fbe';
+      g.lineWidth = Math.max(2, s * 0.05);
+      g.beginPath();
+      g.moveTo(mx - s * 0.15, y + s * 0.64);
+      g.lineTo(mx, my - s * 0.08);
+      g.moveTo(mx + s * 0.15, y + s * 0.64);
+      g.lineTo(mx, my - s * 0.08);
+      g.stroke();
+      g.fillStyle = '#ffd75e';
+      g.strokeStyle = '#d99a10';
+      g.lineWidth = Math.max(1.4, s * 0.03);
+      g.beginPath();
+      g.arc(mx, my, s * 0.13, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#d99a10';
+      star(g, mx, my, s * 0.07);
+      g.fill();
+      break;
+    }
+    case 'acc-lei': {
+      const lx = x + s * 0.5;
+      const ly = y + s * 0.72;
+      for (let i = 0; i < 7; i++) {
+        const a = Math.PI * (0.08 + (i / 6) * 0.84);
+        g.fillStyle = i % 2 ? '#f7a8c4' : '#fff0a8';
+        g.beginPath();
+        g.arc(lx + Math.cos(a) * s * 0.44, ly + Math.sin(a) * s * 0.17, s * 0.065, 0, Math.PI * 2);
+        g.fill();
+      }
       break;
     }
     default:

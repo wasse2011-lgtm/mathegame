@@ -89,6 +89,17 @@ function arrow(afterFrame: number): string {
 }
 
 /**
+ * 玉を n こ 置いただけの絵。ミニゲーム「いくつ？」で使う。
+ *
+ * show を false にすると、枠だけ同じ形で玉が消える。玉を隠すのに
+ * 別の絵（幅のちがう空の枠）に差しかえると、隠した瞬間に絵がずれて
+ * 「いま見たもの」と結びつかなくなる。
+ */
+export function dotsArt(n: number, show = true): Pick<FrameArt, 'svg' | 'viewBox' | 'frames'> {
+  return layout(fill(n, show ? 'a' : ''));
+}
+
+/**
  * 式に合う絵を返す。図にできない式（けたが大きすぎる）は null。
  *
  * 判定はこの順。上にあるほど「その式で本当に見せたいこと」に近い。

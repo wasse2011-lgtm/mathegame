@@ -56,14 +56,25 @@
             <span class="streak" id="home-streak" hidden><b>0</b>にち れんぞく</span>
           </button>
 
-          <!-- にがて たいじ。きょうの5もんと ならべて、毎日ひらく場所に置く -->
-          <button class="daily-card hunt-card" id="hunt-card" type="button">
-            <span class="daily-main">
-              <span class="daily-title">にがて たいじ</span>
-              <span class="daily-state" id="hunt-state">にがて 0ひき</span>
-            </span>
-            <span class="hunt-face" aria-hidden="true">👹</span>
-          </button>
+          <!-- にがて たいじ と ミニゲーム。どちらも「きょうの5もん」のあとの
+               おかわりなので、横に2つ並べて縦を使わない -->
+          <div class="card-row">
+            <button class="daily-card hunt-card" id="hunt-card" type="button">
+              <span class="daily-main">
+                <span class="daily-title">にがて たいじ</span>
+                <span class="daily-state" id="hunt-state">にがて 0ひき</span>
+              </span>
+              <span class="hunt-face" aria-hidden="true">👹</span>
+            </button>
+
+            <button class="daily-card mini-entry" id="mini-card" type="button">
+              <span class="daily-main">
+                <span class="daily-title">ミニゲーム</span>
+                <span class="daily-state" id="mini-card-state">2つ あそべる</span>
+              </span>
+              <span class="hunt-face" aria-hidden="true">🍎</span>
+            </button>
+          </div>
 
           <div class="zukan-mini" id="zukan-mini">
             <span class="zm-label">ずかん</span>
@@ -291,6 +302,38 @@
       </p>
     </section>
 
+    <!-- ===== ミニゲーム =====
+         走らない れんしゅう場。時間切れが無く、答えではなく
+         「10 の相手」「分けかた」を聞く。★・図鑑・習熟度は動かさない。 -->
+    <section class="screen" id="screen-mini" data-screen="mini" hidden>
+      <header class="map-head">
+        <button class="btn btn-icon" id="mini-back" type="button" aria-label="もどる">←</button>
+        <div class="map-title">
+          <p class="map-world" id="mini-name">ミニゲーム</p>
+          <p class="map-desc" id="mini-desc">あそびながら たしざんが つよくなる</p>
+        </div>
+        <p class="coin-badge"><span class="coin-dot"></span><b id="mini-coins">0</b></p>
+      </header>
+
+      <!-- あそびを えらぶ -->
+      <div class="mini-list" id="mini-list"></div>
+
+      <!-- あそんでいるところ。盤面の中身は minigame.ts が作る -->
+      <div class="mini-play" id="mini-play" hidden>
+        <nav class="chip-row" id="mini-levels" aria-label="いくつを つくる？"></nav>
+        <div class="mini-pips" id="mini-pips" aria-label="のこり"></div>
+        <p class="mini-goal" id="mini-goal"></p>
+        <div class="mini-body" id="mini-body"></div>
+        <p class="mini-say" id="mini-say" aria-live="polite"></p>
+        <div class="mini-choices" id="mini-choices"></div>
+        <div class="mini-hint" id="mini-hint" hidden>
+          <svg class="tenframe" id="mini-frame" viewBox="0 0 122 47" aria-hidden="true"></svg>
+          <p class="hint-text" id="mini-hint-text"></p>
+        </div>
+        <button class="btn btn-ghost mini-hint-btn" id="mini-hint-btn" type="button">ヒントを みる</button>
+      </div>
+    </section>
+
     <!-- ===== きせかえ ===== -->
     <section class="screen" id="screen-shop" data-screen="shop" hidden>
       <header class="map-head">
@@ -420,6 +463,18 @@
           自動で出るヒントは各ワールドの3面までと「にがて たいじ」だけで、4面から先は自分で呼びます。
         </p>
 
+        <h3 class="p-h">ミニゲーム</h3>
+        <p class="p-note">
+          「いくつ？」「ペアあわせ」「さくらんぼ わけ」の3つは、時間制限のない練習用です。
+          数の見取り・10の合成・繰り上がりの分解と、つまずきやすい順に並べてあります。
+        </p>
+        <p class="p-note">
+          ここでの正解・不正解は、習熟度・図鑑・★に一切反映していません。試行錯誤でも当たるため、
+          「おぼえたかどうか」の証拠にならないからです（出す問題を選ぶときだけ、苦手の記録を読んでいます）。
+          もらえるのはコインだけで、まとまった枚数は1つにつき1日1回まで。遊んだ時間は
+          上の「1日にあそべる時間」に数えます。
+        </p>
+
         <h3 class="p-h">セーブデータ</h3>
         <p class="p-note">機種変更のときは、この文字列をコピーして新しい端末に貼り付けてください。</p>
         <textarea id="p-data" class="p-data" rows="3" spellcheck="false"></textarea>
@@ -450,6 +505,17 @@
         <canvas id="egg-result-canvas"></canvas>
         <p class="egg-got" id="egg-got"></p>
         <button class="btn btn-primary btn-xl" id="egg-close" type="button">やったー！</button>
+      </div>
+    </div>
+
+    <!-- ミニゲームを やりきったとき -->
+    <div class="overlay" id="overlay-mini" hidden>
+      <div class="sheet">
+        <p class="egg-got-head" id="mini-clear-head">できた！</p>
+        <p class="mini-clear-coins"><span class="coin-dot xl" aria-hidden="true"></span><b id="mini-clear-coins">+0</b></p>
+        <p class="pet-note" id="mini-clear-note"></p>
+        <button class="btn btn-primary btn-xl" id="mini-again" type="button">もういちど</button>
+        <button class="btn btn-ghost" id="mini-other" type="button">ほかの あそび</button>
       </div>
     </div>
 

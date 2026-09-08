@@ -46,6 +46,19 @@ export interface PlayTime {
   sec: number;
 }
 
+/**
+ * ミニゲームの「きょうの ごほうび」。
+ *
+ * ミニゲームは何回でも遊べるが、まとまったコインが出るのは1日1回だけにしてある。
+ * ここを無制限にすると、いちばん短いミニゲームを回すのがコインの最適解になり、
+ * 本編を走る理由が消える（ステージの周回に REPLAY_RATE を置いたのと同じ理由）。
+ */
+export interface MiniDay {
+  date: string;
+  /** きょう すでに ごほうびを もらったミニゲームの id */
+  done: string[];
+}
+
 export interface Profile {
   name: string;
   skin: SkinId;
@@ -68,6 +81,7 @@ export interface Profile {
   pet: string;
   daily: Daily;
   play: PlayTime;
+  mini: MiniDay;
   /** 最後に遊んだ日（YYYY-MM-DD）。きろくを選ぶ画面で出す */
   seen: string;
 }
@@ -128,6 +142,7 @@ function freshProfile(): Profile {
     pet: '',
     daily: { date: '', streak: 0, done: false },
     play: { date: '', sec: 0 },
+    mini: { date: '', done: [] },
     seen: '',
   };
 }
@@ -175,6 +190,24 @@ export function addPlayTime(sec: number): void {
   persist();
 }
 
+/**
+ * そのミニゲームの「きょうの ごほうび」を、もう受け取ったか。
+ * 日付が変わっていれば、書きこみを待たずに false（＝また もらえる）にする。
+ */
+export function miniDoneToday(id: string): boolean {
+  const p = profile();
+  return p.mini.date === today() && p.mini.done.includes(id);
+}
+
+/** きょうの ごほうびを受け取った印をつける */
+export function markMiniDone(id: string): void {
+  const p = profile();
+  const now = today();
+  if (p.mini.date !== now) p.mini = { date: now, done: [] };
+  if (!p.mini.done.includes(id)) p.mini.done.push(id);
+  persist();
+}
+
 /** 今日の上限に達したか（上限なしなら常に false） */
 export function overDailyLimit(): boolean {
   const limit = save.settings.dailyLimitMin;
@@ -212,6 +245,11 @@ function read(): SaveData {
       coins: Math.round((p?.coins ?? 0) * scale),
       daily: { ...blank.daily, ...(p?.daily ?? {}) },
       play: { ...blank.play, ...(p?.play ?? {}) },
+      // ミニゲームは後から足した。配列がこわれていても遊べるように、型ごと確かめる
+      mini: {
+        date: typeof p?.mini?.date === 'string' ? p.mini.date : '',
+        done: Array.isArray(p?.mini?.done) ? p.mini.done : [],
+      },
       stars: p?.stars ?? {},
       facts: p?.facts ?? {},
       unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
