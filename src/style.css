@@ -169,19 +169,47 @@ body {
   border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
   min-height: 48px;
 }
-/* きせかえ／ずかん／せってい は芝生（--grass）の上に乗る。
-   透明のままだと文字色 --ink-2 とのコントラストが足りないので、白を敷く。 */
-/* 4つに増えたので、狭い画面では 2×2 に畳む（横1列だと指の幅より細くなる） */
-.title-sub { display: grid; grid-template-columns: repeat(2, 1fr); gap: .4rem; width: 100%; }
-@media (min-width: 26rem) { .title-sub { grid-template-columns: repeat(4, 1fr); } }
+/* きせかえ／ペット／ずかん は芝生（--grass）の上に乗る。
+   透明のままだと文字色 --ink-2 とのコントラストが足りないので、白を敷く。
+   せってい をここから外して3つにしたので、狭い画面でも横1列に収まる。 */
+.title-sub { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; width: 100%; }
 .title-sub[hidden] { display: none; }
 .title-sub .btn-ghost {
   background: rgba(255,255,255,.88);
   border-color: rgba(255,255,255,.88);
   color: var(--ink);
-  padding: 0 .8rem;
+  padding: 0 .5rem;
   font-size: .95rem;
 }
+
+/* せっていの歯車。
+   子どもの導線から外して画面のすみに置き、ひと押しでは開かない（ながおし）。
+   小さく・淡くしてあるのは、押すものだと気づかせないため。 */
+.gear {
+  position: absolute;
+  top: calc(var(--safe-t) + .35rem);
+  right: calc(var(--safe-r) + .35rem);
+  width: 40px; height: 40px; padding: 0;
+  display: grid; place-items: center;
+  font-family: inherit; font-size: 1.1rem; line-height: 1;
+  color: rgba(38,49,61,.42);
+  background: rgba(255,255,255,.42); border: 0; border-radius: 50%;
+  cursor: pointer; z-index: 5;
+  transition: transform .8s linear, color .2s ease, background-color .2s ease;
+}
+.gear:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+/* 押しつづけているあいだ。ゆっくり回って「まだ押している」が見える */
+.gear.holding { transform: rotate(180deg) scale(.92); color: var(--ink); background: rgba(255,255,255,.9); }
+.gear-hint {
+  position: absolute;
+  top: calc(var(--safe-t) + 2.9rem);
+  right: calc(var(--safe-r) + .4rem);
+  margin: 0; z-index: 5;
+  font-size: .74rem; font-weight: 700; color: var(--ink-2);
+  background: rgba(255,255,255,.92); border-radius: 999px; padding: .25rem .6rem;
+}
+.gear-hint[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .gear { transition: none; } }
 
 /* 縦の短い端末では、ホームの行が増えたぶん（ずかん＋ペット）を詰める。
    そのままだとロゴが画面の上に押し出されて切れる */
@@ -250,12 +278,25 @@ body {
 .hunt-card[disabled] .daily-state { color: var(--ink-2); }
 
 .zukan-mini {
-  display: flex; align-items: center; gap: .6rem;
-  background: rgba(255,255,255,.85); border-radius: var(--r-md); padding: .55rem .9rem;
-  font-size: .88rem; font-weight: 700; color: var(--ink-2);
+  display: flex; align-items: center; gap: .6rem; width: 100%;
+  background: rgba(255,255,255,.85); border: 0; border-radius: var(--r-md); padding: .55rem .9rem;
+  font-family: inherit; font-size: .88rem; font-weight: 700; color: var(--ink-2); text-align: left;
 }
+/* ずかんの行は押せる（＝入口）。ペットの行は表示だけなので、押した感じは出さない */
+button.zukan-mini { cursor: pointer; min-height: 48px; }
+button.zukan-mini:active { transform: translateY(1px); }
 .zukan-mini .zm-label { flex: 0 0 auto; }
 .zukan-mini b { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; }
+/* あたらしいカード／ごほうびの合図。ここが光っていないと、ずかんは開かれない */
+.zm-new {
+  flex: 0 0 auto; font-size: .74rem; white-space: nowrap;
+  padding: .18rem .5rem; border-radius: 999px;
+  background: var(--blue); color: #fff;
+}
+.zm-new.prize { background: var(--amber); color: #4a3400; animation: zm-pop 1.4s ease-in-out infinite; }
+.zm-new[hidden] { display: none; }
+@keyframes zm-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .zm-new.prize { animation: none; } }
 
 .bar {
   height: 10px; border-radius: 999px; background: var(--line);
@@ -599,6 +640,8 @@ body {
 .tf-dot.a { fill: var(--blue); }
 .tf-dot.b { fill: var(--amber); }
 .tf-dot.move { fill: var(--amber); stroke: var(--amber-dark); stroke-width: 2.5; animation: tf-wait 1.1s ease-in-out infinite; }
+/* うつしたあとに のこる玉。さくらんぼの右の実と同じ みどりにする */
+.tf-dot.rest { fill: var(--good); }
 .tf-arrow { stroke: var(--amber-dark); stroke-width: 3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes tf-wait { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
@@ -616,16 +659,36 @@ body {
 
 /* さくらんぼは「学校で習う書きかた」。10マスの絵の横に並べて、絵と記号を結びつける。
    ただしスマホの幅では 10マスを潰してしまうので、広い画面のときだけ出す。 */
-.cherry { display: none; width: 132px; height: 52px; flex: 0 0 auto; }
+.cherry { display: none; width: 148px; height: 92px; flex: 0 0 auto; }
 @media (min-width: 460px) { .cherry:not([hidden]) { display: block; } }
-.cherry .branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
-.cherry .top { fill: #fff; stroke: var(--ink-2); stroke-width: 3; }
-.cherry .leaf { fill: #fff; stroke: var(--amber); stroke-width: 3; }
-.cherry .leaf.need { fill: var(--amber); }
-.cherry .cn {
-  font-family: var(--font); font-weight: 700; font-size: 19px; fill: var(--ink);
+
+/* さくらんぼの絵（tenframe.ts の cherryArt）。
+   プレイ中のヒントと ミニゲームで同じ絵を出すので、見た目もここに1つだけ置く。
+   色の約束は 10マスの絵とそろえてある。
+     きいろ … きりのいい数へ わたす玉（tf-dot.move と同じ）
+     みどり … わたしたあとに のこる玉（tf-dot.rest と同じ） */
+.cy-box { fill: #fff; stroke: var(--blue); stroke-width: 3.5; }
+.cy-box.made { fill: #fff2d4; stroke: var(--amber-dark); }
+.cy-branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
+.cy-top { fill: #fff; stroke: var(--ink-2); stroke-width: 3.5; }
+.cy-leaf { stroke-width: 3.5; }
+.cy-leaf.need { fill: var(--amber); stroke: var(--amber-dark); }
+.cy-leaf.rest { fill: var(--good); stroke: var(--good-dark); }
+/* まだ答えていないほう。点線にして「ここを考える」と分かるようにする */
+.cy-leaf.unknown { fill: #fff; stroke: var(--ink-2); stroke-dasharray: 6 5; }
+/* わたし終えた玉。うすくして「もう向こうへ行った」を見せる */
+.cy-leaf.moved { opacity: .45; }
+.cy-dot { stroke: rgba(0,0,0,.12); stroke-width: 1; }
+.cy-dot.need { fill: var(--amber-dark); }
+.cy-dot.rest { fill: var(--good-dark); }
+.cy-arrow { stroke: var(--amber-dark); stroke-width: 4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.cy-n {
+  font-family: var(--font); font-weight: 700; font-size: 26px; fill: var(--ink);
   text-anchor: middle; dominant-baseline: central;
 }
+.cy-n.big { font-size: 32px; }
+.cy-op { font-family: var(--font); font-weight: 700; font-size: 24px; fill: var(--ink-2);
+  text-anchor: middle; dominant-baseline: central; }
 .hint-text {
   margin: 0; font-size: .98rem; font-weight: 700; color: var(--ink); line-height: 1.35;
   text-align: center; flex: 0 1 auto; min-width: 0;
@@ -983,6 +1046,38 @@ body {
 /* にがて。プレイ中に出てくる相手と同じ色で、「あいつだ」と結びつくようにする */
 .zk.weak { background: #fdeee9; color: var(--bad-dark); border-color: var(--bad); }
 .zk.sel { outline: 3px solid var(--blue); outline-offset: 1px; }
+/* 前に見たあとで おぼえたカード。開いた1回だけ光る。
+   「増えたらしい」ではなく「どれが増えたか」が見えないと、見にきた甲斐がない */
+.zk.fresh {
+  background: var(--good); color: #fff; border-color: var(--good-dark);
+  animation: zk-fresh 1.2s ease-in-out 4;
+}
+@keyframes zk-fresh {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(53,178,115,.5); }
+  50% { transform: scale(1.12); box-shadow: 0 0 0 5px rgba(53,178,115,0); }
+}
+@media (prefers-reduced-motion: reduce) { .zk.fresh { animation: none; } }
+
+/* ずかんの ごほうび。9まいごとにコインが出る */
+.zukan-prize {
+  flex: 0 0 auto; display: flex; align-items: center; gap: .7rem; width: 100%;
+  font-family: inherit; text-align: left; cursor: pointer;
+  background: var(--paper); border: 3px solid var(--amber); border-bottom-width: 6px;
+  border-radius: var(--r-md); padding: .55rem .8rem; min-height: 64px;
+  animation: zm-pop 1.6s ease-in-out infinite;
+}
+.zukan-prize[hidden] { display: none; }
+.zukan-prize:active { transform: translateY(3px); border-bottom-width: 3px; animation: none; }
+.zp-emoji { font-size: 1.8rem; line-height: 1; }
+.zp-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.zp-text b { font-size: 1.05rem; color: var(--ink); }
+.zp-text span { font-size: .78rem; font-weight: 700; color: var(--ink-2); }
+.zukan-goal {
+  margin: 0; flex: 0 0 auto; text-align: center;
+  font-size: .8rem; font-weight: 700; color: var(--ink-2);
+}
+.zukan-goal:empty { display: none; }
+@media (prefers-reduced-motion: reduce) { .zukan-prize { animation: none; } }
 .zukan-detail {
   margin: 0; text-align: center; font-size: .9rem; font-weight: 700; color: var(--ink);
   min-height: 2.4em; display: grid; place-items: center;
@@ -1028,7 +1123,16 @@ body {
 }
 .chip small { font-size: .7rem; opacity: .8; font-variant-numeric: tabular-nums; }
 .chip[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
-.shop-msg { margin: 0; min-height: 1.1em; font-size: .78rem; font-weight: 700; color: var(--bad-dark); text-align: center; }
+/* きせかえのタブは「ガチャで何を増やすか」を決めるところ。横に流して隠すと
+   選べることに気づかないので、4つとも見えるよう2段組みのマスにする */
+#shop-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: .35rem; overflow: visible; }
+#shop-tabs .chip {
+  flex-direction: column; gap: 0; justify-content: center;
+  padding: .3rem .2rem; min-height: 50px; font-size: .92rem;
+}
+#shop-tabs .chip small { font-size: .68rem; }
+/* 「まだ持っていない」を伝える一言。しかる色にはしない */
+.shop-msg { margin: 0; min-height: 1.1em; font-size: .8rem; font-weight: 700; color: var(--amber-dark); text-align: center; }
 
 .egg-btn {
   display: flex; align-items: center; gap: .8rem; width: 100%;
@@ -1039,6 +1143,14 @@ body {
 .egg-btn:active { transform: translateY(3px); border-bottom-width: 3px; }
 .egg-btn[disabled] { opacity: .55; cursor: default; border-color: var(--line); }
 .egg-btn[disabled]:active { transform: none; border-bottom-width: 6px; }
+/* まだ持っていないマスを押したとき。「増やすのはこっち」を1回はねて教える */
+.egg-btn.call { animation: egg-call .6s ease; }
+@keyframes egg-call {
+  0%, 100% { transform: none; }
+  30% { transform: translateY(-6px) scale(1.02); }
+  60% { transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .egg-btn.call { animation: none; } }
 .egg-emoji { font-size: 2rem; line-height: 1; }
 .egg-text { flex: 1; display: flex; flex-direction: column; }
 .egg-text b { font-size: 1.1rem; color: var(--ink); }
@@ -1062,23 +1174,23 @@ body {
   border-color: var(--amber); background: #fff8e6; color: var(--ink);
   outline: 3px solid var(--amber); outline-offset: 1px;
 }
+.item { position: relative; }
 .item.locked { background: var(--paper-2); }
-/* まだ買えないものも、絵は見せる。伏せてしまうと「これが欲しい」を決められず、
-   コインを貯める目標にならない（かつては ？ で隠していた） */
+/* まだ持っていないものも、絵と名前は見せる。伏せてしまうと「これが欲しい」を
+   決められず、コインを貯める目標にならない。ねだんは出さない（ガチャのボタンだけ） */
 .item.locked canvas { opacity: .5; filter: grayscale(.6); }
 .item canvas { width: 56px; height: 56px; }
 .item .no-hat {
   width: 56px; height: 56px; display: grid; place-items: center;
   font-size: 1.6rem; color: var(--ink-2);
 }
-/* まだ買っていない「いろ」。えらんでいるマス（枠が二重）と区別できるよう白のまま */
-.item.buyable { background: var(--paper); border-color: var(--amber); color: var(--ink); }
-.item .price {
-  display: flex; align-items: center; gap: .15rem;
-  font-size: .74rem; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+/* 値札のかわりの目じるし。「まだ持っていない」だけを言う */
+.item-lock {
+  position: absolute; top: 4px; right: 5px;
+  width: 20px; height: 20px; display: grid; place-items: center;
+  font-size: .78rem; border-radius: 50%;
+  background: var(--line); color: var(--ink-2);
 }
-.item .price .coin-dot { width: 11px; height: 11px; }
-.item .price.short { color: var(--ink-2); opacity: .75; }
 
 /* ---------------- ペットぼくじょう ---------------- */
 .pasture {
@@ -1270,15 +1382,25 @@ body {
 }
 #mini-hint-btn[hidden] { display: none; }
 
-/* さくらんぼ。プレイ中の小さいものとちがい、ここでは主役なので常に出す */
-.mini-cherry { width: 100%; max-width: 15rem; height: auto; }
-.mini-cherry .branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
-.mini-cherry .top { fill: #fff; stroke: var(--ink-2); stroke-width: 3; }
-.mini-cherry .leaf { fill: #fff; stroke: var(--amber); stroke-width: 3; }
-.mini-cherry .leaf.need { fill: var(--amber); }
-.mini-cherry .cn {
-  font-family: var(--font); font-weight: 700; font-size: 19px; fill: var(--ink);
-  text-anchor: middle; dominant-baseline: central;
+/* さくらんぼ。プレイ中の小さいものとちがい、ここでは主役なので大きく出す。
+   絵そのもの（.cy-*）は 10マスの絵のところに1つだけ置いてある */
+.mini-body.cherry { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem; }
+.mini-cherry { width: 100%; max-width: 17rem; height: auto; flex: 0 0 auto; }
+/* さくらんぼの下に、いまの手の 10マス。記号と絵を1画面で並べる */
+.cherry-frame { width: 100%; max-width: 19rem; max-height: 78px; height: auto; flex: 0 0 auto; }
+/* 1れつだけの絵（「3 を 2 と いくつ」）。高さを抑えて マスの大きさをそろえる */
+.cherry-frame.row1 { max-height: 42px; }
+/* まちがえたとき。「そっちを見て」と絵のほうを1回ゆらす */
+.mini-body.look { animation: mini-look .6s ease; }
+@keyframes mini-look {
+  0%, 100% { transform: none; }
+  25% { transform: translateY(-5px) scale(1.02); }
+  60% { transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) { .mini-body.look { animation: none; } }
+@media (max-height: 700px) {
+  .mini-cherry { max-width: 13rem; }
+  .cherry-frame { max-height: 58px; }
 }
 
 .mini-clear-coins {

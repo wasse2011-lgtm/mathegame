@@ -76,11 +76,15 @@
             </button>
           </div>
 
-          <div class="zukan-mini" id="zukan-mini">
+          <!-- ずかんの行そのものが入口。棒グラフだけ見せて入口を別に置くと、
+               子どもは伸びた棒を眺めるだけで中を見にいかない。
+               新しくおぼえたカードや ごほうびがあるときは、ここに合図を出す。 -->
+          <button class="zukan-mini" id="zukan-mini" type="button">
             <span class="zm-label">ずかん</span>
             <span class="bar"><i id="zukan-bar"></i></span>
             <b id="zukan-count">0 / 81</b>
-          </div>
+            <span class="zm-new" id="zukan-new" hidden></span>
+          </button>
 
           <div class="zukan-mini" id="pet-mini">
             <span class="zm-label">ペット</span>
@@ -96,12 +100,13 @@
           <span class="start-sub" id="start-sub" hidden></span>
         </button>
 
+        <!-- せってい はここから外した（歯車は画面のすみ）。
+             子どもがいちばん押す3つだけを、大きいまま横に並べる。 -->
         <div class="title-sub" id="title-sub">
-          <!-- たまごが割れるときは 🥚 が付く。コインの使いみちに気づかせる -->
-          <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ<span class="egg-badge" id="shop-badge" hidden aria-hidden="true">🥚</span></button>
+          <!-- ガチャが回せるときは 🎁、たまごが割れるときは 🥚 が付く -->
+          <button class="btn btn-ghost" id="btn-shop" type="button">きせかえ<span class="egg-badge" id="shop-badge" hidden aria-hidden="true">🎁</span></button>
           <button class="btn btn-ghost" id="btn-ranch" type="button">ペット<span class="egg-badge" id="ranch-badge" hidden aria-hidden="true">🥚</span></button>
-          <button class="btn btn-ghost" id="btn-zukan" type="button">ずかん</button>
-          <button class="btn btn-ghost" id="btn-settings" type="button">せってい</button>
+          <button class="btn btn-ghost" id="btn-zukan" type="button">ずかん<span class="egg-badge" id="zukan-badge" hidden aria-hidden="true">🆕</span></button>
         </div>
 
         <!-- ぴょんぴょん広場。じぶんの子と なかまが跳ねていて、さわると反応する -->
@@ -110,6 +115,12 @@
           <p class="yard-hint">なかまを タップしてみて！</p>
         </div>
       </div>
+
+      <!-- せってい。子どもの導線から外して画面のすみに置き、
+           ひと押しでは開かない（ながおし）。おとなが探せば必ず見つかる位置で、
+           子どもが遊んでいるあいだに偶然ひらくことはない。 -->
+      <button class="gear" id="btn-settings" type="button" aria-label="せってい（ながおし）">⚙</button>
+      <p class="gear-hint" id="gear-hint" hidden>ながおしで ひらきます</p>
     </section>
 
     <!-- ===== きろく（セーブデータ）えらび ===== -->
@@ -181,7 +192,7 @@
       <div class="hint" id="hint" hidden aria-live="polite">
         <div class="hint-arts">
           <svg class="tenframe" id="hint-frame" viewBox="0 0 122 47" aria-hidden="true"></svg>
-          <svg class="cherry" id="cherry" viewBox="0 0 200 78" aria-hidden="true" hidden></svg>
+          <svg class="cherry" id="cherry" viewBox="0 0 240 150" aria-hidden="true" hidden></svg>
         </div>
         <!-- 図の説明と、その先の「だから…？」。
              以前ここに「わかった！」ボタンを置いていたが、押して閉じるだけの
@@ -290,6 +301,20 @@
         </div>
       </header>
       <span class="bar big"><i id="zukan-bar2"></i></span>
+
+      <!-- ごほうび。9まいごとにコインが出る。
+           「おぼえた式が増える → ずかんを開くと ごほうびがある」を
+           つなげないと、ここは棒グラフを見るだけの画面になり、子どもは来ない。 -->
+      <button class="zukan-prize" id="zukan-prize" type="button" hidden>
+        <span class="zp-emoji" aria-hidden="true">🎁</span>
+        <span class="zp-text">
+          <b id="zukan-prize-label">ごほうびを もらう</b>
+          <span id="zukan-prize-sub">カードを 9まい おぼえた！</span>
+        </span>
+        <span class="egg-cost"><span class="coin-dot"></span><b id="zukan-prize-coins">30</b></span>
+      </button>
+      <p class="zukan-goal" id="zukan-goal"></p>
+
       <div class="zukan-scroll">
         <div class="zukan-grid" id="zukan-grid"></div>
       </div>
@@ -345,19 +370,23 @@
         <p class="coin-badge"><span class="coin-dot"></span><b id="shop-coins">0</b></p>
       </header>
 
+      <!-- ①なにを ふやすか えらぶ → ②ガチャを まわす。
+           タブを先に置くのは、ガチャの中身が このタブで決まるから。
+           ボタンの文字が「ぼうしの ガチャ」に変わるので、順番が読める。 -->
+      <nav class="chip-row" id="shop-tabs" aria-label="なにを ふやす？"></nav>
+
       <div class="dress-row">
         <canvas id="shop-preview" aria-hidden="true"></canvas>
-        <button class="egg-btn" id="egg-btn" type="button">
-          <span class="egg-emoji" aria-hidden="true">🥚</span>
+        <button class="egg-btn" id="gacha-btn" type="button">
+          <span class="egg-emoji" aria-hidden="true">🎁</span>
           <span class="egg-text">
-            <b id="egg-label">たまごを わる</b>
-            <span id="egg-sub">キャラ・ぼうし・アクセ</span>
+            <b id="gacha-label">キャラの ガチャ</b>
+            <span id="gacha-sub">のこり 0こ</span>
           </span>
-          <span class="egg-cost"><span class="coin-dot"></span><b id="egg-cost">90</b></span>
+          <span class="egg-cost"><span class="coin-dot"></span><b id="gacha-cost">90</b></span>
         </button>
       </div>
 
-      <nav class="chip-row" id="shop-tabs" aria-label="なにを きせかえる？"></nav>
       <p class="shop-msg" id="shop-msg"></p>
 
       <div class="shop-scroll">
@@ -458,9 +487,9 @@
           ★・図鑑・習熟度の判定は変えていません。
         </p>
         <p class="p-note">
-          ヒントは答えのボタンのすぐ上（ペットのボタン）から呼びます。呼ぶたびにペットの体力が減り、
-          使いきるとそのステージのあいだは休みに入ります（次のステージで戻ってきます）。
-          自動で出るヒントは各ワールドの3面までと「にがて たいじ」だけで、4面から先は自分で呼びます。
+          ヒントは答えのボタンのすぐ上（ペットのボタン）から呼びます。自動では出しません。
+          回数を数えるのは最後のワールドのボス面だけで、そこでは呼ぶたびにペットの体力が減り、
+          使いきるとその挑戦のあいだは休みに入ります（次の挑戦では戻ってきます）。
         </p>
 
         <h3 class="p-h">ミニゲーム</h3>

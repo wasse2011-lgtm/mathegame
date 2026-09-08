@@ -1,13 +1,17 @@
 /**
- * きせかえアイテム。
- *
- * ガチャ（たまご）の中身はキャラ・ぼうし・アクセだけで、強さには一切影響しない。
+ * きせかえアイテム。中身は見た目だけで、強さには一切影響しない。
  * 強さに効くと「引けないと勝てない」になり、算数のほうが止まる。
  * （ペットだけは別枠。pets.ts のとおり「やさしくなる」方向にだけ小さく効く）
  *
- * いろ（からだの色）はガチャに混ぜず、コインで直接買える。
- * たまごは「なにが出るか」の楽しさ、いろは「ねらって買う」楽しさで、
- * どちらもコインの使いみちにする。
+ * 手に入れかたは **1つだけ**。「キャラ・ぼうし・アクセ・いろ のどれを増やすか
+ * を選んで、ガチャを1回まわす」。
+ *
+ * 以前は たまご（ランダム 90）・ねらい買い（210）・いろの直接買い（75〜240）の
+ * 3通りがあり、品ごとに ちがう値段が並んでいた。5歳には
+ * 「なぜ同じ ぼうしが たまごなら 90 で、名前を押すと 210 なのか」が読めず、
+ * きせかえの画面が値札の一覧になっていた。
+ * いまは どの種類でも おなじ1回ぶんで、ねだんが出るのはガチャのボタン1か所だけ。
+ * 選ぶ楽しさは「どの種類を増やすか」に、当たる楽しさは「まわした瞬間」に残す。
  */
 
 import { persist, profile, type SkinId } from './save';
@@ -20,29 +24,24 @@ export interface Item {
   label: string;
   /** 最初から持っているか */
   free?: boolean;
-  /** コインで直接買えるもの（いろ）。たまごには入らない */
-  cost?: number;
 }
 
-/** たまご1個の値段。1ステージぶんのコイン（30〜60枚）で必ず1個は割れる */
-export const EGG_COST = 90;
+/** 種類の名前。ガチャのボタンにも、タブにも、同じことばを出す */
+export const KIND_LABEL: Record<ItemKind, string> = {
+  skin: 'キャラ',
+  hat: 'ぼうし',
+  acc: 'アクセ',
+  color: 'いろ',
+};
 
 /**
- * たまごの中身を「ねらって買う」ときの値段。
+ * ガチャ1回の値段。どの種類でも同じ。
  *
- * ガチャだけだと、おうかんが欲しい子が おうかんに たどりつけない。
- * 引きの悪さがそのまま「ほしいものが手に入らない」になるのは、
- * ペットの効果を「やさしくする方向にだけ」効かせているのと同じ理由で避けたい。
- *
- * たまご（90）より高くしてあるので、全部そろえるならガチャのほうが早い。
- * ねらい買いは「いま、これが欲しい」に対する出口で、集めきる近道ではない。
+ * 1ステージぶんのコイン（30〜100枚）でだいたい1回まわせる。
+ * 種類ごとに値段を変えないのは、「いろは安いから いろを回す」のような
+ * 損得の計算を持ちこませないため。選ぶ理由は「いま何が欲しいか」だけでいい。
  */
-export const DIRECT_COST = 210;
-
-/** その品を買うときの値段。いろは cost、たまごの中身は DIRECT_COST */
-export function priceOf(item: Item): number {
-  return item.cost ?? DIRECT_COST;
-}
+export const GACHA_COST = 90;
 
 export const ITEMS: Item[] = [
   // ---- キャラ 12 ----
@@ -93,18 +92,18 @@ export const ITEMS: Item[] = [
   { id: 'acc-shell', kind: 'acc', label: 'こうら' },
   { id: 'acc-jet', kind: 'acc', label: 'ジェットパック' },
 
-  // ---- いろ 11（コインで直接買う） ----
-  { id: 'color-sakura', kind: 'color', label: 'さくら', cost: 75 },
-  { id: 'color-sora', kind: 'color', label: 'そら', cost: 75 },
-  { id: 'color-mint', kind: 'color', label: 'ミント', cost: 75 },
-  { id: 'color-lemon', kind: 'color', label: 'レモン', cost: 75 },
-  { id: 'color-grape', kind: 'color', label: 'ぶどう', cost: 75 },
-  { id: 'color-choco', kind: 'color', label: 'チョコ', cost: 75 },
-  { id: 'color-snow', kind: 'color', label: 'ゆき', cost: 75 },
-  { id: 'color-night', kind: 'color', label: 'よぞら', cost: 75 },
-  { id: 'color-rainbow', kind: 'color', label: 'にじいろ', cost: 240 },
-  { id: 'color-silver', kind: 'color', label: 'ぎんいろ', cost: 180 },
-  { id: 'color-gold', kind: 'color', label: 'きんいろ', cost: 240 },
+  // ---- いろ 11 ----
+  { id: 'color-sakura', kind: 'color', label: 'さくら' },
+  { id: 'color-sora', kind: 'color', label: 'そら' },
+  { id: 'color-mint', kind: 'color', label: 'ミント' },
+  { id: 'color-lemon', kind: 'color', label: 'レモン' },
+  { id: 'color-grape', kind: 'color', label: 'ぶどう' },
+  { id: 'color-choco', kind: 'color', label: 'チョコ' },
+  { id: 'color-snow', kind: 'color', label: 'ゆき' },
+  { id: 'color-night', kind: 'color', label: 'よぞら' },
+  { id: 'color-rainbow', kind: 'color', label: 'にじいろ' },
+  { id: 'color-silver', kind: 'color', label: 'ぎんいろ' },
+  { id: 'color-gold', kind: 'color', label: 'きんいろ' },
 ];
 
 /** いろの中身。キャラ本来の色を上から塗りかえる */
@@ -138,26 +137,30 @@ export function isOwned(item: Item): boolean {
   return Boolean(item.free) || profile().unlocked.includes(item.id);
 }
 
-/** たまごから出うるもの（いろは入らない） */
-export function eggItems(): Item[] {
-  return ITEMS.filter((i) => i.kind !== 'color');
+/** まだ持っていないもの ぜんぶ。ホームの 🎁 の合図に使う */
+export function lockedItems(): Item[] {
+  return ITEMS.filter((i) => !isOwned(i));
 }
 
-export function lockedItems(): Item[] {
-  return eggItems().filter((i) => !isOwned(i));
+/** その種類で、まだ持っていないもの。ガチャの中身になる */
+export function lockedItemsOf(kind: ItemKind): Item[] {
+  return ITEMS.filter((i) => i.kind === kind && !isOwned(i));
 }
 
 export function ownedCount(): number {
   return ITEMS.filter(isOwned).length;
 }
 
-/** たまごを割る。コインが足りない・全部そろっている場合は null */
-export function openEgg(): Item | null {
+/**
+ * えらんだ種類のガチャを1回まわす。
+ * コインが足りない・その種類が全部そろっている場合は null。
+ */
+export function rollGacha(kind: ItemKind): Item | null {
   const p = profile();
-  const pool = lockedItems();
-  if (!pool.length || p.coins < EGG_COST) return null;
+  const pool = lockedItemsOf(kind);
+  if (!pool.length || p.coins < GACHA_COST) return null;
 
-  p.coins -= EGG_COST;
+  p.coins -= GACHA_COST;
   const item = pool[Math.floor(Math.random() * pool.length)];
   p.unlocked.push(item.id);
 
@@ -166,21 +169,6 @@ export function openEgg(): Item | null {
 
   persist();
   return item;
-}
-
-/**
- * コインで直接買う。いろは cost、たまごの中身は DIRECT_COST（ねらい買い）。
- * 持っている・コインが足りないときは false。
- */
-export function buyItem(item: Item): boolean {
-  const p = profile();
-  const cost = priceOf(item);
-  if (isOwned(item) || p.coins < cost) return false;
-  p.coins -= cost;
-  p.unlocked.push(item.id);
-  equip(item);
-  persist();
-  return true;
 }
 
 /** 身につける。おなじものをもう一度えらぶと外れる（キャラだけは外せない） */

@@ -28,7 +28,7 @@ import { cherry, type Cherry, type Fact } from './curriculum';
 import { distractorPool, weakestFacts } from './questions';
 import { MINI_AGAIN, MINI_FIRST, MINI_PERFECT } from './rewards';
 import { addPlayTime, markMiniDone, miniDoneToday, overDailyLimit, persist, profile } from './save';
-import { dotsArt, frameArt } from './tenframe';
+import { cherryArt, dotsArt, frameArt, splitArt } from './tenframe';
 
 export type MiniId = 'count' | 'pair' | 'cherry';
 
@@ -495,19 +495,6 @@ function sumChoices(f: Fact): number[] {
   return shuffle([sum, ...shuffle(wrong).slice(0, 2)]);
 }
 
-function cherrySvg(c: Cherry, need: string, rest: string): string {
-  const circle = (cx: number, cy: number, r: number, cls: string, text: string) =>
-    `<circle cx="${cx}" cy="${cy}" r="${r}" class="${cls}" />` +
-    `<text x="${cx}" y="${cy}" class="cn">${text}</text>`;
-  return (
-    `<line x1="100" y1="30" x2="62" y2="52" class="branch" />` +
-    `<line x1="100" y1="30" x2="138" y2="52" class="branch" />` +
-    circle(100, 18, 16, 'top', String(c.other)) +
-    circle(62, 60, 16, `leaf${need === '?' ? '' : ' need'}`, need) +
-    circle(138, 60, 16, 'leaf', rest)
-  );
-}
-
 function startCherry(): void {
   // くりあがる 1けたどうしだけを相手にする。2けたが混ざると さくらんぼの絵が
   // 「27 を 3 と 24 に分ける」になり、元の式より読みにくくなる
@@ -526,32 +513,53 @@ function startCherry(): void {
   board.className = 'mini-body cherry';
   board.replaceChildren();
   const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  art.setAttribute('viewBox', '0 0 200 82');
   art.setAttribute('class', 'mini-cherry');
   art.setAttribute('aria-hidden', 'true');
-  board.appendChild(art);
+  // 10マスの絵。ここでは「ヒント」ではなく盤面の一部なので、いつも出しておく。
+  // ボタンの奥に隠していたころは、まだ字の読めない子が最後まで押さないまま
+  // 記号（さくらんぼ）だけを見て当てずっぽうを続けていた。
+  const frame = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  frame.setAttribute('class', 'tenframe cherry-frame');
+  frame.setAttribute('aria-hidden', 'true');
+  board.append(art, frame);
 
   // むずかしさは、にがてな式のほうで自動的に決まる。選ばせるものが無い
   $('mini-levels').replaceChildren();
   $('mini-levels').hidden = true;
   $('mini-choices').hidden = false;
-  $('mini-hint-btn').hidden = false;
+  // 絵が出しっぱなしなので、ヒントのボタンと枠は使わない
+  $('mini-hint-btn').hidden = true;
+  hideFrame();
 
   /**
-   * その手のヒント。
+   * いまの手に合う 10マスの絵。
    *
    * くりあがりの絵（frameArt の carry）は「8 に 2 を あげて 10、のこり 3」と
-   * 書いてあるので、いま聞いていることの答えをそのまま言ってしまう。
-   * 前の2手だけは、同じ内容を「あと いくつ」の形に置きかえて出す。
-   * 空きマスを数えれば分かるが、言葉では答えを言わない、という本編と同じ線。
+   * 3手ぶん全部を描いてしまうので、前の2手は「あと いくつ」の形に置きかえる。
+   * 数えれば分かるが、聞いていることの先までは描かない。
    */
-  const hint = (): void => {
-    const f = facts[at];
-    const c = cherry(f);
-    if (!c) return;
-    if (step === 0) showFrame({ a: c.base, b: c.need }, true);
-    else if (step === 1) showFrame({ a: c.need, b: c.rest }, true);
-    else showFrame(f, false);
+  const paintFrame = (c: Cherry, f: Fact): void => {
+    // 2手めは「other を need と いくつに わける」。ここだけ 10マスではなく
+    // other の数ぶんの枠にする（10マスだと、聞いていない残りのマスまで数える）
+    const a =
+      step === 0
+        ? frameArt({ a: c.base, b: c.need }, true)
+        : step === 1
+          ? splitArt(c.other, c.need)
+          : frameArt(f, false);
+    if (!a) return;
+    // 1れつの絵は、そのままだと高さいっぱいまで伸びて マスだけ倍の大きさになる。
+    // 手が進んでもマスの大きさが変わらないよう、1れつのときは低く抑える
+    frame.classList.toggle('row1', step === 1);
+    frame.setAttribute('viewBox', a.viewBox);
+    frame.innerHTML = a.svg;
+  };
+
+  /** まちがえたとき。絵のほうを1回ゆらして「ここを見て」と言う */
+  const nudgeArt = (): void => {
+    board.classList.remove('look');
+    requestAnimationFrame(() => board.classList.add('look'));
+    later(() => board.classList.remove('look'), 700);
   };
 
   const ask = (): void => {
@@ -565,7 +573,10 @@ function startCherry(): void {
     }
     renderPips(facts.length, at);
     $('mini-goal').textContent = `${f.a} + ${f.b} = ?`;
-    art.innerHTML = cherrySvg(c, step >= 1 ? String(c.need) : '?', step >= 2 ? String(c.rest) : '?');
+    const cy = cherryArt(c, step === 0 ? 0 : step === 1 ? 1 : 2);
+    art.setAttribute('viewBox', cy.viewBox);
+    art.innerHTML = cy.svg;
+    paintFrame(c, f);
 
     if (step === 0) {
       say(`${c.base} は あと いくつで ${c.ten}？`);
@@ -577,11 +588,6 @@ function startCherry(): void {
       say(`${c.ten} と ${c.rest} で？`);
       choices(sumChoices(f), f.a + f.b);
     }
-
-    $('mini-hint-btn').onclick = () => {
-      sfx.tap();
-      hint();
-    };
   };
 
   const next = (): void => {
@@ -614,8 +620,8 @@ function startCherry(): void {
           misses++;
           sfx.wrong();
           shake(b);
-          // まちがえたら絵を出す。答えは言わず、数えられる形で見せる
-          hint();
+          // 絵はもう出ている。「そっちを見て」とだけ言う（答えは言わない）
+          nudgeArt();
           return;
         }
         sfx.correct(step);
