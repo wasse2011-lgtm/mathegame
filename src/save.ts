@@ -82,6 +82,14 @@ export interface Profile {
   daily: Daily;
   play: PlayTime;
   mini: MiniDay;
+  /**
+   * ずかんを最後に見てから、あたらしく「おぼえた」になった式。
+   * ずかんを開くと空になる（開くまで残る）。「見にいく理由」を作るための印で、
+   * 習熟度そのものではないので、消えても記録は減らない。
+   */
+  zukanNew: string[];
+  /** ずかんの ごほうびを もらった回数（ZUKAN_STEP まいごとに1回） */
+  zukanGot: number;
   /** 最後に遊んだ日（YYYY-MM-DD）。きろくを選ぶ画面で出す */
   seen: string;
 }
@@ -143,6 +151,8 @@ function freshProfile(): Profile {
     daily: { date: '', streak: 0, done: false },
     play: { date: '', sec: 0 },
     mini: { date: '', done: [] },
+    zukanNew: [],
+    zukanGot: 0,
     seen: '',
   };
 }
@@ -253,6 +263,9 @@ function read(): SaveData {
       stars: p?.stars ?? {},
       facts: p?.facts ?? {},
       unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
+      // ずかんの合図とごほうびは後から足した。古いセーブには無い
+      zukanNew: Array.isArray(p?.zukanNew) ? p.zukanNew : [],
+      zukanGot: Number.isFinite(p?.zukanGot) ? Number(p?.zukanGot) : 0,
       // ペットは後から足した。古いセーブには無いので必ず既定値に落とす
       pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
     }));

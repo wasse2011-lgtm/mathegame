@@ -55,7 +55,7 @@ import {
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
-import { frameArt } from './tenframe';
+import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
 
 /**
@@ -766,16 +766,11 @@ export class Runner {
     const c = art.mode === 'carry' && q.fact.a < 10 && q.fact.b < 10 ? cherry(q.fact) : null;
     showSvg(this.elCherry, Boolean(c));
     if (c) {
-      const circle = (cx: number, cy: number, r: number, cls: string, text: string) =>
-        `<circle cx="${cx}" cy="${cy}" r="${r}" class="${cls}" />` +
-        `<text x="${cx}" y="${cy}" class="cn">${text}</text>`;
-      // 分けるのは小さいほう（c.other）。大きいほう（c.base）を きりのいい数へ運ぶ
-      this.elCherry.innerHTML =
-        `<line x1="100" y1="30" x2="62" y2="50" class="branch" />` +
-        `<line x1="100" y1="30" x2="138" y2="50" class="branch" />` +
-        circle(100, 18, 16, 'top', String(c.other)) +
-        circle(62, 60, 16, 'leaf need', String(c.need)) +
-        circle(138, 60, 16, 'leaf', String(c.rest));
+      // 絵はミニゲーム「さくらんぼ わけ」と同じもの（tenframe.cherryArt）。
+      // ここはヒントなので、ぜんぶ出したところ（step 2）を見せる
+      const cy = cherryArt(c, 2);
+      this.elCherry.setAttribute('viewBox', cy.viewBox);
+      this.elCherry.innerHTML = cy.svg;
     }
 
     this.elHintText.textContent = art.text;
@@ -1660,6 +1655,10 @@ export class Runner {
       // update() だけ飛ばす。lastTs は毎フレーム進むので dt が溜まらず、
       // 再開しても障害物がワープしない（ポーズのように raf を止めると溜まる）。
       this.tHold += dt;
+      // 帯や光りかたは「見せるためのもの」なので、止めているあいだも進める。
+      // ここを update() の中だけに置いていたので、「サボテンくんが おさえてる！」が
+      // ヒントを出した瞬間ではなく、答えて動きだしてから出ていた。
+      this.tickEffects(dt);
       this.draw();
     } else {
       this.update(dt);
@@ -1668,6 +1667,19 @@ export class Runner {
     this.raf = requestAnimationFrame(this.frame);
   };
 
+  /**
+   * 見せるためだけの持ち時間（帯・画面のゆれ・光り・掛け声）。
+   *
+   * 世界を止めているあいだ（ヒント）も、ここだけは進める。止めてしまうと
+   * 「いま出したはずの帯」が、動きだすまで画面に出てこない。
+   */
+  private tickEffects(dt: number): void {
+    if (this.shake > 0) this.shake -= dt;
+    if (this.flash > 0) this.flash -= dt;
+    if (this.banner > 0) this.banner -= dt;
+    if (this.cheer.life > 0) this.cheer.life -= dt;
+  }
+
   private update(dt: number): void {
     this.t += dt;
     this.elapsed += dt;
@@ -1675,10 +1687,7 @@ export class Runner {
     // 足だけ動きつづけて「走っているのに進まない」絵になる
     this.char.t = this.hunt ? 0 : this.t;
     if (this.char.hurt > 0) this.char.hurt -= dt;
-    if (this.shake > 0) this.shake -= dt;
-    if (this.flash > 0) this.flash -= dt;
-    if (this.banner > 0) this.banner -= dt;
-    if (this.cheer.life > 0) this.cheer.life -= dt;
+    this.tickEffects(dt);
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
 
     if (this.ride > 0) {

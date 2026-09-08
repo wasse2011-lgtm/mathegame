@@ -10,7 +10,7 @@
  * DOM には触らない。文字列を返すだけなので、CI（verify）から絵の中身まで検査できる。
  */
 
-import { cherry, type Fact } from './curriculum';
+import { cherry, type Cherry, type Fact } from './curriculum';
 
 export type FrameMode = 'count' | 'tens' | 'make10' | 'carry' | 'place';
 
@@ -51,10 +51,11 @@ const DOT = 8;
  *   a     … 起点（大きいほうの数）
  *   b     … あとから足す数
  *   move  … 「ここから となりの枠へ うつす」玉
+ *   rest  … うつしたあとに のこる玉。さくらんぼの右の実と同じ色にする
  *   ghost … 「ここが あく」＝あと何こ要るか
  *   ''    … 空
  */
-type Cell = 'a' | 'b' | 'move' | 'ghost' | '';
+type Cell = 'a' | 'b' | 'move' | 'rest' | 'ghost' | '';
 
 /** マスの並びを SVG にする。10こで1枠、足りないぶんは空マスで埋める */
 function layout(cells: Cell[]): Pick<FrameArt, 'svg' | 'viewBox' | 'frames'> {
@@ -97,6 +98,113 @@ function arrow(afterFrame: number): string {
  */
 export function dotsArt(n: number, show = true): Pick<FrameArt, 'svg' | 'viewBox' | 'frames'> {
   return layout(fill(n, show ? 'a' : ''));
+}
+
+/**
+ * 「n を いくつと いくつに わける」の絵。玉を n こだけ1れつに並べる。
+ *
+ * ここで 10マスの枠を使うと、聞いていない残り7マスまで空きマスとして並び、
+ * 「あと いくつ」を数えるつもりの子が 7 を数えてしまう。
+ * 分けたい数のぶんだけ枠を出して、埋まっているほう（filled）を色つきにする。
+ */
+export function splitArt(total: number, filled: number): Pick<FrameArt, 'svg' | 'viewBox' | 'frames'> {
+  const n = Math.max(1, total);
+  let svg = '';
+  for (let i = 0; i < n; i++) {
+    const x = i * (CELL + GAP);
+    const ghost = i >= filled;
+    svg +=
+      `<rect x="${x}" y="0" width="${CELL}" height="${CELL}" rx="4"` +
+      ` class="tf-cell${ghost ? ' ghost' : ''}" />`;
+    if (!ghost) {
+      svg += `<circle cx="${x + CELL / 2}" cy="${CELL / 2}" r="${DOT}" class="tf-dot move" />`;
+    }
+  }
+  return { svg, viewBox: `0 0 ${n * CELL + (n - 1) * GAP} ${CELL}`, frames: 1 };
+}
+
+// ------------------------------------------------------------ さくらんぼ
+
+/**
+ * さくらんぼ分解の絵。10マスと同じで、文字列を返すだけ。
+ *
+ * 見せたいのは「**どの数を、どこへ、いくつ わたすのか**」の1本の流れなので、
+ * 式ごと1枚の絵にしてある。
+ *
+ *   ┌───┐        ⑤        ← 上の玉は「分けるほうの数」
+ *   │ 8 │  ＋   ╱  ╲
+ *   └───┘     ②    ③     ← 左（きいろ）を 8 にわたすと 10 になる
+ *      ↖──────┘            ●●    ●●●   ← 数えられるように玉も置く
+ *
+ * 玉（.cy-dot）を置いてあるのは、数字がまだ「量」に結びついていない子でも
+ * 数えれば同じ絵が読めるようにするため。10マスの絵と同じ考えかた。
+ *
+ * step は「どこまで分かったか」。
+ *   0 … どちらも伏せる（? と点線）
+ *   1 … わたす数だけ出す。矢印が出て、行き先が見える
+ *   2 … 両方出して、左の箱が きりのいい数（10・20…）に変わる
+ */
+export interface CherryArt {
+  svg: string;
+  viewBox: string;
+}
+
+const CY_VIEWBOX = '0 0 240 162';
+
+/** 玉のかたまり。5こずつ並べる（10マスと同じ区切りかたにする） */
+function dotCluster(n: number, cx: number, y: number, cls: string): string {
+  if (n <= 0) return '';
+  const per = 5;
+  const gapX = 11;
+  const gapY = 11;
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const row = Math.floor(i / per);
+    const inRow = Math.min(n - row * per, per);
+    const x = cx - ((inRow - 1) * gapX) / 2 + (i % per) * gapX;
+    out += `<circle cx="${x}" cy="${y + row * gapY}" r="4.2" class="cy-dot ${cls}" />`;
+  }
+  return out;
+}
+
+export function cherryArt(c: Cherry, step: 0 | 1 | 2): CherryArt {
+  const made = step >= 2;
+  const text = (x: number, y: number, cls: string, s: string) =>
+    `<text x="${x}" y="${y}" class="${cls}">${s}</text>`;
+
+  // 左の箱。分かったところで「10（20…）ができた」に変わる
+  let svg =
+    `<rect x="12" y="8" width="72" height="48" rx="14" class="cy-box${made ? ' made' : ''}" />` +
+    text(48, 33, 'cy-n big', String(made ? c.ten : c.base)) +
+    text(100, 33, 'cy-op', '＋');
+
+  // 分けるほうの数と、そこから伸びる枝
+  svg +=
+    `<line x1="152" y1="57" x2="106" y2="86" class="cy-branch" />` +
+    `<line x1="152" y1="57" x2="198" y2="86" class="cy-branch" />` +
+    `<circle cx="152" cy="32" r="25" class="cy-top" />` +
+    text(152, 33, 'cy-n', String(c.other));
+
+  // 左の玉（わたす数）。分かるまでは点線の「？」
+  svg +=
+    `<circle cx="104" cy="104" r="22" class="cy-leaf need${step >= 1 ? '' : ' unknown'}${made ? ' moved' : ''}" />` +
+    text(104, 105, 'cy-n', step >= 1 ? String(c.need) : '?');
+  if (step >= 1) svg += dotCluster(c.need, 104, 138, 'need');
+
+  // 右の玉（のこり）
+  svg +=
+    `<circle cx="196" cy="104" r="22" class="cy-leaf rest${made ? '' : ' unknown'}" />` +
+    text(196, 105, 'cy-n', made ? String(c.rest) : '?');
+  if (made) svg += dotCluster(c.rest, 196, 138, 'rest');
+
+  // 「こっちへ わたす」矢印。わたす数が分かってから出す
+  if (step >= 1) {
+    svg +=
+      `<path d="M 82 100 Q 52 96 48 62" class="cy-arrow" />` +
+      `<path d="M 42 70 L 48 58 L 54 70" class="cy-arrow head" />`;
+  }
+
+  return { svg, viewBox: CY_VIEWBOX };
 }
 
 /**
@@ -148,11 +256,13 @@ export function frameArt(fact: Fact, blank: boolean): FrameArt | null {
   const c = cherry(fact);
   if (c) {
     const ones = c.base % 10;
+    // うつす玉（move・きいろ）と のこる玉（rest・みどり）を色で分ける。
+    // さくらんぼの左右の実と同じ色にしてあるので、2つの絵が同じ話だと分かる
     const art = layout([
       ...fill(ones, 'a'),
       ...fill(c.need, 'ghost'),
       ...fill(c.need, 'move'),
-      ...fill(c.rest, 'b'),
+      ...fill(c.rest, 'rest'),
     ]);
     return {
       mode: 'carry',

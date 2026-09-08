@@ -1,29 +1,31 @@
 /**
  * きせかえ。コインの使いみち その1。
  *
- * ・たまごを割ると、まだ持っていないキャラ・ぼうし・アクセがひとつ出る（90コイン）
- * ・いろ はガチャに混ぜず、ねらって直接買える（75コイン、にじいろ・きんいろだけ 240）
- * ・たまごの中身も、値段は高いが ねらって買える（210コイン）
+ * やることは1つだけ。
+ *   「キャラ／ぼうし／アクセ／いろ のどれを増やすか えらぶ → ガチャを1回まわす」
  *
- * まだ持っていないものも、絵と名前と値段を出す。伏せてあると
- * 「なにが欲しいか」を決められず、コインを貯める目標にならない。
- * 何が出るか分からない楽しさは、たまごを割る その瞬間に残っている。
+ * 以前は たまご（ランダム）・ねらい買い・いろの直接買いが混ざっていて、
+ * マスごとに ちがう値段（75 / 180 / 210 / 240）が並んでいた。
+ * 「何をすればアイテムが増えるのか」が画面から読めず、値札を読むゲームに
+ * なっていたので、行為を1つにそろえた（items.ts の GACHA_COST）。
+ *
+ * まだ持っていないものも、絵と名前は出す。伏せてあると「なにが欲しいか」を
+ * 決められず、コインを貯める目標にならない。ねだんはガチャのボタンにだけ出す。
  *
  * 中身は見た目だけで、ゲームの難しさには一切影響しない。
  */
 
 import { sfx } from './audio';
 import {
-  EGG_COST,
+  GACHA_COST,
   ITEMS,
-  buyItem,
+  KIND_LABEL,
   equip,
   isEquipped,
   isOwned,
-  lockedItems,
-  openEgg,
+  lockedItemsOf,
   ownedCount,
-  priceOf,
+  rollGacha,
   type Item,
   type ItemKind,
 } from './items';
@@ -39,12 +41,7 @@ export function onShopChange(fn: () => void): void {
   onChange = fn;
 }
 
-const TABS: { kind: ItemKind; label: string }[] = [
-  { kind: 'skin', label: 'キャラ' },
-  { kind: 'hat', label: 'ぼうし' },
-  { kind: 'acc', label: 'アクセ' },
-  { kind: 'color', label: 'いろ' },
-];
+const TABS: ItemKind[] = ['skin', 'hat', 'acc', 'color'];
 
 let tab: ItemKind = 'skin';
 
@@ -105,15 +102,20 @@ function iconFor(canvas: HTMLCanvasElement, item: Item): void {
   }
 }
 
+/** ガチャのボタンを1回はねさせる。「そっちを押すんだよ」を、ことばの前に見せる */
+function pointAtGacha(): void {
+  const btn = $('gacha-btn');
+  btn.classList.remove('call');
+  requestAnimationFrame(() => btn.classList.add('call'));
+  window.setTimeout(() => btn.classList.remove('call'), 700);
+}
+
 function itemButton(item: Item): HTMLButtonElement {
   const owned = isOwned(item);
-  const p = profile();
-  const cost = priceOf(item);
-  const canBuy = !owned && p.coins >= cost;
 
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = `item${owned ? '' : canBuy ? ' buyable' : ' locked'}`;
+  b.className = `item${owned ? '' : ' locked'}`;
   b.setAttribute('aria-pressed', String(isEquipped(item)));
 
   const c = document.createElement('canvas');
@@ -122,28 +124,27 @@ function itemButton(item: Item): HTMLButtonElement {
   b.append(c, label);
 
   if (!owned) {
-    const price = document.createElement('span');
-    price.className = `price${canBuy ? '' : ' short'}`;
-    price.innerHTML = `<span class="coin-dot"></span>${cost}`;
-    b.appendChild(price);
+    // 値札のかわりの目じるし。「まだ持っていない」だけを言う
+    const mark = document.createElement('span');
+    mark.className = 'item-lock';
+    mark.textContent = '？';
+    mark.setAttribute('aria-label', 'まだ もっていない');
+    b.appendChild(mark);
   }
 
   b.addEventListener('click', () => {
     if (owned) {
       sfx.tap();
       equip(item);
-    } else if (canBuy) {
-      buyItem(item);
-      sfx.crack();
-    } else {
-      // 買えない理由は「あと何枚か」で言う。押しても何も起きないボタンにはしない
-      sfx.wrong();
-      $('shop-msg').textContent = `${item.label} は あと ${cost - p.coins} コイン`;
+      $('shop-msg').textContent = '';
+      renderShop();
+      onChange?.();
       return;
     }
-    $('shop-msg').textContent = '';
-    renderShop();
-    onChange?.();
+    // 押しても何も起きないボタンにはしない。どうすれば手に入るかを言う
+    sfx.tap();
+    $('shop-msg').textContent = `${item.label} は ガチャで あたるよ！`;
+    pointAtGacha();
   });
 
   // canvas は DOM に入れてからでないとサイズが決まらない
@@ -177,23 +178,24 @@ function noneButton(kind: ItemKind, label: string): HTMLButtonElement {
 export function renderShop(): void {
   const p = profile();
   $('shop-coins').textContent = String(p.coins);
-  $('egg-cost').textContent = String(EGG_COST);
+  $('gacha-cost').textContent = String(GACHA_COST);
   $('shop-desc').textContent = `あつめた ${ownedCount()} / ${ITEMS.length}`;
   startShopIdle();
 
   const tabs = $('shop-tabs');
   tabs.replaceChildren();
-  for (const t of TABS) {
+  for (const kind of TABS) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'chip';
-    b.setAttribute('aria-selected', String(t.kind === tab));
-    const got = ITEMS.filter((i) => i.kind === t.kind && isOwned(i)).length;
-    const all = ITEMS.filter((i) => i.kind === t.kind).length;
-    b.innerHTML = `${t.label}<small>${got}/${all}</small>`;
+    b.setAttribute('aria-selected', String(kind === tab));
+    const got = ITEMS.filter((i) => i.kind === kind && isOwned(i)).length;
+    const all = ITEMS.filter((i) => i.kind === kind).length;
+    b.innerHTML = `${KIND_LABEL[kind]}<small>${got}/${all}</small>`;
     b.addEventListener('click', () => {
-      tab = t.kind;
+      tab = kind;
       sfx.tap();
+      $('shop-msg').textContent = '';
       renderShop();
     });
     tabs.appendChild(b);
@@ -206,27 +208,25 @@ export function renderShop(): void {
   if (tab === 'color') grid.appendChild(noneButton('color', 'きほん'));
   for (const item of ITEMS.filter((i) => i.kind === tab)) grid.appendChild(itemButton(item));
 
-  const remaining = lockedItems().length;
-  const eggBtn = $<HTMLButtonElement>('egg-btn');
+  // ガチャのボタンは、いま えらんでいる種類のもの。
+  // 「なにが増えるのか」がボタンの文字だけで分かるようにする
+  const remaining = lockedItemsOf(tab).length;
+  const btn = $<HTMLButtonElement>('gacha-btn');
+  $('gacha-label').textContent = `${KIND_LABEL[tab]}の ガチャ`;
   if (remaining === 0) {
-    eggBtn.disabled = true;
-    $('egg-label').textContent = 'ぜんぶ そろった！';
-    $('egg-sub').textContent = 'コンプリート おめでとう';
-  } else if (p.coins < EGG_COST) {
-    eggBtn.disabled = true;
-    $('egg-label').textContent = 'たまごを わる';
-    $('egg-sub').textContent = `あと ${EGG_COST - p.coins} コイン`;
+    btn.disabled = true;
+    $('gacha-sub').textContent = `${KIND_LABEL[tab]}は ぜんぶ そろった！`;
+  } else if (p.coins < GACHA_COST) {
+    btn.disabled = true;
+    $('gacha-sub').textContent = `あと ${GACHA_COST - p.coins} コイン`;
   } else {
-    eggBtn.disabled = false;
-    $('egg-label').textContent = 'たまごを わる';
-    $('egg-sub').textContent = `のこり ${remaining}こ`;
+    btn.disabled = false;
+    $('gacha-sub').textContent = `のこり ${remaining}こ`;
   }
 }
 
-function showEggResult(item: Item): void {
-  const head =
-    item.kind === 'skin' ? 'あたらしい なかま！' : item.kind === 'hat' ? 'あたらしい ぼうし！' : 'あたらしい アクセ！';
-  $('egg-got-head').textContent = head;
+function showGachaResult(item: Item): void {
+  $('egg-got-head').textContent = `あたらしい ${KIND_LABEL[item.kind]}！`;
   $('egg-got').textContent = item.label;
   const c = $<HTMLCanvasElement>('egg-result-canvas');
   paintSkinIcon(c, currentLook(), 120);
@@ -235,11 +235,10 @@ function showEggResult(item: Item): void {
 }
 
 export function initShop(): void {
-  $('egg-btn').addEventListener('click', () => {
-    const item = openEgg();
+  $('gacha-btn').addEventListener('click', () => {
+    const item = rollGacha(tab);
     if (!item) return;
-    tab = item.kind;
-    showEggResult(item);
+    showGachaResult(item);
     renderShop();
     onChange?.();
   });

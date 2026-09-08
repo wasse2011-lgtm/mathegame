@@ -19,7 +19,7 @@ import {
   type Fact,
   type World,
 } from './curriculum';
-import { EGG_COST, lockedItems } from './items';
+import { GACHA_COST, lockedItems } from './items';
 import { initMini, miniLeftToday, renderMiniList, stopMini } from './minigame';
 import { renderMiniMap } from './minimap';
 import { initParent, makeGate, renderParent } from './parent';
@@ -55,7 +55,14 @@ import {
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
-import { renderZukan, zukanProgress } from './zukan';
+import {
+  initZukan,
+  onZukanChange,
+  openZukan,
+  zukanNewCount,
+  zukanPrizeReady,
+  zukanProgress,
+} from './zukan';
 
 type ScreenName =
   | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent';
@@ -222,10 +229,14 @@ function spotLabel(spot: { worldId: number; stage: number }): string {
  */
 interface EggState {
   where: 'ranch' | 'shop';
-  /** いま割れる */
+  /** いま割れる／まわせる */
   ready: boolean;
   label: string;
-  /** 割れないとき、目標までの残り。割れるときは 0 */
+  /** 見出しに入れる短いことば。「あと 37 コインで ガチャ」の最後の1語 */
+  short: string;
+  /** 絵。ペットは たまご、きせかえは ガチャ */
+  emoji: string;
+  /** 届かないとき、目標までの残り。届いているときは 0 */
   need: number;
   cost: number;
 }
@@ -241,6 +252,8 @@ function eggState(): EggState {
       where: 'ranch',
       ready: coins >= PET_EGG_COST,
       label: 'ペットの たまご',
+      short: 'たまご',
+      emoji: '🥚',
       need: Math.max(0, PET_EGG_COST - coins),
       cost: PET_EGG_COST,
     });
@@ -248,15 +261,20 @@ function eggState(): EggState {
   if (itemsLeft) {
     goals.push({
       where: 'shop',
-      ready: coins >= EGG_COST,
-      label: 'きせかえの たまご',
-      need: Math.max(0, EGG_COST - coins),
-      cost: EGG_COST,
+      ready: coins >= GACHA_COST,
+      label: 'きせかえの ガチャ',
+      short: 'ガチャ',
+      emoji: '🎁',
+      need: Math.max(0, GACHA_COST - coins),
+      cost: GACHA_COST,
     });
   }
   // ぜんぶ集めたら、行き先は牧場（連れて歩く子を選びなおせる）
   if (!goals.length) {
-    return { where: 'ranch', ready: false, label: 'ぜんぶ そろった！', need: 0, cost: 0 };
+    return {
+      where: 'ranch', ready: false, label: 'ぜんぶ そろった！', short: 'たまご', emoji: '🥚',
+      need: 0, cost: 0,
+    };
   }
   // 割れるものがあればそれを、なければ いちばん近い目標を見せる
   const ready = goals.filter((g) => g.ready);
@@ -360,12 +378,23 @@ function renderTitle(): void {
   $('zukan-count').textContent = `${done} / ${total}`;
   $('zukan-bar').style.width = `${(done / total) * 100}%`;
 
+  // ずかんは、開かないと何も起きない画面。開く理由をホームに出す。
+  // ごほうびのほうが強い合図なので、両方あるときは ごほうびを出す
+  const prize = zukanPrizeReady();
+  const fresh = zukanNewCount();
+  const zNew = $('zukan-new');
+  zNew.hidden = !(prize > 0 || fresh > 0);
+  zNew.textContent = prize > 0 ? 'ごほうび！' : `＋${fresh}まい`;
+  zNew.classList.toggle('prize', prize > 0);
+  // 🎁 は「コインで まわす／割る」入口の印なので、ずかんは 🆕 で分ける
+  $('zukan-badge').hidden = zNew.hidden;
+
   const pets = ownedPets().length;
   $('pet-count').textContent = `${pets} / ${PET_COUNT}`;
   $('pet-bar').style.width = `${(pets / PET_COUNT) * 100}%`;
 
-  // たまごが割れる入口にだけ 🥚 を出す（両方割れるなら両方）
-  $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= EGG_COST);
+  // いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方）
+  $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= GACHA_COST);
   $('ranch-badge').hidden = !(pets < PET_COUNT && p.coins >= PET_EGG_COST);
 }
 
@@ -505,11 +534,15 @@ $('logo').addEventListener('pointerdown', () => {
   yard.cheerAll();
 });
 
-$('btn-zukan').addEventListener('click', () => {
+function goZukan(): void {
   sfx.tap();
-  renderZukan();
+  openZukan();
   show('zukan');
-});
+}
+
+$('btn-zukan').addEventListener('click', goZukan);
+// ホームの進みぐあいの行そのものからも入れる。棒グラフを見て終わりにさせない
+$('zukan-mini').addEventListener('click', goZukan);
 
 $('zukan-back').addEventListener('click', () => {
   sfx.tap();
@@ -1152,7 +1185,11 @@ function renderResult(r: StageResult): void {
   const learned = $('result-learned');
   if (r.learned.length) {
     learned.hidden = false;
-    learned.textContent = `あたらしく おぼえた！  ${r.learned.map((k) => k.replace('+', ' + ')).join('、')}`;
+    // どこに増えたのかまで言う。ここで「ずかん」に結びつけないと、
+    // カードが増えたことに気づかないまま次のステージへ行ってしまう
+    learned.textContent =
+      `ずかんに ${r.learned.length}まい ふえた！  ` +
+      r.learned.map((k) => k.replace('+', ' + ')).join('、');
   } else {
     learned.hidden = true;
   }
@@ -1260,17 +1297,21 @@ function renderResultEgg(coins = profile().coins): void {
   const ready = egg.cost > 0 && need === 0;
 
   btn.classList.toggle('ready', ready);
+  const emoji = btn.querySelector('.egg-emoji');
+  if (emoji) emoji.textContent = egg.emoji;
   if (egg.cost === 0) {
     $('result-egg-label').textContent = 'ぼくじょうで あそぶ';
     $('result-egg-sub').textContent = 'ぜんぶ そろった！';
     bar.hidden = true;
   } else if (ready) {
-    $('result-egg-label').textContent = `${egg.label}が われる！`;
+    // ペットは「われる」、きせかえは「まわせる」。行きさきの動作をそのまま言う
+    $('result-egg-label').textContent =
+      egg.where === 'shop' ? `${egg.label}が まわせる！` : `${egg.label}が われる！`;
     $('result-egg-sub').textContent = `もっている コイン ${coins}`;
     bar.hidden = true;
   } else {
-    // 見出しを1行に収める。何のたまごかは下の行で言う
-    $('result-egg-label').textContent = `あと ${need} コインで たまご`;
+    // 見出しを1行に収める。何のたまご／ガチャかは下の行で言う
+    $('result-egg-label').textContent = `あと ${need} コインで ${egg.short}`;
     $('result-egg-sub').textContent = `${egg.label}　${coins} / ${egg.cost}`;
     bar.hidden = false;
     fill.style.width = `${Math.min(100, (coins / egg.cost) * 100)}%`;
@@ -1338,9 +1379,67 @@ function syncSettings(): void {
   setLeft.checked = save.settings.leftHanded;
 }
 
-$('btn-settings').addEventListener('click', () => {
+/**
+ * せっていの歯車。
+ *
+ * 子どもの導線（あそぶ・きせかえ・ペット・ずかん）から外して画面のすみに置き、
+ * そのうえで **ひと押しでは開かない**。すみに置くだけでは、遊んでいる指が
+ * 端まで来たときに触れてしまう。長く押すのは「開こうとしたとき」だけなので、
+ * ここで偶然ひらくことがなくなる。
+ *
+ * 短く押したときは、開きかたを1行だけ出す（おとなが迷子にならないように）。
+ * キーボードの Enter／Space では、そのまま開く（使うのはおとなだけ）。
+ */
+const GEAR_HOLD_MS = 800;
+const gear = $<HTMLButtonElement>('btn-settings');
+const gearHint = $('gear-hint');
+let gearTimer = 0;
+let gearHintTimer = 0;
+/** ながおしで開いたか。開いたあとに来る click で、ヒントを出さないための印 */
+let gearOpened = false;
+
+function openSettings(): void {
+  gearOpened = true;
   syncSettings();
+  gearHint.hidden = true;
+  gear.classList.remove('holding');
   $('overlay-settings').hidden = false;
+}
+
+function stopGearHold(): void {
+  if (gearTimer) clearTimeout(gearTimer);
+  gearTimer = 0;
+  gear.classList.remove('holding');
+}
+
+gear.addEventListener('pointerdown', () => {
+  gearOpened = false;
+  stopGearHold();
+  gear.classList.add('holding');
+  gearTimer = window.setTimeout(() => {
+    gearTimer = 0;
+    sfx.tap();
+    openSettings();
+  }, GEAR_HOLD_MS);
+});
+for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
+  gear.addEventListener(ev, stopGearHold);
+}
+
+gear.addEventListener('click', () => {
+  if (gearOpened) return;
+  gearHint.hidden = false;
+  if (gearHintTimer) clearTimeout(gearHintTimer);
+  gearHintTimer = window.setTimeout(() => {
+    gearHint.hidden = true;
+    gearHintTimer = 0;
+  }, 2600);
+});
+
+gear.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  openSettings();
 });
 
 setSound.addEventListener('change', () => {
@@ -1453,6 +1552,8 @@ initShop();
 onShopChange(onCollectionChange);
 initRanch();
 onRanchChange(onCollectionChange);
+initZukan();
+onZukanChange(onCollectionChange);
 initMini({
   facts: unlockedFacts,
   unlocked: worldUnlocked,

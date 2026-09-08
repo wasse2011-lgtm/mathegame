@@ -6,7 +6,7 @@
  */
 
 import { type Fact, factKey } from './curriculum';
-import { factStat, peekFact } from './save';
+import { factStat, peekFact, profile } from './save';
 
 export interface Question {
   fact: Fact;
@@ -249,7 +249,8 @@ export function isWeakFact(f: Fact): boolean {
  * 速さは ms（平均解答時間）のほうにだけ反映する。
  */
 export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
-  const s = factStat(factKey(fact));
+  const key = factKey(fact);
+  const s = factStat(key);
   const before = s.m;
   s.seen++;
   if (ok) {
@@ -259,7 +260,14 @@ export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
     s.m = Math.max(0, s.m - 2);
     s.miss++;
   }
-  return before < MASTERED && s.m >= MASTERED;
+  const learned = before < MASTERED && s.m >= MASTERED;
+  // ずかんを見にいく理由をここで作る。「あたらしいカードが待っている」を
+  // ホームに出したいので、まだ見ていないぶんを覚えておく（ずかんを開くと消える）
+  if (learned) {
+    const p = profile();
+    if (!p.zukanNew.includes(key)) p.zukanNew.push(key);
+  }
+  return learned;
 }
 
 /**
