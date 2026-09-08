@@ -1,8 +1,13 @@
 /**
  * きせかえ。コインの使いみち その1。
  *
- * ・たまごを割ると、まだ持っていないキャラ・ぼうし・アクセがひとつ出る（30コイン）
- * ・いろ はガチャに混ぜず、ねらって直接買える（25コイン、にじいろだけ 80）
+ * ・たまごを割ると、まだ持っていないキャラ・ぼうし・アクセがひとつ出る（90コイン）
+ * ・いろ はガチャに混ぜず、ねらって直接買える（75コイン、にじいろ・きんいろだけ 240）
+ * ・たまごの中身も、値段は高いが ねらって買える（210コイン）
+ *
+ * まだ持っていないものも、絵と名前と値段を出す。伏せてあると
+ * 「なにが欲しいか」を決められず、コインを貯める目標にならない。
+ * 何が出るか分からない楽しさは、たまごを割る その瞬間に残っている。
  *
  * 中身は見た目だけで、ゲームの難しさには一切影響しない。
  */
@@ -18,6 +23,7 @@ import {
   lockedItems,
   openEgg,
   ownedCount,
+  priceOf,
   type Item,
   type ItemKind,
 } from './items';
@@ -81,22 +87,8 @@ export function startShopIdle(): void {
 
 // ---------------------------------------------------------------- マス
 
-/** 中身を伏せたマス。大きさだけ合わせて空にする */
-function blankIcon(canvas: HTMLCanvasElement, size = 56): void {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = size * dpr;
-  canvas.height = size * dpr;
-  canvas.style.width = `${size}px`;
-  canvas.style.height = `${size}px`;
-  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-function iconFor(canvas: HTMLCanvasElement, item: Item, show: boolean): void {
+function iconFor(canvas: HTMLCanvasElement, item: Item): void {
   const p = profile();
-  if (!show) {
-    blankIcon(canvas);
-    return;
-  }
   switch (item.kind) {
     case 'skin':
       paintSkinIcon(canvas, { skin: item.id as SkinId, hat: '', color: p.color }, 56);
@@ -115,25 +107,24 @@ function iconFor(canvas: HTMLCanvasElement, item: Item, show: boolean): void {
 
 function itemButton(item: Item): HTMLButtonElement {
   const owned = isOwned(item);
-  const buyable = !owned && Boolean(item.cost);
   const p = profile();
-  const canBuy = buyable && p.coins >= (item.cost ?? 0);
+  const cost = priceOf(item);
+  const canBuy = !owned && p.coins >= cost;
 
   const b = document.createElement('button');
   b.type = 'button';
-  b.className = `item${owned ? '' : buyable ? ' buyable' : ' locked'}`;
+  b.className = `item${owned ? '' : canBuy ? ' buyable' : ' locked'}`;
   b.setAttribute('aria-pressed', String(isEquipped(item)));
-  b.disabled = !owned && !buyable;
 
   const c = document.createElement('canvas');
   const label = document.createElement('span');
-  label.textContent = owned || buyable ? item.label : '？';
+  label.textContent = item.label;
   b.append(c, label);
 
-  if (buyable) {
+  if (!owned) {
     const price = document.createElement('span');
     price.className = `price${canBuy ? '' : ' short'}`;
-    price.innerHTML = `<span class="coin-dot"></span>${item.cost}`;
+    price.innerHTML = `<span class="coin-dot"></span>${cost}`;
     b.appendChild(price);
   }
 
@@ -145,8 +136,9 @@ function itemButton(item: Item): HTMLButtonElement {
       buyItem(item);
       sfx.crack();
     } else {
+      // 買えない理由は「あと何枚か」で言う。押しても何も起きないボタンにはしない
       sfx.wrong();
-      $('shop-msg').textContent = `${item.label} は あと ${(item.cost ?? 0) - p.coins} コイン`;
+      $('shop-msg').textContent = `${item.label} は あと ${cost - p.coins} コイン`;
       return;
     }
     $('shop-msg').textContent = '';
@@ -155,7 +147,7 @@ function itemButton(item: Item): HTMLButtonElement {
   });
 
   // canvas は DOM に入れてからでないとサイズが決まらない
-  queueMicrotask(() => iconFor(c, item, owned || buyable));
+  queueMicrotask(() => iconFor(c, item));
 
   return b;
 }

@@ -20,6 +20,7 @@ import {
   type World,
 } from './curriculum';
 import { EGG_COST, lockedItems } from './items';
+import { initMini, miniLeftToday, renderMiniList, stopMini } from './minigame';
 import { renderMiniMap } from './minimap';
 import { initParent, makeGate, renderParent } from './parent';
 import {
@@ -57,7 +58,7 @@ import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
 import { renderZukan, zukanProgress } from './zukan';
 
 type ScreenName =
-  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'parent';
+  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
@@ -68,6 +69,7 @@ const screens: Record<ScreenName, HTMLElement> = {
   zukan: document.getElementById('screen-zukan') as HTMLElement,
   shop: document.getElementById('screen-shop') as HTMLElement,
   ranch: document.getElementById('screen-ranch') as HTMLElement,
+  mini: document.getElementById('screen-mini') as HTMLElement,
   parent: document.getElementById('screen-parent') as HTMLElement,
 };
 
@@ -86,6 +88,8 @@ let shopFrom: 'home' | 'result' = 'home';
 function show(name: ScreenName): void {
   // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
   if (current === 'result' && name !== 'result') stopResultAnim();
+  // ミニゲームも同じ。演出の途中で ← を押されても、タイマーを残さない
+  if (current === 'mini' && name !== 'mini') stopMini();
   current = name;
   (Object.keys(screens) as ScreenName[]).forEach((k) => {
     screens[k].hidden = k !== name;
@@ -310,6 +314,18 @@ function renderTitle(): void {
   const hunt = $<HTMLButtonElement>('hunt-card');
   startBtn.disabled = over;
   daily.disabled = over;
+
+  // ミニゲームも「あそび」なので、1日の上限の中に入れる。
+  // ここだけ外に置くと、上限をつけた家庭で ミニゲームだけ無限に遊べてしまう。
+  const left = miniLeftToday();
+  $<HTMLButtonElement>('mini-card').disabled = over;
+  // 半分の幅のカードなので、2行に折れない長さで書く
+  $('mini-card-state').textContent = over
+    ? 'また あした'
+    : left > 0
+      ? `ごほうび ${left}こ`
+      : 'あそべるよ';
+  $('mini-card').classList.toggle('done', !over && left === 0);
 
   // にがて たいじ。相手がいないと始まらないので、何ひきいるかを先に出す
   const weak = weakFactCount(unlockedFacts());
@@ -611,6 +627,20 @@ $('hunt-card').addEventListener('click', () => {
     bonusCoins: COIN_HUNT,
     saveStars: false,
   });
+});
+
+/**
+ * ミニゲーム。
+ *
+ * 走る導線（あそぶ・きょうの5もん・にがて たいじ）とちがって、
+ * 1日の上限に達しても開ける。ここは時間で追われない れんしゅう場で、
+ * 記録（★・図鑑・習熟度）も動かさないため、上限の対象にしていない。
+ */
+$('mini-card').addEventListener('click', () => {
+  unlockAudio();
+  sfx.tap();
+  renderMiniList();
+  show('mini');
 });
 
 // ------------------------------------------------------------------ マップ
@@ -1423,6 +1453,12 @@ initShop();
 onShopChange(onCollectionChange);
 initRanch();
 onRanchChange(onCollectionChange);
+initMini({
+  facts: unlockedFacts,
+  unlocked: worldUnlocked,
+  onCoins: onCollectionChange,
+  onExit: goHome,
+});
 initParent(() => {
   syncSettings();
   renderTitle();

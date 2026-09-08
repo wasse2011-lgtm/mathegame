@@ -231,6 +231,15 @@ body {
 .streak b { font-size: 1.05rem; }
 .streak[hidden] { display: none; }
 
+/* にがて たいじ と ミニゲーム。
+   1枚ずつ縦に積むと、ホームがロゴを押し出すほど長くなる。
+   どちらも「きょうの5もん」のあとに来る おかわりなので、横に2つ並べる。 */
+.card-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.card-row .daily-card { min-height: 64px; padding: .5rem .55rem; gap: .3rem; }
+.card-row .daily-title { font-size: 1rem; }
+.card-row .daily-state { font-size: .74rem; }
+.card-row .hunt-face { font-size: 1.35rem; }
+
 /* にがて たいじ。きょうの5もんと同じ形で、色だけ「たおす相手」の赤にする */
 .hunt-card { border-color: var(--bad); }
 .hunt-card .daily-state { color: var(--bad-dark); }
@@ -1054,7 +1063,9 @@ body {
   outline: 3px solid var(--amber); outline-offset: 1px;
 }
 .item.locked { background: var(--paper-2); }
-.item.locked canvas { opacity: .12; filter: grayscale(1); }
+/* まだ買えないものも、絵は見せる。伏せてしまうと「これが欲しい」を決められず、
+   コインを貯める目標にならない（かつては ？ で隠していた） */
+.item.locked canvas { opacity: .5; filter: grayscale(.6); }
 .item canvas { width: 56px; height: 56px; }
 .item .no-hat {
   width: 56px; height: 56px; display: grid; place-items: center;
@@ -1148,6 +1159,132 @@ body {
   background: rgba(255,255,255,.85); border-radius: var(--r-md); padding: .55rem .7rem; line-height: 1.6;
 }
 .over-note[hidden] { display: none; }
+
+/* ---------------- ミニゲーム ----------------
+   走らない れんしゅう場。時間で追われないぶん、押しまちがえても
+   取り返せる作りにしてある（大きいボタン・広い間隔・選びなおせる）。 */
+#screen-mini {
+  background: linear-gradient(180deg, #fdf1d6 0%, #f4f9ea 62%, #e8f4dd 100%);
+  padding: calc(var(--safe-t) + .6rem) calc(var(--safe-r) + .9rem) calc(var(--safe-b) + .9rem) calc(var(--safe-l) + .9rem);
+  gap: .6rem;
+}
+
+/* ホームの入口。きょうの5もん・にがて たいじ と同じ形にそろえる */
+.mini-entry { border-color: var(--blue); }
+.mini-entry .daily-state { color: var(--blue-dark); }
+.mini-entry .hunt-face { font-size: 1.7rem; line-height: 1; }
+.mini-entry.done .daily-state { color: var(--ink-2); }
+/* 1日の上限に達した日。にがて たいじ と同じ見た目で閉じる */
+.mini-entry[disabled] { opacity: .55; cursor: default; border-color: var(--line); }
+.mini-entry[disabled]:active { transform: none; border-bottom-width: 6px; }
+.mini-entry[disabled] .daily-state { color: var(--ink-2); }
+
+.mini-list { display: flex; flex-direction: column; gap: .7rem; padding-top: .3rem; }
+.mini-list[hidden] { display: none; }
+.mini-card {
+  display: flex; align-items: center; gap: .8rem; text-align: left;
+  font-family: inherit; font-weight: 700; color: var(--ink); cursor: pointer;
+  background: var(--paper); border: 2px solid var(--amber); border-bottom-width: 6px;
+  border-radius: var(--r-lg); padding: .8rem .9rem; min-height: 88px;
+  transition: transform .08s ease;
+}
+.mini-card:active { transform: translateY(3px); border-bottom-width: 3px; }
+.mini-card.done { border-color: var(--good); }
+.mini-card.locked { background: var(--paper-2); border-color: var(--line); color: #9aa7b0; cursor: default; }
+.mini-card.locked:active { transform: none; border-bottom-width: 6px; }
+.mini-face { font-size: 2.1rem; line-height: 1; flex: 0 0 auto; }
+.mini-main { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.mini-main b { font-size: 1.2rem; }
+.mini-main span { font-size: .8rem; font-weight: 700; color: var(--ink-2); line-height: 1.4; }
+.mini-state {
+  margin-left: auto; flex: 0 0 auto; white-space: nowrap;
+  font-size: 1rem; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+.mini-card.done .mini-state { color: var(--good-dark); }
+
+.mini-play { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: .5rem; overflow-y: auto; }
+.mini-play[hidden] { display: none; }
+.mini-levels[hidden], #mini-levels[hidden] { display: none; }
+.mini-pips { display: flex; gap: .3rem; flex: 0 0 auto; }
+.mini-pips i { width: 12px; height: 12px; border-radius: 50%; background: rgba(38,49,61,.16); }
+.mini-pips i.done { background: var(--good); }
+.mini-goal {
+  margin: 0; flex: 0 0 auto; font-size: clamp(1.5rem, 8vw, 2.2rem); font-weight: 700;
+  line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+/* 盤面が あまった高さを吸う。吸わせないと、盤の下に大きな空きが残る。
+   縮ませはしない（縮むと さくらんぼの絵が つぶれる） */
+.mini-body { width: 100%; flex: 1 0 auto; display: grid; place-items: center; }
+.mini-body.pair { display: flex; flex-wrap: wrap; align-content: center; justify-content: center; gap: .5rem; }
+/* さくらんぼの実は枠の上のほうに来る。式に くっつかないよう ひと呼吸あける */
+.mini-body.cherry { padding-top: .4rem; }
+/* 玉は大きく。ぱっと見て かたまりで つかむための絵なので、小さいと数えてしまう */
+.mini-dots { width: 100%; max-width: 20rem; max-height: 120px; }
+
+/* 数のカード。指がおおざっぱでも押せる大きさを最優先にする */
+.mcard {
+  width: 4rem; height: 4.4rem; font-family: inherit; font-weight: 700; font-size: 1.9rem;
+  color: var(--ink); background: var(--paper);
+  border: 2px solid var(--line); border-bottom-width: 5px; border-radius: 14px;
+  cursor: pointer; font-variant-numeric: tabular-nums;
+  transition: opacity .3s ease, transform .1s ease;
+}
+.mcard:active { transform: translateY(2px); border-bottom-width: 3px; }
+.mcard.picked { background: #fff4d6; border-color: var(--amber); color: var(--amber-dark); transform: translateY(-4px); }
+.mcard.gone { opacity: 0; transform: scale(.5); pointer-events: none; }
+.mcard.ng, .mchoice.ng { animation: mini-ng .4s ease; }
+@keyframes mini-ng {
+  25% { transform: translateX(-7px); } 50% { transform: translateX(7px); } 75% { transform: translateX(-4px); }
+}
+@media (prefers-reduced-motion: reduce) { .mcard.ng, .mchoice.ng { animation: none; } }
+
+.mini-choices { display: flex; flex-wrap: wrap; justify-content: center; gap: .6rem; flex: 0 0 auto; }
+.mini-choices[hidden] { display: none; }
+.mchoice {
+  min-width: 5.2rem; min-height: 4.2rem; font-family: inherit; font-weight: 700; font-size: 2rem;
+  color: var(--ink); background: var(--paper);
+  border: 2px solid var(--line); border-bottom-width: 6px; border-radius: var(--r-md);
+  cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.mchoice:active { transform: translateY(3px); border-bottom-width: 3px; }
+
+/* ことばと、押すもの（選択肢・ヒント）は下にまとめる。
+   margin-top: auto なので、画面が低いときは 0 に戻り、上が切れることはない。 */
+.mini-say {
+  margin: auto 0 0; flex: 0 0 auto; min-height: 2.6em; display: grid; place-items: center;
+  text-align: center; font-size: 1.05rem; font-weight: 700; line-height: 1.4;
+}
+.mini-hint {
+  width: 100%; max-width: 24rem; flex: 0 0 auto;
+  display: flex; flex-direction: column; align-items: center; gap: .3rem;
+  background: rgba(255,255,255,.96); border: 2px solid var(--amber);
+  border-radius: var(--r-md); padding: .45rem .7rem;
+}
+.mini-hint[hidden] { display: none; }
+.mini-hint .tenframe { max-height: 60px; }
+/* 押せるものだと分かる程度の枠は付ける（本文にまぎれると気づかれない） */
+#mini-hint-btn {
+  flex: 0 0 auto; margin-bottom: .2rem;
+  background: rgba(255,255,255,.85); border: 2px solid var(--line);
+  border-bottom-width: 4px; color: var(--ink-2); min-height: 44px; padding: .4rem 1.4rem;
+}
+#mini-hint-btn[hidden] { display: none; }
+
+/* さくらんぼ。プレイ中の小さいものとちがい、ここでは主役なので常に出す */
+.mini-cherry { width: 100%; max-width: 15rem; height: auto; }
+.mini-cherry .branch { stroke: var(--dirt-dark); stroke-width: 5; stroke-linecap: round; }
+.mini-cherry .top { fill: #fff; stroke: var(--ink-2); stroke-width: 3; }
+.mini-cherry .leaf { fill: #fff; stroke: var(--amber); stroke-width: 3; }
+.mini-cherry .leaf.need { fill: var(--amber); }
+.mini-cherry .cn {
+  font-family: var(--font); font-weight: 700; font-size: 19px; fill: var(--ink);
+  text-anchor: middle; dominant-baseline: central;
+}
+
+.mini-clear-coins {
+  margin: 0; display: flex; align-items: center; justify-content: center; gap: .5rem;
+  font-size: 2.2rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
 
 /* ---------------- おうちのかた ---------------- */
 #screen-parent {

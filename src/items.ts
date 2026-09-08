@@ -27,6 +27,23 @@ export interface Item {
 /** たまご1個の値段。1ステージぶんのコイン（30〜60枚）で必ず1個は割れる */
 export const EGG_COST = 90;
 
+/**
+ * たまごの中身を「ねらって買う」ときの値段。
+ *
+ * ガチャだけだと、おうかんが欲しい子が おうかんに たどりつけない。
+ * 引きの悪さがそのまま「ほしいものが手に入らない」になるのは、
+ * ペットの効果を「やさしくする方向にだけ」効かせているのと同じ理由で避けたい。
+ *
+ * たまご（90）より高くしてあるので、全部そろえるならガチャのほうが早い。
+ * ねらい買いは「いま、これが欲しい」に対する出口で、集めきる近道ではない。
+ */
+export const DIRECT_COST = 210;
+
+/** その品を買うときの値段。いろは cost、たまごの中身は DIRECT_COST */
+export function priceOf(item: Item): number {
+  return item.cost ?? DIRECT_COST;
+}
+
 export const ITEMS: Item[] = [
   // ---- キャラ 12 ----
   { id: 'cat', kind: 'skin', label: 'ねこ', free: true },
@@ -55,16 +72,28 @@ export const ITEMS: Item[] = [
   { id: 'hat-horn', kind: 'hat', label: 'つの' },
   { id: 'hat-flower', kind: 'hat', label: 'おはな' },
   { id: 'hat-halo', kind: 'hat', label: 'てんしのわ' },
+  { id: 'hat-mimi', kind: 'hat', label: 'ねこみみ' },
+  { id: 'hat-wizard', kind: 'hat', label: 'まほうぼうし' },
+  { id: 'hat-helmet', kind: 'hat', label: 'ヘルメット' },
+  { id: 'hat-donut', kind: 'hat', label: 'ドーナツ' },
+  { id: 'hat-mikan', kind: 'hat', label: 'みかん' },
+  { id: 'hat-headphone', kind: 'hat', label: 'ヘッドホン' },
 
-  // ---- アクセ 6 ----
+  // ---- アクセ 12 ----
   { id: 'acc-scarf', kind: 'acc', label: 'マフラー' },
   { id: 'acc-cape', kind: 'acc', label: 'マント' },
   { id: 'acc-wings', kind: 'acc', label: 'つばさ' },
   { id: 'acc-glasses', kind: 'acc', label: 'めがね' },
   { id: 'acc-bag', kind: 'acc', label: 'リュック' },
   { id: 'acc-tail', kind: 'acc', label: 'しっぽ' },
+  { id: 'acc-bowtie', kind: 'acc', label: 'ちょうネクタイ' },
+  { id: 'acc-medal', kind: 'acc', label: 'メダル' },
+  { id: 'acc-lei', kind: 'acc', label: 'はなのわ' },
+  { id: 'acc-balloon', kind: 'acc', label: 'ふうせん' },
+  { id: 'acc-shell', kind: 'acc', label: 'こうら' },
+  { id: 'acc-jet', kind: 'acc', label: 'ジェットパック' },
 
-  // ---- いろ 9（コインで直接買う） ----
+  // ---- いろ 11（コインで直接買う） ----
   { id: 'color-sakura', kind: 'color', label: 'さくら', cost: 75 },
   { id: 'color-sora', kind: 'color', label: 'そら', cost: 75 },
   { id: 'color-mint', kind: 'color', label: 'ミント', cost: 75 },
@@ -74,6 +103,8 @@ export const ITEMS: Item[] = [
   { id: 'color-snow', kind: 'color', label: 'ゆき', cost: 75 },
   { id: 'color-night', kind: 'color', label: 'よぞら', cost: 75 },
   { id: 'color-rainbow', kind: 'color', label: 'にじいろ', cost: 240 },
+  { id: 'color-silver', kind: 'color', label: 'ぎんいろ', cost: 180 },
+  { id: 'color-gold', kind: 'color', label: 'きんいろ', cost: 240 },
 ];
 
 /** いろの中身。キャラ本来の色を上から塗りかえる */
@@ -95,6 +126,8 @@ export const COLORS: ColorDef[] = [
   { id: 'color-snow', body: '#f7f7f4', shade: '#cdd6dd' },
   { id: 'color-night', body: '#4c5a72', shade: '#333e53' },
   { id: 'color-rainbow', body: '#ff8f8f', shade: '#e06a6a', rainbow: true },
+  { id: 'color-silver', body: '#dde5ea', shade: '#a7b6c1' },
+  { id: 'color-gold', body: '#f2cd5c', shade: '#c39a1c' },
 ];
 
 export function colorDef(id: string): ColorDef | null {
@@ -135,11 +168,15 @@ export function openEgg(): Item | null {
   return item;
 }
 
-/** コインで直接買う（いろ）。買えなければ false */
+/**
+ * コインで直接買う。いろは cost、たまごの中身は DIRECT_COST（ねらい買い）。
+ * 持っている・コインが足りないときは false。
+ */
 export function buyItem(item: Item): boolean {
   const p = profile();
-  if (!item.cost || isOwned(item) || p.coins < item.cost) return false;
-  p.coins -= item.cost;
+  const cost = priceOf(item);
+  if (isOwned(item) || p.coins < cost) return false;
+  p.coins -= cost;
   p.unlocked.push(item.id);
   equip(item);
   persist();
