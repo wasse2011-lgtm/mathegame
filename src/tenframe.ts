@@ -22,6 +22,14 @@ export interface FrameArt {
   viewBox: string;
   /** 図の下に出す ことば */
   text: string;
+  /**
+   * 最後のひと押し。「のこり 3 だから…？」のように、答えの一歩手前で止める。
+   *
+   * 以前はここに「わかった！」ボタンを置いていたが、押すためのボタンであって
+   * 考えるための言葉ではなかった（押せば消えるだけ）。答えを言わずに
+   * 「だから…？」で終える一文にしておくと、絵から答えまでを自分でつなぐことになる。
+   */
+  nudge: string;
   /** 使った枠の数。4つ以上になると答えボタンを画面の外へ押し出す */
   frames: number;
 }
@@ -95,19 +103,34 @@ export function frameArt(fact: Fact, blank: boolean): FrameArt | null {
   if (blank) {
     if (sum > PLACE_MAX) return null;
     const art = layout([...fill(a, 'a'), ...fill(sum - a, 'ghost')]);
-    return { mode: 'make10', ...art, text: `${a} と いくつで ${sum}?` };
+    return {
+      mode: 'make10',
+      ...art,
+      text: `${a} と いくつで ${sum}?`,
+      nudge: 'あいてる ますは いくつ…？',
+    };
   }
 
   // 1枠におさまる足し算。大きいほうを先に置いて、そこから数えさせる
   if (sum <= 10) {
     const art = layout([...fill(big, 'a'), ...fill(small, 'b')]);
-    return { mode: 'count', ...art, text: `${big} から ${small} こ かぞえる` };
+    return {
+      mode: 'count',
+      ...art,
+      text: `${big} から ${small} こ かぞえる`,
+      nudge: 'ぜんぶで いくつ…？',
+    };
   }
 
   // 10 と いくつ。10 のまとまりが1枠まるごとになるのを見せる
   if (big === 10 && small < 10) {
     const art = layout([...fill(10, 'a'), ...fill(small, 'b')]);
-    return { mode: 'tens', ...art, text: `10 と ${small} で ${sum}` };
+    return {
+      mode: 'tens',
+      ...art,
+      text: `10 の まとまりと ${small}`,
+      nudge: `10 と ${small} だから…？`,
+    };
   }
 
   // 繰り上がり。一の位だけを2枠で描く。実数で描くと 39 + 9 が5枠になり画面に入らない
@@ -126,6 +149,7 @@ export function frameArt(fact: Fact, blank: boolean): FrameArt | null {
       viewBox: art.viewBox,
       frames: art.frames,
       text: `${c.base} に ${c.need} を あげて ${c.ten}、のこり ${c.rest}`,
+      nudge: `${c.ten} と のこり ${c.rest} だから…？`,
     };
   }
 
@@ -134,10 +158,13 @@ export function frameArt(fact: Fact, blank: boolean): FrameArt | null {
     const art = layout([...fill(big, 'a'), ...fill(small, 'b')]);
     const tens = Math.floor(sum / 10);
     const ones = sum % 10;
+    // 「で 23」まで書くと答えそのものになる。絵の読みかた（まとまりが何こ）で止めて、
+    // その先の「20 と 3 だから…？」を最後のひと言にする
     return {
       mode: 'place',
       ...art,
-      text: ones > 0 ? `10 が ${tens}こ と ${ones} で ${sum}` : `10 が ${tens}こ で ${sum}`,
+      text: ones > 0 ? `10 の まとまりが ${tens}こ と ${ones}` : `10 の まとまりが ${tens}こ`,
+      nudge: ones > 0 ? `${tens * 10} と ${ones} だから…？` : `10 が ${tens}こ だから…？`,
     };
   }
 

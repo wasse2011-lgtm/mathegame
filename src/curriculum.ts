@@ -9,14 +9,6 @@ export interface Fact {
 }
 
 /**
- * ヒントの出しかた。
- *   always … 問題が出た時点から見えている（はじめて習うところ）
- *   stuck  … 詰まったときだけ出る（いままでの挙動）
- *   none   … 自動では出ないし、ヒントボタンも押せない（しあげ）
- */
-export type HintPolicy = 'always' | 'stuck' | 'none';
-
-/**
  * ステージ1つぶん＝公文のプリント1枚にあたる小ステップ。
  *
  * 以前は8ステージが全部おなじ問題プールから引いていたので、
@@ -26,8 +18,6 @@ export interface Step {
   /** マップのマスに出る名まえ。「＋2」「9に たす」「しあげ」など */
   name: string;
   facts: Fact[];
-  /** 省略時は 'stuck'（いままでどおり、詰まったときだけ） */
-  hint?: HintPolicy;
   /** この小ステップだけ「10 + ? = 13」形式にする。省略時は World.blank */
   blank?: boolean;
   /**
@@ -132,14 +122,14 @@ export const WORLDS: World[] = [
     choices: 3,
     coinRate: 0.6,
     steps: [
-      { name: '＋1', facts: only(P1, (_, b) => b === 1), hint: 'always' },
-      { name: '1と いくつ', facts: only(P1, (a) => a === 1), hint: 'always' },
+      { name: '＋1', facts: only(P1, (_, b) => b === 1) },
+      { name: '1と いくつ', facts: only(P1, (a) => a === 1) },
       { name: '＋2', facts: only(P1, (_, b) => b === 2) },
       { name: '2と いくつ', facts: only(P1, (a) => a === 2) },
       { name: '＋3・＋4', facts: only(P1, (_, b) => b >= 3) },
       { name: '3と 4と', facts: only(P1, (a) => a >= 3) },
       { name: 'まぜこぜ', facts: P1 },
-      { name: 'しあげ', facts: P1, hint: 'none' },
+      { name: 'しあげ', facts: P1 },
     ],
   },
   {
@@ -153,14 +143,14 @@ export const WORLDS: World[] = [
     coinRate: 0.8,
     // 公文の「たす1 → たす2 → …」に合わせて、たす数を1つずつ上げていく
     steps: [
-      { name: '＋1', facts: only(P2, (_, b) => b === 1), hint: 'always' },
+      { name: '＋1', facts: only(P2, (_, b) => b === 1) },
       { name: '＋2', facts: only(P2, (_, b) => b === 2) },
       { name: '＋3', facts: only(P2, (_, b) => b === 3) },
       { name: '＋4', facts: only(P2, (_, b) => b === 4) },
       { name: '＋5', facts: only(P2, (_, b) => b === 5) },
       { name: '＋6・＋7', facts: only(P2, (_, b) => b === 6 || b === 7) },
       { name: '＋8・＋9', facts: only(P2, (_, b) => b >= 8) },
-      { name: 'しあげ', facts: P2, hint: 'none' },
+      { name: 'しあげ', facts: P2 },
     ],
   },
   {
@@ -182,14 +172,14 @@ export const WORLDS: World[] = [
     // かならず最小の選択肢になる。単独で1ステップにすると「いちばん小さいのを押す」
     // だけで通ってしまうので、答えの大きい式と必ず混ぜる。
     steps: [
-      { name: '1と9・2と8', facts: only(P3, (a) => a === 1 || a === 2 || a === 5), hint: 'always' },
-      { name: '3と7・4と6', facts: only(P3, (a) => a === 3 || a === 4 || a === 5), hint: 'always' },
-      { name: '5と5・6と4', facts: only(P3, (a) => a >= 3 && a <= 6), hint: 'always' },
+      { name: '1と9・2と8', facts: only(P3, (a) => a === 1 || a === 2 || a === 5) },
+      { name: '3と7・4と6', facts: only(P3, (a) => a === 3 || a === 4 || a === 5) },
+      { name: '5と5・6と4', facts: only(P3, (a) => a >= 3 && a <= 6) },
       { name: '7と3・8と2', facts: only(P3, (a) => a === 7 || a === 8 || a === 2 || a === 3 || a === 5) },
       { name: '9と1', facts: only(P3, (a) => a === 9 || a === 1 || a === 8 || a === 2 || a === 5) },
       { name: 'まぜこぜ', facts: P3 },
       { name: 'はやく', facts: P3 },
-      { name: 'しあげ', facts: P3, hint: 'none' },
+      { name: 'しあげ', facts: P3 },
     ],
   },
   {
@@ -203,15 +193,15 @@ export const WORLDS: World[] = [
     choices: 4,
     coinRate: 0.7,
     steps: [
-      { name: '10と 1〜5', facts: only(P4, (a, b) => a === 10 && b <= 5), hint: 'always' },
+      { name: '10と 1〜5', facts: only(P4, (a, b) => a === 10 && b <= 5) },
       { name: '10と 6〜9', facts: only(P4, (a, b) => a === 10 && b >= 6) },
-      { name: 'いれかえ 1〜5', facts: only(P4, (a, b) => b === 10 && a <= 5), hint: 'always' },
+      { name: 'いれかえ 1〜5', facts: only(P4, (a, b) => b === 10 && a <= 5) },
       { name: 'いれかえ 6〜9', facts: only(P4, (a, b) => b === 10 && a >= 6) },
       // 逆から問う。答えが 1〜9 に散るので、当てずっぽうに強い
       { name: '10と ?で', facts: only(P4, (a) => a === 10), blank: true },
       { name: 'まぜこぜ', facts: P4 },
       { name: 'はやく', facts: P4 },
-      { name: 'しあげ', facts: P4, hint: 'none' },
+      { name: 'しあげ', facts: P4 },
     ],
   },
   {
@@ -225,14 +215,14 @@ export const WORLDS: World[] = [
     coinRate: 1.3,
     // 「大きいほうから数える」を身につけるところ。9 を起点にする式から入る
     steps: [
-      { name: '9に たす', facts: only(P5, (a) => a === 9), hint: 'always' },
-      { name: '9を たす', facts: only(P5, (_, b) => b === 9), hint: 'always' },
+      { name: '9に たす', facts: only(P5, (a) => a === 9) },
+      { name: '9を たす', facts: only(P5, (_, b) => b === 9) },
       { name: '8に たす', facts: only(P5, (a) => a === 8) },
       { name: '8を たす', facts: only(P5, (_, b) => b === 8) },
       { name: '7と いくつ', facts: only(P5, (a, b) => a === 7 || b === 7) },
       { name: '6・5と いくつ', facts: only(P5, (a) => a === 6 || a === 5) },
       { name: 'まぜこぜ', facts: P5 },
-      { name: 'しあげ', facts: P5, hint: 'none' },
+      { name: 'しあげ', facts: P5 },
     ],
   },
   {
@@ -245,14 +235,14 @@ export const WORLDS: World[] = [
     choices: 4,
     coinRate: 1.4,
     steps: [
-      { name: '10だい', facts: only(P6, (a) => a <= 19), hint: 'always' },
+      { name: '10だい', facts: only(P6, (a) => a <= 19) },
       { name: '20だい', facts: only(P6, (a) => a >= 20 && a <= 29) },
       { name: '30だい', facts: only(P6, (a) => a >= 30) },
       { name: '＋1・＋2', facts: only(P6, (_, b) => b <= 2) },
       { name: '＋3・＋4', facts: only(P6, (_, b) => b === 3 || b === 4) },
       { name: '＋5・＋6', facts: only(P6, (_, b) => b === 5 || b === 6) },
       { name: '＋7・＋8', facts: only(P6, (_, b) => b >= 7) },
-      { name: 'しあげ', facts: P6, hint: 'none' },
+      { name: 'しあげ', facts: P6 },
     ],
   },
   {
@@ -265,14 +255,14 @@ export const WORLDS: World[] = [
     choices: 4,
     coinRate: 1.6,
     steps: [
-      { name: '10だい', facts: only(P7, (a) => a <= 19), hint: 'always' },
+      { name: '10だい', facts: only(P7, (a) => a <= 19) },
       { name: '20だい', facts: only(P7, (a) => a >= 20 && a <= 29) },
       { name: '30だい', facts: only(P7, (a) => a >= 30) },
       { name: '＋9', facts: only(P7, (_, b) => b === 9) },
       { name: '＋8', facts: only(P7, (_, b) => b === 8) },
       { name: '＋7・＋6', facts: only(P7, (_, b) => b === 6 || b === 7) },
       { name: 'まぜこぜ', facts: P7 },
-      { name: 'しあげ', facts: P7, hint: 'none' },
+      { name: 'しあげ', facts: P7 },
     ],
   },
   {
@@ -285,14 +275,14 @@ export const WORLDS: World[] = [
     choices: 4,
     coinRate: 1.8,
     steps: [
-      { name: '10だい どうし', facts: only(P8, (a, b) => a <= 19 && b <= 19), hint: 'always' },
+      { name: '10だい どうし', facts: only(P8, (a, b) => a <= 19 && b <= 19) },
       { name: '10だいと 20だい', facts: only(P8, (a, b) => Math.min(a, b) <= 19 && Math.max(a, b) <= 29) },
       { name: '20だい どうし', facts: only(P8, (a, b) => a <= 29 && b <= 29) },
       { name: '30だいが でる', facts: only(P8, (a, b) => a >= 30 || b >= 30) },
       { name: '一のくらいが おおきい', facts: only(P8, (a, b) => (a % 10) + (b % 10) >= 7) },
       { name: 'まぜこぜ', facts: P8 },
       { name: 'はやく', facts: P8 },
-      { name: 'しあげ', facts: P8, hint: 'none' },
+      { name: 'しあげ', facts: P8 },
     ],
   },
 ];
@@ -442,11 +432,6 @@ export function blankFor(w: World, stage: number): boolean {
   return stepOf(w, stage)?.blank ?? Boolean(w.blank);
 }
 
-/** ヒントの出しかた。ボス・デイリーは 'stuck'（負ける前の最後の助け） */
-export function hintPolicyFor(w: World, stage: number): HintPolicy {
-  return stepOf(w, stage)?.hint ?? 'stuck';
-}
-
 /** そのワールドで最後のステージ番号（＝ボス） */
 export function bossStage(w: World): number {
   return w.steps.length + 1;
@@ -454,6 +439,17 @@ export function bossStage(w: World): number {
 
 export function isBoss(w: World, stage: number): boolean {
   return stage === bossStage(w);
+}
+
+/**
+ * いちばん最後のボス（さいごのワールドのボス面）か。
+ *
+ * ヒントに回数の制限をかけるのは、ゲームじゅうでここだけ。
+ * ほかの面では、いつでも好きなだけ ヒントを呼べる（考える材料を取り上げない）。
+ * 最後のボスだけは、これまで習ったことを自分の力で出す場として残す。
+ */
+export function isFinalBoss(w: World, stage: number): boolean {
+  return w.id === WORLDS[WORLDS.length - 1].id && isBoss(w, stage);
 }
 
 export function questionCount(w: World, stage: number): number {
