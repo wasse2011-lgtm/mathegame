@@ -36,6 +36,18 @@ export const MINI_AGAIN = 10;
 /** ミニゲームを ひとつも まちがえずに やりきったときの上乗せ */
 export const MINI_PERFECT = 15;
 
+/**
+ * さいごの1問を当てて、えらんだ ぶきで しとめたときの上乗せ（フィニッシュ）。
+ *
+ * 5歳は面の途中で手を止めてしまうことがある。「最後まで行くと得がある」を
+ * 目に見える形で置いておきたいので、ここだけは
+ *   ・演出（ぶきの フィニッシュ）
+ *   ・コイン（この枚数）
+ * の両方を さいごの1問にまとめてある。途中でやめると どちらも手に入らない。
+ * ボスは踏みつけが とどめなので、そこで同じだけ払う。
+ */
+export const COIN_FINISH = 20;
+
 /** 時間切れでぶつかったとき落とす枚数 */
 export const COIN_MISS = 3;
 /** にがてな式（まちがえた回数の多い式）を、初回で正解したときの上乗せ */
@@ -83,6 +95,8 @@ export interface CoinGain {
   perfect: number;
   /** ボス／デイリー ボーナス */
   bonus: number;
+  /** さいごの1問を しとめた（フィニッシュ）。途中でやめると 0 */
+  finish: number;
   /** はじめての クリア／★3。周回では 0 */
   first: number;
   /** ぶつかって おとしたぶん（正の数で持つ） */
@@ -90,5 +104,5 @@ export interface CoinGain {
 }
 
 export function gainTotal(g: CoinGain): number {
-  return Math.max(0, g.correct + g.combo + g.weak + g.perfect + g.bonus + g.first - g.lost);
+  return Math.max(0, g.correct + g.combo + g.weak + g.perfect + g.bonus + g.finish + g.first - g.lost);
 }

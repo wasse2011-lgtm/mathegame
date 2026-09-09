@@ -31,6 +31,7 @@ import {
 } from './items';
 import { persist, profile, type SkinId } from './save';
 import { currentLook, drawChar, paintHatIcon, paintSkinIcon } from './sprites';
+import { paintWeaponIcon, weaponDef } from './weapons';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -41,9 +42,16 @@ export function onShopChange(fn: () => void): void {
   onChange = fn;
 }
 
-const TABS: ItemKind[] = ['skin', 'hat', 'acc', 'color'];
+// ぶきは2番目に置く。さいごの1問の フィニッシュに直結する品なので、
+// いちばん見にきてほしい（うしろに置くと、タブを送らないと見つからない）
+const TABS: ItemKind[] = ['skin', 'weapon', 'hat', 'acc', 'color'];
 
 let tab: ItemKind = 'skin';
+
+/** 外から開くタブを指定する（ホームの「いまの ぶき」から飛んでくる） */
+export function setShopTab(kind: ItemKind): void {
+  tab = kind;
+}
 
 // ---------------------------------------------------------------- すがた見本
 
@@ -96,6 +104,11 @@ function iconFor(canvas: HTMLCanvasElement, item: Item): void {
     case 'acc':
       paintSkinIcon(canvas, { skin: p.skin, acc: item.id, color: p.color }, 56);
       break;
+    // ぶきは キャラに持たせず、そのものを大きく見せる。
+    // 小さいマスの中で キャラの横に付けても、何を持っているのか読めない
+    case 'weapon':
+      paintWeaponIcon(canvas, item.id, 56);
+      break;
     case 'color':
       paintSkinIcon(canvas, { skin: p.skin, color: item.id }, 56);
       break;
@@ -136,7 +149,9 @@ function itemButton(item: Item): HTMLButtonElement {
     if (owned) {
       sfx.tap();
       equip(item);
-      $('shop-msg').textContent = '';
+      // ぶきは「なにが起きるか」を言う。持ちかえた理由がその場で分かるように
+      $('shop-msg').textContent =
+        item.kind === 'weapon' ? `${item.label}：${weaponDef(item.id).note}` : '';
       renderShop();
       onChange?.();
       return;

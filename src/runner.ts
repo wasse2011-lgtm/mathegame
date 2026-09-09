@@ -49,14 +49,17 @@ import { drawPet, paintPetIcon } from './petart';
 import { activePet, petPower, voiceOf, type PetDef } from './pets';
 import { QuestionPicker, isWeakFact, recordAnswer, type Question } from './questions';
 import {
-  COIN_COMBO, COIN_CORRECT, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS, COIN_PERFECT,
-  COIN_WEAK, REPLAY_RATE, gainTotal, scaled, type CoinGain,
+  COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
+  COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, scaled, type CoinGain,
 } from './rewards';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
+import {
+  FIN_CHARGE, FIN_FLY, FIN_TOTAL, drawFinish, weaponDef, type WeaponDef,
+} from './weapons';
 
 /**
  * いちばん最後のボスで押せるヒントの回数。レアなペットはここに上乗せする。
@@ -163,8 +166,9 @@ export interface RevengeResult {
 /**
  * 'wrap' はリベンジのしめくくり。帯を見せてからリザルトへ移る。
  * 'beam' は にがて たいじ の とどめ（ためて・撃って・はじけるまで）。
+ * 'finish' は さいごの1問の フィニッシュ（えらんだ ぶきで しとめる）。
  */
-type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'beam' | 'dead' | 'wrap' | 'over';
+type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'beam' | 'finish' | 'dead' | 'wrap' | 'over';
 
 /** よけた瞬間に広がる輪 */
 interface Ring {
@@ -264,7 +268,7 @@ export class Runner {
   private qIndex = 0;
   private correct = 0;
   private misses = 0;
-  private gain: CoinGain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, first: 0, lost: 0 };
+  private gain: CoinGain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, finish: 0, first: 0, lost: 0 };
   /** HUD に出しているコイン。飛んできたコインが着いた分だけ増える */
   private coinsShown = 0;
   private combo = 0;
@@ -356,6 +360,17 @@ export class Runner {
   private banner = 0;
   private bannerFull = 1.5;
   private bannerText = '';
+  /** 帯を出す高さ（画面の高さに対する割合） */
+  private bannerY = 0.34;
+
+  // フィニッシュ（さいごの1問の とどめ）
+  /** いま身につけている ぶき。走り出すたびに読みなおす */
+  private weapon: WeaponDef = weaponDef('');
+  /**
+   * フィニッシュの進行。null は「いま演出していない」。
+   * ボスの踏みつけでも使う（そのときは 当たった瞬間から始める）。
+   */
+  private fin: { t: number; hit: boolean; x: number; y: number } | null = null;
 
   // にがて たいじ の状態
   /** ビームを撃ちはじめてからの秒数（ため → 発射 → 命中） */
@@ -445,7 +460,7 @@ export class Runner {
     this.qIndex = 0;
     this.correct = 0;
     this.misses = 0;
-    this.gain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, first: 0, lost: 0 };
+    this.gain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, finish: 0, first: 0, lost: 0 };
     // 周回のコイン倍率。★3 を取り終えた面をもう一度走るぶんは軽くする
     this.prevStars = cfg.prevStars ?? 0;
     this.worldRate = cfg.world.coinRate ?? 1;
@@ -475,6 +490,10 @@ export class Runner {
     this.beamT = 0;
     this.beamHit = false;
     this.obDead = false;
+
+    // ぶきは走り出すたびに読みなおす（きせかえで持ちかえた直後に走ることがある）
+    this.weapon = weaponDef(profile().weapon);
+    this.fin = null;
 
     this.bossDefn = bossDef(cfg.world.id);
     this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
@@ -935,6 +954,11 @@ export class Runner {
         : this.picker.next();
     this.wrongThisQ = false;
     this.dodgedThisQ = false;
+    // 前の問題の演出を持ちこさない。リベンジの相手が「倒したまま」にならないよう、
+    // 敵が死んでいる印もここで戻す
+    this.fin = null;
+    this.obDead = false;
+    this.pxOff = 0;
     this.setPhase('ask');
     this.qElapsed = 0;
     this.hideHint();
@@ -963,12 +987,17 @@ export class Runner {
 
     this.launchObstacle(this.revenge ? REVENGE_TIME : 1);
 
-    // 最後の1問。大きな障害物・低い持続音・倍の粒で、ここが山場だと体で分かるようにする
+    // 最後の1問。大きな障害物・低い持続音・倍の粒で、ここが山場だと体で分かるようにする。
+    // ここで ぶきの名前を出しておくのが肝で、「当てれば これで しとめられる」が
+    // 分かってはじめて、最後の1問まで走りきる理由になる
     if (this.isFinal) {
-      this.showBanner('ラスト 1もん！', 1.4);
+      this.showBanner(`ラスト 1もん！ ${this.weapon.label}`, 1.6);
       sfx.final();
       startDrone();
     }
+    // にがて たいじ には ラスト の持続音を鳴らさないが、しめくくりは同じ。
+    // 「つぎで さいご」だけは伝える
+    if (this.hunt && this.isLastBlow()) this.showBanner(`さいごの 1ぴき！ ${this.weapon.label}`, 1.6);
 
     // ボタンの見た目は、いまの問題が決まってから（絵にできる式かどうかを見る）
     this.renderDock();
@@ -1116,6 +1145,14 @@ export class Runner {
       }
       this.markPip(firstTry);
       stopDrone();
+
+      // さいごの1問。ここだけ、えらんだ ぶきで 大げさに しとめる。
+      // ボスは突撃の踏みつけが とどめなので、そちらは beginStomp のまま
+      if (this.isLastBlow()) {
+        this.beginFinish();
+        this.updateHud(true);
+        return;
+      }
 
       // にがて たいじ は跳ばない。立ったまま構えて、ビームで撃ちぬく
       if (this.hunt) {
@@ -1316,6 +1353,100 @@ export class Runner {
     if (!this.beamHit && this.beamT >= BEAM_CHARGE + BEAM_FLY) this.beamImpact();
   }
 
+  // ---------------------------------------------------------------- フィニッシュ
+
+  /**
+   * いまの問題が「さいごの1問」か。
+   *
+   * ここが true のときだけ、正解が フィニッシュ（ぶきでの とどめ）になる。
+   * ボスを外してあるのは、ボスの とどめが 突撃を踏みつけることだから
+   * （そちらは stompHit で、同じ ぶきの光を出して同じだけコインを払う）。
+   * リベンジは「取り返す」おまけの回なので、しめくくりは本編の10問目に置く。
+   */
+  private isLastBlow(): boolean {
+    return !this.boss && !this.revenge && this.qIndex === this.total - 1;
+  }
+
+  /**
+   * さいごの1問を当てた。ためて、撃って、しとめるまでを1本の演出で見せる。
+   *
+   * ここは「最後まで やりきった人だけが見られるもの」にしてある。
+   * 途中でやめると、この演出も フィニッシュボーナスも手に入らない。
+   */
+  private beginFinish(): void {
+    this.setPhase('finish');
+    this.hold = FIN_TOTAL;
+    const s = this.s;
+
+    // 立ち位置を決める。近すぎると絵が重なり、画面のはしだと
+    // まほうじんや はじけるところが切れる。その あいだに収める
+    const near = this.playerX + 66 * s;
+    const far = Math.max(near, this.W - 54 * s);
+    const spot = this.hunt ? this.ob.x : Math.min(Math.max(this.ob.x, near), far);
+    // 近すぎたときだけ置きなおす。遠いぶんは「ためのあいだに歩いてきて止まる」
+    // ようにして、いきなり瞬間移動させない
+    if (this.ob.x < spot) this.ob.x = spot;
+    this.ob.v = Math.max(0, (this.ob.x - spot) / FIN_CHARGE);
+
+    this.fin = { t: 0, hit: false, x: spot, y: this.groundY - 26 * s };
+    this.char.air = false;
+    this.char.squash = 0.9;
+    // 帯は画面の上に逃がす。まんなかだと、まほうじんや振りかぶった
+    // ハンマーが うしろに隠れてしまう
+    this.showBanner(`フィニッシュ！ ${this.weapon.label}`, 1.4, 0.12);
+    sfx.charge();
+  }
+
+  /** 当たった瞬間。この走りでいちばん派手なところ */
+  private finishImpact(): void {
+    const f = this.fin;
+    if (!f) return;
+    f.hit = true;
+    this.obDead = true;
+    const { x, y } = f;
+    this.burst(x, y, 30, this.weapon.color);
+    this.burst(x, y, 20, this.weapon.glow);
+    this.burst(x, y, 14, '#ffffff');
+    this.rings.push({ x, y, r: 16 * this.s, life: 0.6, max: 0.6, color: this.weapon.glow });
+    this.rings.push({ x, y, r: 9 * this.s, life: 0.8, max: 0.8, color: '#ffffff' });
+    this.cheer = { text: 'たおした！', life: 1.5 };
+    this.shake = 0.5;
+    this.flash = 0.45;
+    // ここで帯は出さない。いちばん見せたい「はじけるところ」を隠してしまう
+    sfx.blast();
+    sfx.legend();
+    this.payFinish();
+  }
+
+  /** やりきったごほうび。フィニッシュを見た人にだけ払う */
+  private payFinish(): void {
+    const bonus = scaled(COIN_FINISH, this.rate);
+    if (bonus <= 0) return;
+    this.gain.finish += bonus;
+    // 「＋20」は倒した相手のところに出す。主人公の頭の上だと
+    // 掛け声（「たおした！」）と同じ場所になって、どちらも読めなくなる
+    this.spawnCoins(bonus, this.fin?.x ?? this.playerX, this.groundY - 62 * this.s);
+    this.updateHud(true);
+  }
+
+  private updateFinish(dt: number): void {
+    const f = this.fin;
+    if (!f) return;
+    f.t += dt;
+    // ためのあいだに 間合いまで来て、そこで止まる
+    if (this.ob.v > 0 && this.ob.x <= f.x) {
+      this.ob.x = f.x;
+      this.ob.v = 0;
+    }
+    // けん は踏みこんで斬る。行って、戻ってくる
+    if (this.weapon.style === 'slash') {
+      const k = Math.min(1, Math.max(0, (f.t - FIN_CHARGE) / (FIN_FLY + 0.35)));
+      const reach = Math.max(0, f.x - this.playerX - 26 * this.s);
+      this.pxOff = reach * Math.sin(k * Math.PI);
+    }
+    if (!f.hit && f.t >= FIN_CHARGE + FIN_FLY) this.finishImpact();
+  }
+
   // ---------------------------------------------------------------- ボス戦
 
   /** 攻撃をよけた瞬間の演出。よけた数がそのままボスの体力を削る */
@@ -1369,6 +1500,20 @@ export class Runner {
     this.updateBossHp();
     sfx.stomp();
     sfx.legend();
+
+    // ボスの とどめも、えらんだ ぶきの光で締める。
+    // 当たった瞬間から始めるので、ためも 飛んでいく絵も出さない
+    // （踏みつけの動きと重ねると、何が起きたのか読めなくなる）
+    this.fin = {
+      t: FIN_CHARGE + FIN_FLY,
+      hit: true,
+      x: this.bossX,
+      y: this.groundY - this.bossSize() * 0.45,
+    };
+    this.burst(this.fin.x, this.fin.y, 20, this.weapon.color);
+    this.burst(this.fin.x, this.fin.y, 12, this.weapon.glow);
+    this.showBanner(`${this.weapon.label}！`, 1.6, 0.12);
+    this.payFinish();
   }
 
   /**
@@ -1617,7 +1762,7 @@ export class Runner {
    * もらったコインを、キャラから HUD のコイン表示へ飛ばす。
    * 数字がいきなり増えるより、飛んでいくものが見えるほうが「もらった」が伝わる。
    */
-  private spawnCoins(value: number): void {
+  private spawnCoins(value: number, floatX = this.playerX, floatY = this.groundY - 52 * this.s): void {
     const n = Math.min(value, 6);
     const per = Math.floor(value / n);
     let rest = value - per * n;
@@ -1635,7 +1780,7 @@ export class Runner {
         value: per + extra,
       });
     }
-    this.float(this.playerX, this.groundY - 52 * this.s, `＋${value}`, '#e0a400');
+    this.float(floatX, floatY, `＋${value}`, '#e0a400');
   }
 
   private float(x: number, y: number, text: string, color: string): void {
@@ -1684,8 +1829,9 @@ export class Runner {
     this.t += dt;
     this.elapsed += dt;
     // にがて たいじ では走らない。位相を止めておかないと、動かない地面の上で
-    // 足だけ動きつづけて「走っているのに進まない」絵になる
-    this.char.t = this.hunt ? 0 : this.t;
+    // 足だけ動きつづけて「走っているのに進まない」絵になる。
+    // フィニッシュも同じ。足を止めて向かい合う
+    this.char.t = this.hunt || this.phase === 'finish' ? 0 : this.t;
     if (this.char.hurt > 0) this.char.hurt -= dt;
     this.tickEffects(dt);
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
@@ -1713,13 +1859,17 @@ export class Runner {
 
     this.ob.x -= this.ob.v * dt;
     // にがて たいじ は立ち止まっている。地面まで流すと、動かない敵だけが
-    // 取り残されて滑って見える
-    if (!this.hunt) {
+    // 取り残されて滑って見える。フィニッシュも同じで、そこだけ景色を止めて
+    // 向かい合う（走りながら撃つと、何が起きたのか見えない）
+    if (!this.hunt && this.phase !== 'finish') {
       this.scroll += Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
     }
 
     if (this.boss) this.updateBoss(dt);
     if (this.phase === 'beam') this.updateBeam(dt);
+    // フィニッシュは phase で見ない。ボスの踏みつけ（phase は 'stomp'）でも
+    // 同じ ぶきの光を出すので、あるかどうかだけで進める
+    if (this.fin) this.updateFinish(dt);
 
     // つかれたペットが、画面の外へ歩いていくところ
     if (this.petExit > 0 && this.petExit < 1) {
@@ -1820,7 +1970,7 @@ export class Runner {
     } else if (this.hunt) {
       // 倒したあとは描かない。撃ちぬかれた粒だけが残る
       if (!this.obDead) this.drawHuntEnemy();
-    } else if (this.ob.x > -80 * s) {
+    } else if (!this.obDead && this.ob.x > -80 * s) {
       // 止めているあいだは、押し返してくるぶんだけ手前へずらして描く。
       // 絵の時間（this.t は止まっている）も進めて、相手だけは動きつづけさせる
       drawObstacle(g, this.incomingX(), this.groundY, 30 * s * this.ob.scale, this.ob.kind, this.holdT());
@@ -1839,6 +1989,19 @@ export class Runner {
     if (this.ride <= 0) this.drawFollower();
     // ビームは主人公の手もとから出る。キャラより手前に描く
     if (this.phase === 'beam') this.drawBeam();
+    // フィニッシュも同じ。手もとから出て、相手のところで はじける
+    if (this.fin) {
+      drawFinish(g, this.weapon, {
+        t: this.fin.t,
+        s,
+        // 手もと（drawWeaponHeld が ぶきを置いている高さ）から出す。
+        // ここをずらすと、持っている絵と光の出どころが別の場所になる
+        fromX: this.px + 20 * s,
+        fromY: this.groundY - 18 * s,
+        toX: this.fin.x,
+        toY: this.fin.y,
+      });
+    }
     // ペットを連れていなくても、止まっていることは画で分かるようにする
     if (this.hintPaused && !this.pet) this.drawStopMark();
 
@@ -2376,10 +2539,18 @@ export class Runner {
     g.stroke();
   }
 
-  private showBanner(text: string, sec: number): void {
+  /**
+   * 帯を出す。
+   *
+   * yk は画面のどの高さに出すか（0〜1）。ふだんは まんなかあたりだが、
+   * フィニッシュのときだけ上に逃がす。まんなかのままだと、まほうじんや
+   * 振りかぶったハンマーが 帯のうしろに隠れて、何が起きているのか見えない。
+   */
+  private showBanner(text: string, sec: number, yk = 0.34): void {
     this.bannerText = text;
     this.bannerFull = sec;
     this.banner = sec;
+    this.bannerY = yk;
   }
 
   private drawBanner(): void {
@@ -2387,7 +2558,7 @@ export class Runner {
     const { W, H, s } = this;
     const t = Math.min(1, (this.bannerFull - this.banner) * 5);
     const alpha = Math.min(1, this.banner * 2.5);
-    const y = H * 0.34;
+    const y = Math.max(H * this.bannerY, 22 * s);
     g.save();
     g.globalAlpha = alpha;
     g.fillStyle = 'rgba(255,197,61,.92)';

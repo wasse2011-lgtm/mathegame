@@ -24,8 +24,30 @@
 
     <!-- ===== ホーム ===== -->
     <section class="screen" id="screen-title" data-screen="title">
+      <!-- タイトルの背景。レイアウトには一切かかわらない（絶対配置）ので、
+           行が増えても ロゴやボタンの位置は動かない。
+           おひさま・くも・とりが ゆっくり動いていて、開いた瞬間に「動いている画面」に見える -->
+      <div class="sky-deco" aria-hidden="true">
+        <span class="sun"></span>
+        <span class="cloud c1"></span>
+        <span class="cloud c2"></span>
+        <span class="cloud c3"></span>
+        <span class="bird b1"></span>
+        <span class="bird b2"></span>
+        <span class="hill h1"></span>
+        <span class="hill h2"></span>
+        <span class="spark p1">✦</span>
+        <span class="spark p2">✧</span>
+        <span class="spark p3">✦</span>
+      </div>
+
       <div class="title-inner">
-        <h1 class="logo" id="logo"><span class="logo-a">ぴょんぴょん</span><span class="logo-b">ゲーム</span></h1>
+        <h1 class="logo" id="logo">
+          <span class="logo-a">ぴょんぴょん</span><span class="logo-b">ゲーム</span>
+          <span class="logo-star s-l" aria-hidden="true">★</span>
+          <span class="logo-star s-r" aria-hidden="true">★</span>
+        </h1>
+        <p class="title-tag">こたえを タップして ぴょーん！</p>
 
         <p class="no-storage" id="no-storage" hidden>
           このひらきかたでは <b>きろくが のこりません</b>。<br>
@@ -91,6 +113,17 @@
             <span class="bar"><i id="pet-bar"></i></span>
             <b id="pet-count">0 / 30</b>
           </div>
+
+          <!-- いま持っている ぶき。さいごの1問で これを使って しとめる。
+               押すと きせかえの「ぶき」タブへ直行する -->
+          <button class="weapon-strip" id="weapon-strip" type="button">
+            <canvas id="weapon-icon" aria-hidden="true"></canvas>
+            <span class="ws-text">
+              <b id="weapon-name">ロケットパンチ</b>
+              <span id="weapon-note">さいごの 1もんで こぶしが とんでいく</span>
+            </span>
+            <span class="ws-go" aria-hidden="true">›</span>
+          </button>
 
           <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかん・きせかえ・ぼくじょうは みられるよ。</p>
         </div>
@@ -492,6 +525,18 @@
           使いきるとその挑戦のあいだは休みに入ります（次の挑戦では戻ってきます）。
         </p>
 
+        <h3 class="p-h">きせかえと ぶき</h3>
+        <p class="p-note">
+          きせかえ（キャラ・ぶき・ぼうし・アクセ・いろ）は見た目だけで、問題の難しさ・制限時間・
+          ★・図鑑には一切影響しません。「ぶき」が効くのはステージ／きょうの5もん／にがて たいじの
+          最後の1問だけで、当てたときの倒しかたの演出が変わります（当たり判定はありません）。
+        </p>
+        <p class="p-note">
+          最後の1問を当てるとフィニッシュの演出とコイン（＋20）が付きます。途中でやめると
+          どちらも付きません。面の途中で離脱しやすい子に、最後まで行く理由をひとつ置くための
+          しかけです。まちがえて時間切れになった場合も演出は出ません。
+        </p>
+
         <h3 class="p-h">ミニゲーム</h3>
         <p class="p-note">
           「いくつ？」「ペアあわせ」「さくらんぼ わけ」の3つは、時間制限のない練習用です。
@@ -523,6 +568,8 @@
     <div class="overlay" id="overlay-pause" hidden>
       <div class="sheet">
         <p class="sheet-head">ちょっと きゅうけい</p>
+        <!-- さいごまで行くと何があるかを、やめる前に1行だけ置く -->
+        <p class="pause-note" id="pause-note"></p>
         <button class="btn btn-primary btn-xl" id="pause-resume" type="button">つづける</button>
         <button class="btn btn-ghost" id="pause-quit" type="button">もどる</button>
       </div>

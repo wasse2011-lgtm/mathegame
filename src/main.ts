@@ -32,7 +32,7 @@ import {
 } from './pets';
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
-import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
+import { initShop, onShopChange, renderShop, setShopTab, startShopIdle } from './shop';
 import { MASTERED, weakFactCount, weakFacts, weakestFacts } from './questions';
 import { COIN_BOSS, COIN_DAILY, COIN_HUNT } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
@@ -55,6 +55,7 @@ import {
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
+import { paintWeaponIcon, weaponDef } from './weapons';
 import {
   initZukan,
   onZukanChange,
@@ -393,6 +394,13 @@ function renderTitle(): void {
   $('pet-count').textContent = `${pets} / ${PET_COUNT}`;
   $('pet-bar').style.width = `${(pets / PET_COUNT) * 100}%`;
 
+  // いま持っている ぶき。さいごの1問で これが出る、とホームの時点で見せておく。
+  // ここが見えていないと、フィニッシュは「たまたま出た演出」で終わってしまう
+  const wp = weaponDef(p.weapon);
+  $('weapon-name').textContent = wp.label;
+  $('weapon-note').textContent = `さいごの 1もんで ${wp.note}`;
+  paintWeaponIcon($<HTMLCanvasElement>('weapon-icon'), wp.id, 42);
+
   // いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方）
   $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= GACHA_COST);
   $('ranch-badge').hidden = !(pets < PET_COUNT && p.coins >= PET_EGG_COST);
@@ -583,6 +591,13 @@ function leaveCollection(): void {
 
 $('btn-shop').addEventListener('click', () => {
   sfx.tap();
+  openCollection('shop', 'home');
+});
+
+// ホームの「いまの ぶき」から、きせかえの ぶきタブへ直行する
+$('weapon-strip').addEventListener('click', () => {
+  sfx.tap();
+  setShopTab('weapon');
   openCollection('shop', 'home');
 });
 
@@ -954,6 +969,10 @@ function startRun(cfg: RunConfig): void {
 
 $('btn-pause').addEventListener('click', () => {
   runner.setPaused(true);
+  // 「もどる」を押す前に、さいごまで行くと何が待っているかを1行だけ置く。
+  // 途中でやめると フィニッシュも そのボーナスも手に入らない
+  $('pause-note').textContent =
+    `さいごの 1もんまで いくと、${weaponDef(profile().weapon).label} で フィニッシュ！`;
   $('overlay-pause').hidden = false;
 });
 
@@ -1095,6 +1114,9 @@ function coinLines(r: StageResult): CoinLine[] {
   if (r.gain.combo) out.push({ label: 'れんぞく ボーナス', value: r.gain.combo });
   if (r.gain.weak) out.push({ label: 'にがて げきは', value: r.gain.weak });
   if (r.gain.perfect) out.push({ label: 'ノーミス ボーナス', value: r.gain.perfect });
+  // さいごまで やりきった人だけの行。ぶきの名前で出して、
+  // 「これが見たいから最後まで行く」を、リザルトでもういちど結びつける
+  if (r.gain.finish) out.push({ label: `${weaponDef(profile().weapon).label} フィニッシュ`, value: r.gain.finish });
   // 周回を軽くしたぶんは「減った」とは出さない。初回の上乗せとしてだけ見せる
   if (r.gain.first) {
     out.push({
