@@ -3,13 +3,21 @@
 import { colorDef } from './items';
 import { profile, type SkinId } from './save';
 import type { ObstacleKind } from './theme';
+import { drawWeaponHeld } from './weapons';
 
 export interface SkinDef {
   id: SkinId;
   label: string;
   body: string;
   shade: string;
-  ear: 'cat' | 'dog' | 'robo' | 'rabbit' | 'round' | 'fluff' | 'horn' | 'none';
+  ear:
+    | 'cat' | 'dog' | 'robo' | 'rabbit' | 'round' | 'fluff' | 'horn' | 'none'
+    /** ヒーローの あたまの ひれ */
+    | 'crest'
+    /** ツインテール */
+    | 'twin'
+    /** ようせいの しょっかく */
+    | 'antenna';
   /** おなかの白い部分（ぺんぎん・あざらし） */
   belly?: boolean;
   /** とらの しま模様 */
@@ -18,6 +26,12 @@ export interface SkinDef {
   patch?: boolean;
   /** ドラゴンっこ の せなかの はね */
   wing?: boolean;
+  /** ヒーローの マスク（大きな目）と、むねの タイマー */
+  mask?: boolean;
+  /** かいじゅうの せなかの とげ */
+  spike?: boolean;
+  /** まほうたんてい の えりの フリル */
+  frill?: boolean;
 }
 
 export const SKINS: SkinDef[] = [
@@ -33,6 +47,10 @@ export const SKINS: SkinDef[] = [
   { id: 'tora', label: 'とら', body: '#f5c045', shade: '#b8791a', ear: 'cat', stripe: true },
   { id: 'azarashi', label: 'あざらし', body: '#aec4d6', shade: '#89a3ba', ear: 'none', belly: true },
   { id: 'dora', label: 'ドラゴンっこ', body: '#79c79a', shade: '#4f9f73', ear: 'horn', wing: true, belly: true },
+  { id: 'hero', label: 'ヒカリヒーロー', body: '#e6edf2', shade: '#d64b3f', ear: 'crest', mask: true },
+  { id: 'kaiju', label: 'かいじゅうっこ', body: '#7fb36b', shade: '#4f8b45', ear: 'horn', spike: true, belly: true },
+  { id: 'magi', label: 'まほうたんてい', body: '#f8bcd4', shade: '#e07ba4', ear: 'twin', frill: true },
+  { id: 'yousei', label: 'ようせい', body: '#cbe8ff', shade: '#89bfe8', ear: 'antenna', wing: true },
 ];
 
 export function skinDef(id: SkinId): SkinDef {
@@ -45,12 +63,14 @@ export interface Look {
   hat?: string;
   acc?: string;
   color?: string;
+  /** 手に持っている ぶき。さいごの1問の フィニッシュで使うもの */
+  weapon?: string;
 }
 
 /** セーブされている、いまの見た目 */
 export function currentLook(): Look {
   const p = profile();
-  return { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color };
+  return { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
 }
 
 export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -387,6 +407,94 @@ export function drawHat(g: CanvasRenderingContext2D, cx: number, headY: number, 
       }
       break;
     }
+    case 'hat-crest': {
+      // ヒーローの あたまの ひれ。前から後ろへ すっと立てる
+      g.fillStyle = '#e2e8ee';
+      g.strokeStyle = '#c0453a';
+      g.lineWidth = Math.max(1.5, s * 0.035);
+      g.beginPath();
+      g.moveTo(cx - s * 0.3, headY + s * 0.1);
+      g.quadraticCurveTo(cx - s * 0.02, headY - s * 0.46, cx + s * 0.34, headY - s * 0.02);
+      g.quadraticCurveTo(cx + s * 0.06, headY - s * 0.12, cx - s * 0.3, headY + s * 0.1);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#c0453a';
+      g.beginPath();
+      g.moveTo(cx - s * 0.16, headY - s * 0.06);
+      g.quadraticCurveTo(cx, headY - s * 0.3, cx + s * 0.18, headY - s * 0.05);
+      g.quadraticCurveTo(cx, headY - s * 0.12, cx - s * 0.16, headY - s * 0.06);
+      g.closePath();
+      g.fill();
+      break;
+    }
+    case 'hat-deer': {
+      // たんていハット。よこの みみあてと 上下の つば
+      g.fillStyle = '#a98f6a';
+      g.beginPath();
+      g.ellipse(cx, headY + s * 0.04, s * 0.44, s * 0.11, 0, 0, Math.PI * 2);
+      g.fill();
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.ellipse(cx + dir * s * 0.34, headY + s * 0.08, s * 0.13, s * 0.16, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.beginPath();
+      g.arc(cx, headY + s * 0.04, s * 0.3, Math.PI, 0);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#8a734f';
+      for (const dx of [-0.18, 0.04]) {
+        g.beginPath();
+        g.ellipse(cx + s * dx, headY - s * 0.1, s * 0.07, s * 0.05, 0.3, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
+    case 'hat-tiara': {
+      g.fillStyle = '#ffd75e';
+      g.strokeStyle = '#d99a10';
+      g.lineWidth = Math.max(1.2, s * 0.03);
+      g.beginPath();
+      g.moveTo(cx - s * 0.3, headY + s * 0.06);
+      g.quadraticCurveTo(cx, headY - s * 0.02, cx + s * 0.3, headY + s * 0.06);
+      g.lineTo(cx + s * 0.24, headY - s * 0.06);
+      g.lineTo(cx + s * 0.12, headY + s * 0.02);
+      g.lineTo(cx, headY - s * 0.24);
+      g.lineTo(cx - s * 0.12, headY + s * 0.02);
+      g.lineTo(cx - s * 0.24, headY - s * 0.06);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#ff8fb1';
+      g.beginPath();
+      g.arc(cx, headY - s * 0.13, s * 0.055, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'hat-goggle': {
+      // おでこに あげた ゴーグル
+      g.strokeStyle = '#5b6672';
+      g.lineWidth = Math.max(2.5, s * 0.09);
+      g.beginPath();
+      g.arc(cx, headY + s * 0.26, s * 0.44, Math.PI * 1.1, Math.PI * 1.9);
+      g.stroke();
+      for (const dir of [-1, 1]) {
+        g.fillStyle = '#3d4653';
+        g.beginPath();
+        g.ellipse(cx + dir * s * 0.17, headY + s * 0.02, s * 0.15, s * 0.13, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#8fd8f5';
+        g.beginPath();
+        g.ellipse(cx + dir * s * 0.17, headY + s * 0.02, s * 0.1, s * 0.085, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = 'rgba(255,255,255,.75)';
+        g.beginPath();
+        g.ellipse(cx + dir * s * 0.14, headY - s * 0.01, s * 0.035, s * 0.03, -0.4, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
     default:
       break;
   }
@@ -585,6 +693,92 @@ function drawAccFront(g: CanvasRenderingContext2D, acc: string, x: number, y: nu
       g.fill();
       break;
     }
+    case 'acc-timer': {
+      // むねの タイマー。ゆっくり点滅する（元気なうちは青、たまに赤くなる）
+      const beat = (Math.sin(t * 3.2) + 1) / 2;
+      const cx2 = x + s * 0.5;
+      const cy2 = y + s * 0.82;
+      g.fillStyle = '#c9d4dc';
+      g.beginPath();
+      g.ellipse(cx2, cy2, s * 0.13, s * 0.16, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = beat > 0.6 ? '#ff6f5e' : '#6fd6f0';
+      g.beginPath();
+      g.ellipse(cx2, cy2, s * 0.09, s * 0.12, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.7)';
+      g.beginPath();
+      g.ellipse(cx2 - s * 0.03, cy2 - s * 0.04, s * 0.03, s * 0.04, 0, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+    case 'acc-line': {
+      // ヒーローの からだの ライン。丸みからはみ出さないよう clip する
+      g.save();
+      roundRect(g, x, y, s, s, s * 0.3);
+      g.clip();
+      g.fillStyle = '#e04b3c';
+      g.beginPath();
+      g.moveTo(x + s * 0.5, y + s * 0.68);
+      g.lineTo(x + s * 0.16, y + s * 1.02);
+      g.lineTo(x + s * 0.34, y + s * 1.02);
+      g.lineTo(x + s * 0.5, y + s * 0.84);
+      g.lineTo(x + s * 0.66, y + s * 1.02);
+      g.lineTo(x + s * 0.84, y + s * 1.02);
+      g.closePath();
+      g.fill();
+      roundRect(g, x - s * 0.02, y + s * 0.58, s * 1.04, s * 0.07, s * 0.035);
+      g.fill();
+      g.restore();
+      break;
+    }
+    case 'acc-lens': {
+      // むしめがね。名たんていの あかし
+      const swing = Math.sin(t * 4) * 0.12;
+      const hx = x - s * 0.06;
+      const hy = y + s * 0.78;
+      g.save();
+      g.translate(hx, hy);
+      g.rotate(-0.5 + swing);
+      g.strokeStyle = '#8a734f';
+      g.lineWidth = Math.max(2, s * 0.07);
+      g.lineCap = 'round';
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(0, s * 0.3);
+      g.stroke();
+      g.strokeStyle = '#c9a13c';
+      g.lineWidth = Math.max(2, s * 0.06);
+      g.beginPath();
+      g.arc(0, -s * 0.16, s * 0.17, 0, Math.PI * 2);
+      g.stroke();
+      g.fillStyle = 'rgba(210,240,255,.55)';
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      g.beginPath();
+      g.ellipse(-s * 0.05, -s * 0.21, s * 0.05, s * 0.03, -0.5, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+      break;
+    }
+    case 'acc-frill': {
+      // えりの フリル。首のあたりに 小さな山を並べる
+      const fy = y + s * 0.74;
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.moveTo(x + s * 0.06, fy);
+      for (let i = 0; i < 6; i++) {
+        const fx = x + s * (0.06 + (i / 6) * 0.88);
+        g.quadraticCurveTo(fx + s * 0.07, fy + s * 0.17, fx + s * 0.147, fy);
+      }
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#ff8fb1';
+      g.beginPath();
+      g.arc(x + s * 0.5, fy + s * 0.02, s * 0.07, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
     case 'acc-lei': {
       const lx = x + s * 0.5;
       const ly = y + s * 0.72;
@@ -635,6 +829,23 @@ export function drawChar(
   const y = footY - s;
 
   if (look.acc) drawAccBack(g, look.acc, x, y, s, st.t);
+
+  // かいじゅう の せなかの とげ。からだより先（奥）に描く
+  if (def.spike) {
+    g.fillStyle = shade;
+    for (const [dy, r] of [
+      [0.2, 0.14],
+      [0.46, 0.17],
+      [0.74, 0.13],
+    ] as const) {
+      g.beginPath();
+      g.moveTo(x + s * 0.06, y + s * dy);
+      g.lineTo(x - s * (0.06 + r), y + s * (dy + r * 0.5));
+      g.lineTo(x + s * 0.06, y + s * (dy + r * 1.3));
+      g.closePath();
+      g.fill();
+    }
+  }
 
   // ドラゴンっこ の はね
   if (def.wing) {
@@ -726,6 +937,57 @@ export function drawChar(
       g.closePath();
       g.fill();
     }
+  } else if (def.ear === 'crest') {
+    // ヒーローの あたまの ひれ。前から後ろへ 一枚
+    g.beginPath();
+    g.moveTo(cx - s * 0.34, y + s * 0.18);
+    g.quadraticCurveTo(cx - s * 0.02, y - s * 0.42, cx + s * 0.36, y + s * 0.06);
+    g.quadraticCurveTo(cx + s * 0.04, y - s * 0.08, cx - s * 0.34, y + s * 0.18);
+    g.closePath();
+    g.fill();
+  } else if (def.ear === 'twin') {
+    // ツインテール。走ると すこし ゆれる
+    const sway = st.air ? -0.18 : Math.sin(st.t * 9) * 0.12;
+    for (const dir of [-1, 1]) {
+      g.save();
+      // からだ（半径 0.5s）より外に出るところまで振り出さないと、
+      // 小さいアイコンでは ただの四角にしか見えない
+      g.translate(cx + dir * s * 0.42, y + s * 0.14);
+      // 外側へ はねさせる。符号を逆にすると、からだの内側へ回りこんで
+      // 丸ごと隠れる（小さいアイコンでは ただの四角に見えてしまう）
+      g.rotate(-dir * (0.34 + sway));
+      g.beginPath();
+      g.moveTo(0, -s * 0.1);
+      g.quadraticCurveTo(dir * s * 0.42, s * 0.18, dir * s * 0.22, s * 0.66);
+      g.quadraticCurveTo(dir * s * 0.02, s * 0.24, -dir * s * 0.08, -s * 0.1);
+      g.closePath();
+      g.fill();
+      g.restore();
+      // むすび目
+      g.save();
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.arc(cx + dir * s * 0.42, y + s * 0.13, s * 0.085, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
+  } else if (def.ear === 'antenna') {
+    // ようせいの しょっかく。先の玉が ふわふわ光る
+    const wob = Math.sin(st.t * 4) * s * 0.03;
+    g.strokeStyle = shade;
+    g.lineWidth = Math.max(1.5, s * 0.045);
+    g.lineCap = 'round';
+    for (const dir of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(cx + dir * s * 0.14, y + s * 0.08);
+      g.quadraticCurveTo(cx + dir * s * 0.3, y - s * 0.2, cx + dir * s * 0.24, y - s * 0.34 + wob);
+      g.stroke();
+      g.fillStyle = '#fff3a8';
+      g.beginPath();
+      g.arc(cx + dir * s * 0.24, y - s * 0.36 + wob, s * 0.07, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = shade;
+    }
   }
 
   // からだ
@@ -763,10 +1025,65 @@ export function drawChar(
     }
   }
 
+  // まほうたんてい の えりの フリル（からだの上・かおの下）
+  if (def.frill && st.hurt <= 0) {
+    g.fillStyle = '#fff';
+    const fy = y + s * 0.76;
+    g.beginPath();
+    g.moveTo(x + s * 0.04, fy);
+    for (let i = 0; i < 6; i++) {
+      const fx = x + s * (0.04 + (i / 6) * 0.92);
+      g.quadraticCurveTo(fx + s * 0.077, fy + s * 0.16, fx + s * 0.153, fy);
+    }
+    g.closePath();
+    g.fill();
+  }
+
   // かお
   g.fillStyle = INK;
   const ey = y + s * 0.42;
-  if (st.hurt > 0) {
+  if (def.mask && st.hurt <= 0) {
+    // ヒーローのマスク。大きな目が ひかる。むねの タイマーも いっしょに脈打つ
+    g.fillStyle = '#f4f8fb';
+    roundRect(g, x + s * 0.12, y + s * 0.16, s * 0.76, s * 0.56, s * 0.24);
+    g.fill();
+    g.fillStyle = '#ffe45e';
+    for (const dir of [-1, 1]) {
+      g.save();
+      g.translate(cx + dir * s * 0.19, ey);
+      g.rotate(dir * 0.34);
+      g.beginPath();
+      g.ellipse(0, 0, s * 0.15, s * 0.1, 0, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
+    g.fillStyle = 'rgba(255,255,255,.8)';
+    for (const dir of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(cx + dir * s * 0.19, ey - s * 0.03, s * 0.05, s * 0.03, dir * 0.34, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = shade;
+    roundRect(g, cx - s * 0.03, y + s * 0.2, s * 0.06, s * 0.44, s * 0.03);
+    g.fill();
+    g.strokeStyle = INK;
+    g.lineWidth = Math.max(2, s * 0.045);
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(cx - s * 0.09, y + s * 0.66);
+    g.lineTo(cx + s * 0.09, y + s * 0.66);
+    g.stroke();
+    // むねの カラータイマー
+    const beat = (Math.sin(st.t * 3.2) + 1) / 2;
+    g.fillStyle = '#c9d4dc';
+    g.beginPath();
+    g.ellipse(cx, y + s * 0.86, s * 0.11, s * 0.13, 0, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = beat > 0.6 ? '#ff6f5e' : '#6fd6f0';
+    g.beginPath();
+    g.ellipse(cx, y + s * 0.86, s * 0.075, s * 0.095, 0, 0, Math.PI * 2);
+    g.fill();
+  } else if (st.hurt > 0) {
     g.strokeStyle = INK;
     g.lineWidth = Math.max(2, s * 0.06);
     g.lineCap = 'round';
@@ -809,7 +1126,7 @@ export function drawChar(
   }
 
   // ほっぺ
-  if (st.hurt <= 0 && !def.patch) {
+  if (st.hurt <= 0 && !def.patch && !def.mask) {
     g.fillStyle = 'rgba(255,138,128,.45)';
     g.beginPath();
     g.arc(x + s * 0.17, y + s * 0.6, s * 0.08, 0, Math.PI * 2);
@@ -821,6 +1138,8 @@ export function drawChar(
 
   if (look.acc) drawAccFront(g, look.acc, x, y, s, st.t);
   if (look.hat) drawHat(g, cx, y, s, look.hat);
+  // ぶきは いちばん手前。持っているものが ひと目で分かるようにする
+  if (look.weapon) drawWeaponHeld(g, look.weapon, x, y, s, st.t);
 
   g.restore();
 }

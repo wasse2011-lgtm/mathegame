@@ -15,8 +15,9 @@
  */
 
 import { persist, profile, type SkinId } from './save';
+import { WEAPONS } from './weapons';
 
-export type ItemKind = 'skin' | 'hat' | 'acc' | 'color';
+export type ItemKind = 'skin' | 'hat' | 'acc' | 'weapon' | 'color';
 
 export interface Item {
   id: string;
@@ -31,6 +32,7 @@ export const KIND_LABEL: Record<ItemKind, string> = {
   skin: 'キャラ',
   hat: 'ぼうし',
   acc: 'アクセ',
+  weapon: 'ぶき',
   color: 'いろ',
 };
 
@@ -57,6 +59,13 @@ export const ITEMS: Item[] = [
   { id: 'tora', kind: 'skin', label: 'とら' },
   { id: 'azarashi', kind: 'skin', label: 'あざらし' },
   { id: 'dora', kind: 'skin', label: 'ドラゴンっこ' },
+  // ひかりの ヒーローと、その相手の かいじゅう。
+  // まほうたんてい と ようせい は、ぼうし「たんていハット」「ティアラ」や
+  // アクセ「むしめがね」と組み合わせて遊べるようにしてある
+  { id: 'hero', kind: 'skin', label: 'ヒカリヒーロー' },
+  { id: 'kaiju', kind: 'skin', label: 'かいじゅうっこ' },
+  { id: 'magi', kind: 'skin', label: 'まほうたんてい' },
+  { id: 'yousei', kind: 'skin', label: 'ようせい' },
 
   // ---- ぼうし 12 ----
   { id: 'hat-cap', kind: 'hat', label: 'キャップ' },
@@ -77,6 +86,10 @@ export const ITEMS: Item[] = [
   { id: 'hat-donut', kind: 'hat', label: 'ドーナツ' },
   { id: 'hat-mikan', kind: 'hat', label: 'みかん' },
   { id: 'hat-headphone', kind: 'hat', label: 'ヘッドホン' },
+  { id: 'hat-crest', kind: 'hat', label: 'ヒーロークレスト' },
+  { id: 'hat-deer', kind: 'hat', label: 'たんていハット' },
+  { id: 'hat-tiara', kind: 'hat', label: 'ティアラ' },
+  { id: 'hat-goggle', kind: 'hat', label: 'ゴーグル' },
 
   // ---- アクセ 12 ----
   { id: 'acc-scarf', kind: 'acc', label: 'マフラー' },
@@ -91,6 +104,15 @@ export const ITEMS: Item[] = [
   { id: 'acc-balloon', kind: 'acc', label: 'ふうせん' },
   { id: 'acc-shell', kind: 'acc', label: 'こうら' },
   { id: 'acc-jet', kind: 'acc', label: 'ジェットパック' },
+  { id: 'acc-timer', kind: 'acc', label: 'カラータイマー' },
+  { id: 'acc-line', kind: 'acc', label: 'ヒーローライン' },
+  { id: 'acc-lens', kind: 'acc', label: 'むしめがね' },
+  { id: 'acc-frill', kind: 'acc', label: 'フリルえり' },
+
+  // ---- ぶき ----
+  // 中身は weapons.ts。ここに名前を書き写すと、フィニッシュの絵と
+  // きせかえのマスで名前がずれるので、必ず向こうから持ってくる
+  ...WEAPONS.map((w): Item => ({ id: w.id, kind: 'weapon', label: w.label, free: w.free })),
 
   // ---- いろ 11 ----
   { id: 'color-sakura', kind: 'color', label: 'さくら' },
@@ -171,12 +193,17 @@ export function rollGacha(kind: ItemKind): Item | null {
   return item;
 }
 
-/** 身につける。おなじものをもう一度えらぶと外れる（キャラだけは外せない） */
+/** 身につける。おなじものをもう一度えらぶと外れる（キャラと ぶき だけは外せない） */
 export function equip(item: Item): void {
   const p = profile();
   switch (item.kind) {
     case 'skin':
       p.skin = item.id as SkinId;
+      break;
+    // ぶきは「持ちかえる」もの。外せてしまうと、さいごの1問で
+    // フィニッシュが出ない状態を子どもが自分で作れてしまう
+    case 'weapon':
+      p.weapon = item.id;
       break;
     case 'hat':
       p.hat = p.hat === item.id ? '' : item.id;
@@ -200,6 +227,8 @@ export function isEquipped(item: Item): boolean {
       return p.hat === item.id;
     case 'acc':
       return p.acc === item.id;
+    case 'weapon':
+      return p.weapon === item.id;
     case 'color':
       return p.color === item.id;
     default:

@@ -7,6 +7,7 @@
  */
 
 import { COIN_SCALE } from './rewards';
+import { DEFAULT_WEAPON } from './weapons';
 
 export type SkinId =
   | 'cat'
@@ -20,7 +21,11 @@ export type SkinId =
   | 'sheep'
   | 'tora'
   | 'azarashi'
-  | 'dora';
+  | 'dora'
+  | 'hero'
+  | 'kaiju'
+  | 'magi'
+  | 'yousei';
 
 /** きろくの枠の数 */
 export const SLOTS = 3;
@@ -68,6 +73,12 @@ export interface Profile {
   acc: string;
   /** からだの色のアイテムID。'' はキャラ本来の色 */
   color: string;
+  /**
+   * 持っている ぶきのアイテムID。
+   * ぼうし・アクセとちがって「なし」にはできない（キャラと同じ扱い）。
+   * さいごの1問の フィニッシュで必ず1本つかうので、空だと何も起きなくなる。
+   */
+  weapon: string;
   coins: number;
   /** "1-3" → 星の数 (1..3) */
   stars: Record<string, number>;
@@ -142,6 +153,7 @@ function freshProfile(): Profile {
     hat: '',
     acc: '',
     color: '',
+    weapon: DEFAULT_WEAPON,
     coins: 0,
     stars: {},
     facts: {},
@@ -263,6 +275,9 @@ function read(): SaveData {
       stars: p?.stars ?? {},
       facts: p?.facts ?? {},
       unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
+      // ぶきは後から足した。古いセーブには無いので、必ず1本目に落とす
+      // （'' のままだと、さいごの1問で フィニッシュが出ない）
+      weapon: typeof p?.weapon === 'string' && p.weapon ? p.weapon : blank.weapon,
       // ずかんの合図とごほうびは後から足した。古いセーブには無い
       zukanNew: Array.isArray(p?.zukanNew) ? p.zukanNew : [],
       zukanGot: Number.isFinite(p?.zukanGot) ? Number(p?.zukanGot) : 0,
