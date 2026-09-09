@@ -47,8 +47,6 @@
           <span class="logo-star s-l" aria-hidden="true">★</span>
           <span class="logo-star s-r" aria-hidden="true">★</span>
         </h1>
-        <p class="title-tag">こたえを タップして ぴょーん！</p>
-
         <p class="no-storage" id="no-storage" hidden>
           このひらきかたでは <b>きろくが のこりません</b>。<br>
           ブラウザで ひらくか、ホームがめんに ついかしてください。
@@ -208,7 +206,9 @@
         <button class="btn btn-icon" id="btn-pause" type="button" aria-label="ポーズ">‖</button>
         <p class="hud-stage" id="hud-stage">1-1</p>
         <div class="pips" id="pips" aria-label="のこりの もんだい"></div>
-        <p class="hud-combo" id="hud-combo" hidden><b>0</b>れんぞく</p>
+        <!-- 「れんぞく」の字は span に入れてある。せまい画面では落として
+             数だけ残す（この行が太いと、ピップ列が押しつぶされる） -->
+        <p class="hud-combo" id="hud-combo" hidden><b>0</b><span class="hc-word">れんぞく</span></p>
         <p class="coin-badge"><span class="coin-dot"></span><b id="hud-coins">0</b></p>
       </header>
 

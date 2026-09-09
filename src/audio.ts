@@ -263,6 +263,26 @@ export const sfx = {
     tone(330, 0.26, { at: 0.04, wave: 'triangle', vol: 0.12, to: 1560 });
   },
 
+  /**
+   * さいごの1問の フィニッシュ。ぶきを ためているあいだ。
+   *
+   * charge() は にがて たいじ 用で 0.3 秒で終わる。フィニッシュの ため
+   * （FIN_CHARGE）はそれより長いので、音が先に切れて「もう終わったのか」に
+   * なってしまう。最後まで のぼりつづける音を別に持つ。
+   */
+  finishCharge(): void {
+    tone(175, 0.8, { wave: 'sine', vol: 0.2, to: 990 });
+    tone(262, 0.72, { at: 0.06, wave: 'triangle', vol: 0.11, to: 1480 });
+    // ためきったところの ひと呼吸（放つ直前）
+    tone(1568, 0.1, { at: 0.76, wave: 'triangle', vol: 0.16 });
+  },
+
+  /** ためきって 放つ瞬間 */
+  finishFire(): void {
+    noise(0.16, 0.2);
+    tone(932, 0.14, { wave: 'sawtooth', vol: 0.2, to: 233 });
+  },
+
   /** にがて たいじ。ビームが当たって にがてが はじけとぶ */
   blast(): void {
     tone(1568, 0.18, { wave: 'sawtooth', vol: 0.26, to: 392 });

@@ -58,7 +58,9 @@ import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
 import {
-  FIN_CHARGE, FIN_FLY, FIN_TOTAL, drawFinish, weaponDef, type WeaponDef,
+  FIN_CHARGE, FIN_CUT_TOTAL, FIN_FLY, FIN_STOP, FIN_TOTAL,
+  drawFinish, drawFinishCutIn, drawFinishDim, finishDim, weaponDef,
+  type FinishView, type WeaponDef,
 } from './weapons';
 
 /**
@@ -360,8 +362,6 @@ export class Runner {
   private banner = 0;
   private bannerFull = 1.5;
   private bannerText = '';
-  /** 帯を出す高さ（画面の高さに対する割合） */
-  private bannerY = 0.34;
 
   // フィニッシュ（さいごの1問の とどめ）
   /** いま身につけている ぶき。走り出すたびに読みなおす */
@@ -370,7 +370,20 @@ export class Runner {
    * フィニッシュの進行。null は「いま演出していない」。
    * ボスの踏みつけでも使う（そのときは 当たった瞬間から始める）。
    */
-  private fin: { t: number; hit: boolean; x: number; y: number } | null = null;
+  private fin: { t: number; hit: boolean; fired: boolean; x: number; y: number } | null = null;
+  /**
+   * いま画面がどれだけ暗いか（0〜1）。
+   * 目標（finishDim）へ 少しずつ寄せる。ボスの とどめは 演出の途中から
+   * 始まるので、代入にすると そこだけ画面がぱっと暗転して驚かせる。
+   */
+  private finDim = 0;
+  /**
+   * 当たった瞬間、絵をぴたりと止めている残り秒数（ヒットストップ）。
+   * ここが 0 より大きいあいだ、update() は世界を進めない。
+   */
+  private finStop = 0;
+  /** ぶきの名まえのカットインが出てからの秒数。負のときは出していない */
+  private cut = -1;
 
   // にがて たいじ の状態
   /** ビームを撃ちはじめてからの秒数（ため → 発射 → 命中） */
@@ -494,6 +507,9 @@ export class Runner {
     // ぶきは走り出すたびに読みなおす（きせかえで持ちかえた直後に走ることがある）
     this.weapon = weaponDef(profile().weapon);
     this.fin = null;
+    this.finDim = 0;
+    this.finStop = 0;
+    this.cut = -1;
 
     this.bossDefn = bossDef(cfg.world.id);
     this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
@@ -957,6 +973,9 @@ export class Runner {
     // 前の問題の演出を持ちこさない。リベンジの相手が「倒したまま」にならないよう、
     // 敵が死んでいる印もここで戻す
     this.fin = null;
+    this.finDim = 0;
+    this.finStop = 0;
+    this.cut = -1;
     this.obDead = false;
     this.pxOff = 0;
     this.setPhase('ask');
@@ -1372,6 +1391,12 @@ export class Runner {
    *
    * ここは「最後まで やりきった人だけが見られるもの」にしてある。
    * 途中でやめると、この演出も フィニッシュボーナスも手に入らない。
+   *
+   * 見せかたは3つ重ねてある。どれも「何で倒したのか」を読ませるためのもの:
+   *   ・まわりを暗くする（drawFinishDim）… 明るいのは 2人と ぶきの光だけになる
+   *   ・ため（FIN_CHARGE と 引きの pxOff、しぼんでいく照準）… 来ると分かる
+   *   ・当たった瞬間に絵を止める（FIN_STOP）… 当たったコマが目に残る
+   * 名まえは 画面をまたぐ帯ではなく 左上のカットインで言い、放つ前に引っこめる。
    */
   private beginFinish(): void {
     this.setPhase('finish');
@@ -1388,13 +1413,13 @@ export class Runner {
     if (this.ob.x < spot) this.ob.x = spot;
     this.ob.v = Math.max(0, (this.ob.x - spot) / FIN_CHARGE);
 
-    this.fin = { t: 0, hit: false, x: spot, y: this.groundY - 26 * s };
+    this.fin = { t: 0, hit: false, fired: false, x: spot, y: this.groundY - 26 * s };
     this.char.air = false;
     this.char.squash = 0.9;
-    // 帯は画面の上に逃がす。まんなかだと、まほうじんや振りかぶった
-    // ハンマーが うしろに隠れてしまう
-    this.showBanner(`フィニッシュ！ ${this.weapon.label}`, 1.4, 0.12);
-    sfx.charge();
+    // 出ている帯があれば消す。ここから先は字を画面に出さない
+    this.banner = 0;
+    this.cut = 0;
+    sfx.finishCharge();
   }
 
   /** 当たった瞬間。この走りでいちばん派手なところ */
@@ -1409,6 +1434,9 @@ export class Runner {
     this.burst(x, y, 14, '#ffffff');
     this.rings.push({ x, y, r: 16 * this.s, life: 0.6, max: 0.6, color: this.weapon.glow });
     this.rings.push({ x, y, r: 9 * this.s, life: 0.8, max: 0.8, color: '#ffffff' });
+    // 当たったコマで絵を止める。ここで一拍おかないと、ため・命中・余韻が
+    // ひとかたまりになって、「じぶんの ぶきで たおした」ところだけが残らない
+    this.finStop = FIN_STOP;
     this.cheer = { text: 'たおした！', life: 1.5 };
     this.shake = 0.5;
     this.flash = 0.45;
@@ -1433,16 +1461,31 @@ export class Runner {
     const f = this.fin;
     if (!f) return;
     f.t += dt;
+    // 暗くなりぐあいは 目標へ寄せていく。ボスの とどめは 演出の途中から
+    // 始まるので、代入にすると そこだけ画面がぱっと暗転してしまう
+    this.finDim += (finishDim(f.t) - this.finDim) * Math.min(1, dt * 7);
     // ためのあいだに 間合いまで来て、そこで止まる
     if (this.ob.v > 0 && this.ob.x <= f.x) {
       this.ob.x = f.x;
       this.ob.v = 0;
     }
-    // けん は踏みこんで斬る。行って、戻ってくる
     if (this.weapon.style === 'slash') {
+      // けん は踏みこんで斬る。行って、戻ってくる
       const k = Math.min(1, Math.max(0, (f.t - FIN_CHARGE) / (FIN_FLY + 0.35)));
       const reach = Math.max(0, f.x - this.playerX - 26 * this.s);
       this.pxOff = reach * Math.sin(k * Math.PI);
+    } else {
+      // ため。撃つ直前に ぐっと後ろへ引き、放つと同時に戻る。
+      // 引いた体が戻るところが見えると、「いま放った」が体で分かる
+      const tense = Math.max(0, Math.min(1, (f.t - (FIN_CHARGE - 0.26)) / 0.26));
+      const fire = Math.max(0, Math.min(1, (f.t - FIN_CHARGE) / 0.14));
+      this.pxOff = -9 * this.s * tense * (1 - fire);
+    }
+    // 放った瞬間。ひとふんばりぶん体をのばす
+    if (!f.fired && f.t >= FIN_CHARGE) {
+      f.fired = true;
+      this.char.squash = 1.16;
+      sfx.finishFire();
     }
     if (!f.hit && f.t >= FIN_CHARGE + FIN_FLY) this.finishImpact();
   }
@@ -1507,12 +1550,17 @@ export class Runner {
     this.fin = {
       t: FIN_CHARGE + FIN_FLY,
       hit: true,
+      fired: true,
       x: this.bossX,
       y: this.groundY - this.bossSize() * 0.45,
     };
     this.burst(this.fin.x, this.fin.y, 20, this.weapon.color);
     this.burst(this.fin.x, this.fin.y, 12, this.weapon.glow);
-    this.showBanner(`${this.weapon.label}！`, 1.6, 0.12);
+    // 名まえは 左上のカットインで言う。帯だと ボスの上にかぶって、
+    // 踏みつけたところも ぶきの光も見えなくなる
+    this.banner = 0;
+    this.cut = 0;
+    this.finStop = FIN_STOP;
     this.payFinish();
   }
 
@@ -1823,9 +1871,21 @@ export class Runner {
     if (this.flash > 0) this.flash -= dt;
     if (this.banner > 0) this.banner -= dt;
     if (this.cheer.life > 0) this.cheer.life -= dt;
+    if (this.cut >= 0) {
+      this.cut += dt;
+      if (this.cut > FIN_CUT_TOTAL) this.cut = -1;
+    }
   }
 
   private update(dt: number): void {
+    // ヒットストップ。当たったコマのまま、世界だけを止める。
+    // 光り・ゆれ・カットインはここでも進めるので、固まったようには見えない。
+    // hold も止まるぶん、フィニッシュはこの秒数だけ長くなる
+    if (this.finStop > 0) {
+      this.finStop -= dt;
+      this.tickEffects(dt);
+      return;
+    }
     this.t += dt;
     this.elapsed += dt;
     // にがて たいじ では走らない。位相を止めておかないと、動かない地面の上で
@@ -1958,6 +2018,11 @@ export class Runner {
 
     drawScene(g, this.theme, this.view());
 
+    // フィニッシュの暗転。景色のあと、主人公と相手を描く前に敷く。
+    // こうすると暗くなるのは うしろの世界だけで、向かい合っている2人と
+    // ぶきの光は明るいまま残る。どこを見ればいいかが 字なしで決まる
+    if (this.finDim > 0.002) drawFinishDim(g, this.finView(), this.finDim);
+
     // 影（空中では小さく薄く）
     const lift = Math.min(1, -this.py / (80 * s));
     g.fillStyle = `rgba(40,60,50,${0.22 * (1 - lift * 0.7)})`;
@@ -1990,18 +2055,7 @@ export class Runner {
     // ビームは主人公の手もとから出る。キャラより手前に描く
     if (this.phase === 'beam') this.drawBeam();
     // フィニッシュも同じ。手もとから出て、相手のところで はじける
-    if (this.fin) {
-      drawFinish(g, this.weapon, {
-        t: this.fin.t,
-        s,
-        // 手もと（drawWeaponHeld が ぶきを置いている高さ）から出す。
-        // ここをずらすと、持っている絵と光の出どころが別の場所になる
-        fromX: this.px + 20 * s,
-        fromY: this.groundY - 18 * s,
-        toX: this.fin.x,
-        toY: this.fin.y,
-      });
-    }
+    if (this.fin) drawFinish(g, this.weapon, this.finView());
     // ペットを連れていなくても、止まっていることは画で分かるようにする
     if (this.hintPaused && !this.pet) this.drawStopMark();
 
@@ -2026,8 +2080,29 @@ export class Runner {
     }
 
     if (this.banner > 0) this.drawBanner();
+    // ぶきの名まえ。画面の左上だけを使い、放つ前に引っこむので
+    // とどめの瞬間には字がひとつも残らない
+    if (this.cut >= 0) drawFinishCutIn(g, this.weapon, this.finView(), this.cut);
 
     g.restore();
+  }
+
+  /**
+   * フィニッシュの絵に渡す寸法ひとそろい。
+   * 暗転・ぶき本体・カットインで同じものを使う（出どころがずれない）。
+   */
+  private finView(): FinishView {
+    const s = this.s;
+    return {
+      t: this.fin?.t ?? 0,
+      s, W: this.W, H: this.H,
+      // 手もと（drawWeaponHeld が ぶきを置いている高さ）から出す。
+      // ここをずらすと、持っている絵と光の出どころが別の場所になる
+      fromX: this.px + 20 * s,
+      fromY: this.groundY - 18 * s,
+      toX: this.fin?.x ?? this.ob.x,
+      toY: this.fin?.y ?? this.groundY - 26 * s,
+    };
   }
 
   // ---------------------------------------------------------------- にがて たいじ の絵
@@ -2540,17 +2615,17 @@ export class Runner {
   }
 
   /**
-   * 帯を出す。
+   * 帯を出す。画面をまたぐので、うしろは何も見えなくなる。
    *
-   * yk は画面のどの高さに出すか（0〜1）。ふだんは まんなかあたりだが、
-   * フィニッシュのときだけ上に逃がす。まんなかのままだと、まほうじんや
-   * 振りかぶったハンマーが 帯のうしろに隠れて、何が起きているのか見えない。
+   * だから「いま見せたい絵がない」ときだけに使う（問題が出た・ペットが来た・
+   * リベンジが始まった）。とどめの演出には使わない — まほうじんや
+   * 振りかぶったハンマーが 帯のうしろに隠れて、何で倒したのかが読めなくなる。
+   * ぶきの名まえは drawFinishCutIn（画面の左上・放つ前に引っこむ）が言う。
    */
-  private showBanner(text: string, sec: number, yk = 0.34): void {
+  private showBanner(text: string, sec: number): void {
     this.bannerText = text;
     this.bannerFull = sec;
     this.banner = sec;
-    this.bannerY = yk;
   }
 
   private drawBanner(): void {
@@ -2558,7 +2633,7 @@ export class Runner {
     const { W, H, s } = this;
     const t = Math.min(1, (this.bannerFull - this.banner) * 5);
     const alpha = Math.min(1, this.banner * 2.5);
-    const y = Math.max(H * this.bannerY, 22 * s);
+    const y = Math.max(H * 0.34, 22 * s);
     g.save();
     g.globalAlpha = alpha;
     g.fillStyle = 'rgba(255,197,61,.92)';
