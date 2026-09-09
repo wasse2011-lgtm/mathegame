@@ -398,19 +398,40 @@ export function paintWeaponIcon(canvas: HTMLCanvasElement, id: string, size = 56
 
 // ------------------------------------------------------------------ フィニッシュ
 
-/** ため（光がふくらむ・まほうじんが出る・ハンマーが上がる） */
-export const FIN_CHARGE = 0.62;
+/**
+ * ため（光がふくらむ・まほうじんが出る・ハンマーが上がる）。
+ *
+ * ここは わざと長い。5歳には「いま なにが始まったのか」を飲みこむ間がいる。
+ * 短いと、ぶきが出た・当たった・終わった が ひとかたまりになって、
+ * 「じぶんの ぶきで たおした」ところだけが記憶に残らない。
+ */
+export const FIN_CHARGE = 0.88;
 /** 飛んでいく／振りおろす */
 export const FIN_FLY = 0.26;
-/** 当たったあとの余韻。ここで帯とコインを見せる */
+/**
+ * 当たった瞬間、絵をぴたりと止める時間（ヒットストップ）。
+ * ここで一拍おくと、当たったコマそのものが目に焼きつく。
+ */
+export const FIN_STOP = 0.14;
+/** 当たったあとの余韻。ここでコインを見せる */
 export const FIN_AFTER = 1.5;
 export const FIN_TOTAL = FIN_CHARGE + FIN_FLY + FIN_AFTER;
+
+/** カットインが すべりこむ／出ている／引っこむ 時間 */
+const CUT_IN = 0.16;
+const CUT_HOLD = 0.42;
+const CUT_OUT = 0.16;
+/** カットインぜんぶ。ため（FIN_CHARGE）より短くしてある */
+export const FIN_CUT_TOTAL = CUT_IN + CUT_HOLD + CUT_OUT;
 
 export interface FinishView {
   /** フィニッシュが始まってからの秒数 */
   t: number;
   /** 画面の拡大率（runner の this.s） */
   s: number;
+  /** canvas の大きさ。暗転とカットインの置き場所に使う */
+  W: number;
+  H: number;
   /** 撃つ人の手もと */
   fromX: number;
   fromY: number;
@@ -455,9 +476,120 @@ function drawCharge(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
  * 空にかまえる高さ。
  * まほうじん も 振りかぶったハンマー もここに出す。画面の上に はみ出すと
  * 何をしているのか見えないので、canvas の中に必ず収める。
+ *
+ * 下限が 46*s なのは カットインの板（画面の左上）より下に置くため。
+ * ここを浅くすると、まほうじんや 振りかぶったハンマーが 板のうしろに隠れて、
+ * いちばん見せたい「何が起きているか」が読めなくなる。
  */
 function skyY(v: FinishView): number {
-  return Math.max(v.toY - 72 * v.s, 34 * v.s);
+  return Math.max(v.toY - 72 * v.s, 46 * v.s);
+}
+
+// ------------------------------------------------------------------ 暗転とカットイン
+
+/**
+ * まわりを どれだけ暗くするか（0〜1）。
+ * ためのあいだに 暗くなり、当たったあとの余韻でゆっくり戻る。
+ */
+export function finishDim(t: number): number {
+  if (t <= 0) return 0;
+  const rise = Math.min(1, t / (FIN_CHARGE * 0.75));
+  const back = t - (FIN_CHARGE + FIN_FLY + 0.6);
+  return back > 0 ? Math.max(0, rise * (1 - back / 0.55)) : rise;
+}
+
+/**
+ * まわりを 暗くする。
+ *
+ * 景色を描いたあと、主人公と相手を描く **前** に呼ぶこと。そうすると
+ * 暗くなるのは うしろの世界だけで、向かい合っている2人と ぶきの光は
+ * 明るいまま残る。「どこを見ればいいか」が、字をひとつも出さずに決まる。
+ */
+export function drawFinishDim(g: CanvasRenderingContext2D, v: FinishView, k: number): void {
+  if (k <= 0) return;
+  const s = v.s;
+  // 明かりは 相手のところに置く。主人公も ぶきの光も この暗幕より
+  // あとに描かれるので、ここを暗くしても影響を受けない（暗くなるのは景色だけ）。
+  // ＝「これから ここで 何かが起きる」を、指をささずに指させる
+  const cx = v.toX;
+  const cy = v.toY;
+  const r = Math.min(150 * s, Math.max(v.W, v.H) * 0.62);
+
+  g.save();
+  g.translate(cx, cy);
+  g.scale(1, 0.82);
+  // グラデーションの座標は「いまの座標系」で読まれるので、つぶしたあとに作る
+  const grad = g.createRadialGradient(0, 0, r * 0.16, 0, 0, r);
+  grad.addColorStop(0, `rgba(8,13,26,${(0.06 * k).toFixed(3)})`);
+  grad.addColorStop(0.55, `rgba(8,13,26,${(0.38 * k).toFixed(3)})`);
+  grad.addColorStop(1, `rgba(8,13,26,${(0.66 * k).toFixed(3)})`);
+  g.fillStyle = grad;
+  // つぶしたぶん外へはみ出すので、画面より大きく敷く
+  // （円のそとは いちばん外の色で塗られるので、これで四すみまで暗くなる）
+  g.fillRect(-v.W * 2, -v.H * 3, v.W * 5, v.H * 7);
+  g.restore();
+}
+
+/**
+ * ぶきの名まえの カットイン。
+ *
+ * 画面をまたぐ帯は使わない。帯はいちばん見せたい「まほうじん」や
+ * 「振りかぶったハンマー」の前に出てしまい、何で倒したのかが見えなくなる。
+ * かわりに 左上の小さな板で名まえだけ言い、**放つ前に引っこむ**。
+ * とどめの瞬間は、画面から字が消えている。
+ *
+ * t は カットインが出てからの秒数。
+ */
+export function drawFinishCutIn(
+  g: CanvasRenderingContext2D,
+  def: WeaponDef,
+  v: FinishView,
+  t: number,
+): void {
+  if (t < 0 || t > FIN_CUT_TOTAL) return;
+  const s = v.s;
+  const ease = (k: number): number => 1 - (1 - k) * (1 - k) * (1 - k);
+  const inK = ease(Math.min(1, t / CUT_IN));
+  const outK = ease(Math.max(0, Math.min(1, (t - CUT_IN - CUT_HOLD) / CUT_OUT)));
+  const slide = inK - outK;
+  if (slide <= 0) return;
+
+  const h = Math.min(30 * s, v.H * 0.18);
+  const edge = h * 0.18;   // ぶきの色の ふち（板の左はし）
+  const pad = h * 0.24;
+  const icon = h * 0.84;
+  const size = h * 0.45;
+
+  g.save();
+  g.font = `700 ${size.toFixed(1)}px "Hiragino Maru Gothic ProN", sans-serif`;
+  const text = g.measureText(def.label).width;
+  const lead = edge + pad + icon + pad * 0.8;  // 名まえが始まる位置（板の左はしから）
+  // 板は画面の左半分まで。ここを広げると、近くで止まった相手の頭にかぶる
+  const w = Math.min(v.W * 0.46, lead + text + pad);
+  const y = Math.min(8 * s, v.H * 0.05);
+  const x = -w + (w + 9 * s) * slide;
+
+  g.globalAlpha = Math.min(1, slide * 1.6);
+  // 板。ぶきの色のふちを左に立てて、絵と名まえをひとつながりに見せる
+  g.fillStyle = 'rgba(16,22,36,.88)';
+  rr(g, x, y, w, h, h * 0.28);
+  g.fill();
+  g.fillStyle = def.color;
+  rr(g, x, y, edge, h, edge * 0.5);
+  g.fill();
+
+  drawWeaponShape(g, x + edge + pad + icon / 2, y + h / 2, icon, def.id, t * 3);
+
+  g.fillStyle = '#fff';
+  g.textAlign = 'left';
+  g.textBaseline = 'middle';
+  // 名まえが長い ぶきでも板からはみ出さないところまで縮める
+  const room = w - lead - pad;
+  if (text > room && room > 0) {
+    g.font = `700 ${(size * (room / text)).toFixed(1)}px "Hiragino Maru Gothic ProN", sans-serif`;
+  }
+  g.fillText(def.label, x + lead, y + h / 2 + h * 0.03);
+  g.restore();
 }
 
 /** 空にひらく まほうじん（rain のとき、相手の上に出る） */
@@ -669,6 +801,47 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
   }
 }
 
+/**
+ * ためきる直前。相手のまわりで 輪がしぼんでいく。
+ *
+ * これが「タメ」の目に見えるぶん。つぎの瞬間どこで何が起きるかを
+ * 先に指さしておくと、当たったところを見のがさない。
+ * k は 0（出はじめ）〜1（放つ直前）。
+ */
+function drawLockOn(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, k: number): void {
+  if (k <= 0) return;
+  const s = v.s;
+  const r = (17 + (1 - k) * 54) * s;
+
+  g.save();
+  g.globalAlpha = Math.min(1, k * 1.6) * 0.9;
+  g.strokeStyle = def.glow;
+  g.lineWidth = 3 * s;
+  g.setLineDash([7 * s, 6 * s]);
+  g.lineDashOffset = -v.t * 44 * s;
+  g.beginPath();
+  g.arc(v.toX, v.toY, r, 0, Math.PI * 2);
+  g.stroke();
+  g.setLineDash([]);
+
+  // 四すみの かぎかっこ。輪だけより「ねらっている」が強く出る
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 2.6 * s;
+  g.lineCap = 'round';
+  const c = r * 0.8;
+  const len = r * 0.36;
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(v.toX + sx * c, v.toY + sy * (c - len));
+      g.lineTo(v.toX + sx * c, v.toY + sy * c);
+      g.lineTo(v.toX + sx * (c - len), v.toY + sy * c);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
 /** 当たった瞬間から広がっていく印。ぶきごとに形が変わる */
 function drawImpact(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, after: number): void {
   const s = v.s;
@@ -752,6 +925,8 @@ export function drawFinish(g: CanvasRenderingContext2D, def: WeaponDef, v: Finis
       g.restore();
       drawCharge(g, def, v, charge * 0.6);
     } else drawCharge(g, def, v, charge);
+    // ための後半だけ、相手に照準を寄せる（タメの目に見えるぶん）
+    drawLockOn(g, def, v, Math.max(0, (charge - 0.55) / 0.45));
     return;
   }
 

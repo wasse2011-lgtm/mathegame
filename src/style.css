@@ -307,13 +307,6 @@ body {
   50% { transform: rotate(18deg) scale(1.15); }
 }
 
-.title-tag {
-  margin: -.5rem 0 0; padding: .22rem 1rem;
-  font-size: .92rem; font-weight: 700; color: #7a5200;
-  background: rgba(255,255,255,.9); border-radius: 999px;
-  box-shadow: 0 3px 0 rgba(0,0,0,.06);
-}
-
 /* 「あそぶ」に 光が すっと流れる。押すところが ひと目で分かる */
 #btn-start { position: relative; overflow: hidden; }
 #btn-start::after {
@@ -349,17 +342,12 @@ body {
 
 /* 縦の短い端末では、ホームの行が増えたぶん（ずかん＋ペット＋ぶき）を詰める。
    そのままだとロゴが画面の上に押し出されて切れる */
-@media (max-height: 800px) {
-  .title-tag { font-size: .8rem; padding: .16rem .8rem; }
-}
 @media (max-height: 720px) {
   .title-inner { gap: .5rem; }
   .logo { font-size: clamp(2rem, 9vw, 3rem); }
   .zukan-mini { padding: .4rem .8rem; font-size: .82rem; }
   .daily-card { min-height: 60px; }
-  /* いちばん先に落とすのは、読めば分かる「うたい文句」のほう。
-     ぶきの帯は さいごの1問につながる導線なので、小さくしても残す */
-  .title-tag { display: none; }
+  /* ぶきの帯は さいごの1問につながる導線なので、小さくしても残す */
   .weapon-strip { padding: .15rem .4rem .15rem .25rem; }
   .weapon-strip canvas { width: 34px; height: 34px; }
   .ws-text b { font-size: .88rem; }
@@ -456,6 +444,51 @@ button.zukan-mini:active { transform: translateY(1px); }
 .zukan-mini .bar { flex: 1 1 auto; }
 /* 縦に並ぶ画面では、フレックスで伸びないように高さを固定する */
 .bar.big { flex: 0 0 auto; height: 14px; margin: 0 .2rem; }
+
+/* ---------------- ホームの 横向き（iPad など） ----------------
+   1列のまま縦に積むと、ロゴ＋カード5枚＋ボタン＋広場で画面より高くなり、
+   遊ぶ前に必ずスクロールが要る。横向きは幅だけ余っているので、
+   「ロゴ・あそぶ・広場」と「きょうの5もんから下のカード」の2列に分ける。
+   ここは上の指定を上書きするので、かならず ホームの節のあとに置くこと
+   （前に置くと、あとから来る .home や #home-char の指定に負ける）。 */
+@media (orientation: landscape) and (min-width: 40rem) {
+  /* 右の列が画面のはしまで届くので、すみの歯車のぶんだけ空けておく
+     （空けないと、コインの数と歯車が重なる） */
+  #screen-title { padding-right: calc(var(--safe-r) + 3.2rem); }
+  .title-inner {
+    max-width: 56rem;
+    /* 高さいっぱいに広げて、中身は まんなかに寄せる */
+    flex: 1 1 auto; margin-block: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto;
+    column-gap: 1.4rem;
+    row-gap: .55rem;
+    align-content: center;
+  }
+  /* 左の列。数がいくつでも上から順に積む */
+  .title-inner > * { grid-column: 1; }
+  /* 右の列。左が何行になっても、上から下まで1枚で使う */
+  .home { grid-column: 2; grid-row: 1 / -1; align-self: center; }
+  .logo { font-size: clamp(1.9rem, 5.2vw, 3.2rem); }
+  .yard { margin-top: 0; }
+  #home-char { height: 118px; }
+}
+/* スマホの横持ち。縦が 400px ほどしかないので、行のあいだを最後まで詰める */
+@media (orientation: landscape) and (min-width: 40rem) and (max-height: 30rem) {
+  .title-inner { row-gap: .3rem; column-gap: 1rem; }
+  .home { gap: .35rem; }
+  .daily-card { min-height: 52px; padding: .45rem .7rem; }
+  .card-row .daily-card { min-height: 50px; }
+  .daily-title { font-size: 1.02rem; }
+  /* 横に2つ並ぶカードは、列が半分の幅になると 絵のぶんだけ字が折れて
+     2倍の高さになる。字のほうを残して、絵を落とす */
+  .card-row .hunt-face { display: none; }
+  .card-row .daily-title { font-size: .94rem; }
+  .card-row .daily-state { font-size: .7rem; }
+  button.zukan-mini { min-height: 40px; }
+  .zukan-mini { padding: .3rem .7rem; }
+}
 
 /* ---------------- きろく（セーブデータ） ---------------- */
 #screen-slots {
@@ -684,18 +717,48 @@ button.zukan-mini:active { transform: translateY(1px); }
   padding: calc(var(--safe-t) + .4rem) calc(var(--safe-r) + .5rem) calc(var(--safe-b) + .5rem) calc(var(--safe-l) + .5rem);
 }
 .hud { display: flex; align-items: center; gap: .55rem; padding: 0 .2rem; flex: 0 0 auto; }
-.hud-stage { margin: 0; font-weight: 700; font-size: 1rem; color: var(--ink-2); }
+/* ステージ名は「きょうの 5もん」「にがて たいじ」と長いことがある。
+   幅が足りないときに譲るのはこちら（3倍の速さで縮む）。「きょう…」に
+   なっても困らないが、ピップ列が潰れると 何問目かが分からなくなる */
+.hud-stage {
+  margin: 0; font-weight: 700; font-size: 1rem; color: var(--ink-2);
+  flex: 0 3 auto; min-width: 2.4rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* min-width:0 が無いと、コンボ表示が出たときにピップ列が縮まず、
-   ステージ名・コンボ・コイン数が右端まで詰まって溢れる */
-.pips { flex: 1 1 auto; min-width: 0; overflow: hidden; display: flex; gap: 3px; align-items: center; }
-.pip { flex: 1; max-width: 16px; height: 8px; border-radius: 99px; background: rgba(255,255,255,.75); }
+   ステージ名・コンボ・コイン数が右端まで詰まって溢れる。
+   overflow:hidden は使わない。狭いところで切り落とすと、後ろのほうの
+   問題のピップが画面から消えて「何問目か」が読めなくなる。
+   入りきらないときは折り返して、10個ぜんぶ必ず出す。 */
+.pips {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-wrap: wrap; gap: 3px 2px; align-items: center;
+}
+/* 色はまとめて変数で持つ。
+   .screen-play.dark .pip（クラス3つ）のほうが .pip.done（クラス2つ）より
+   強いので、背景を直に書くと **暗いステージでは緑も赤も出なかった**。
+   下じきの色だけを変数で差しかえれば、done / miss はいつでも勝つ。 */
+.pip {
+  flex: 1 1 6px; min-width: 6px; max-width: 16px; height: 9px;
+  border-radius: 99px; background: var(--pip-bg, rgba(255,255,255,.75));
+  box-shadow: inset 0 0 0 1px rgba(38,49,61,.16);
+}
+/* リベンジのぶん。本編の10個と別の列だと分かるように、輪郭を付ける。
+   ここも下じきの色だけを変える（background を直に書くと、
+   リベンジのピップだけ 緑にも赤にもならなくなる） */
+.pip.rev { --pip-bg: rgba(255,255,255,.5); box-shadow: inset 0 0 0 2px var(--blue); }
 .pip.done { background: var(--good); }
 .pip.miss { background: var(--bad); }
-/* リベンジのぶん。本編の10個と別の列だと分かるように、輪郭を付ける */
-.pip.rev { background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 2px var(--blue); }
 .hud-combo { margin: 0; font-weight: 700; font-size: .9rem; color: var(--amber-dark); white-space: nowrap; }
 .hud-combo b { font-size: 1.15rem; }
 .hud-combo.pop { animation: pop .28s ease-out; }
+/* スマホの幅では「れんぞく」の字を落とし、数だけ残す。
+   この行は縮まない（nowrap）ので、出したままだと ピップ列だけが
+   その幅ぶん押しつぶされて、何問目かが読めなくなる */
+@media (max-width: 34rem) {
+  .hud-combo .hc-word { display: none; }
+  .hud-combo::before { content: '×'; font-size: .85rem; margin-right: .05rem; }
+}
 
 .coin-badge {
   margin: 0; display: flex; align-items: center; gap: .3rem;
@@ -979,7 +1042,11 @@ button.zukan-mini:active { transform: translateY(1px); }
 .screen-play.dark .hud-stage { color: rgba(255,255,255,.9); }
 .screen-play.dark .coin-badge { color: #fff; }
 .screen-play.dark .hud-combo { color: #ffd76b; }
-.screen-play.dark .pip { background: rgba(255,255,255,.4); }
+/* 下じきの色だけを差しかえる。background を直に書くと、
+   このクラス3つのほうが .pip.done / .pip.miss（クラス2つ）より強いので、
+   暗いステージでは 正解の緑も まちがいの赤も出なくなる */
+.screen-play.dark .pip { --pip-bg: rgba(255,255,255,.42); box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+.screen-play.dark .pip.rev { --pip-bg: rgba(255,255,255,.3); box-shadow: inset 0 0 0 2px var(--blue); }
 .screen-play.dark .hint { background: rgba(255,255,255,.94); }
 
 .screen-play.dark .pet-btn { background: rgba(255,255,255,.94); }
