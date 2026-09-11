@@ -25,12 +25,28 @@
 
 import { sfx } from './audio';
 import { cherry, type Cherry, type Fact } from './curriculum';
+import { HurdleGame } from './hurdle';
 import { distractorPool, weakestFacts } from './questions';
-import { MINI_AGAIN, MINI_FIRST, MINI_PERFECT } from './rewards';
-import { addPlayTime, markMiniDone, miniDoneToday, overDailyLimit, persist, profile } from './save';
+import {
+  MINI_AGAIN,
+  MINI_FIRST,
+  MINI_JUMP_AGAIN,
+  MINI_JUMP_CAP,
+  MINI_PERFECT,
+} from './rewards';
+import {
+  addPlayTime,
+  markMiniDone,
+  miniDoneToday,
+  overDailyLimit,
+  persist,
+  profile,
+  save,
+} from './save';
+import { currentLook } from './sprites';
 import { cherryArt, dotsArt, frameArt, splitArt } from './tenframe';
 
-export type MiniId = 'count' | 'pair' | 'cherry';
+export type MiniId = 'count' | 'pair' | 'cherry' | 'hurdle' | 'ruler';
 
 export interface MiniEnv {
   /** いま出してよい式（解放ずみのワールドぜんぶ）。にがてな順に選ぶ材料 */
@@ -84,6 +100,24 @@ const GAMES: MiniDef[] = [
     emoji: '🍒',
     // W5（くりあがり やま）に着く前は、まだ習っていない式しか出せない
     locked: () => (env.unlocked(5) ? null : 'くりあがり やま に つくと あそべる'),
+  },
+  {
+    id: 'hurdle',
+    name: 'ぴょんぴょん ハードル',
+    sub: 'こたえの かずだけ ハードルを とぶ',
+    short: 'こたえの かずだけ とぶ',
+    emoji: '🏃',
+    // やさしい式でも「跳んだ数＝答え」は成立するので、ここは開けておく。
+    // むずかしさはレベル帯（HURDLE_LEVELS）のほうで区切る
+    locked: () => null,
+  },
+  {
+    id: 'ruler',
+    name: 'かずの ものさし',
+    sub: 'その かずが どこか、せんの うえで あてる',
+    short: 'せんの うえで あてる',
+    emoji: '📏',
+    locked: () => null,
   },
 ];
 
@@ -170,10 +204,20 @@ function shuffle<T>(arr: T[]): T[] {
 
 // ------------------------------------------------------------------ ごほうび
 
-/** やりきったときのコイン。1日1回めだけ多い */
-function payout(id: MiniId, perfect: boolean): { coins: number; first: boolean } {
+/**
+ * やりきったときのコイン。1日1回めだけ多い。
+ *
+ * jumped を渡すと「拾った枚数をそのまま」の道に入る（ハードル専用）。
+ * そちらは上限つきで、2回め以降は薄くする。理由は rewards.ts に書いてある。
+ */
+function payout(id: MiniId, perfect: boolean, jumped?: number): { coins: number; first: boolean } {
   const first = !miniDoneToday(id);
-  const coins = (first ? MINI_FIRST : MINI_AGAIN) + (perfect ? MINI_PERFECT : 0);
+  const capped = jumped === undefined ? 0 : Math.min(jumped, MINI_JUMP_CAP);
+  const coins =
+    jumped === undefined
+      ? (first ? MINI_FIRST : MINI_AGAIN) + (perfect ? MINI_PERFECT : 0)
+      : // 1回も きれいに跳べなくても 0 にはしない。0 は「もう やってもむだ」になる
+        Math.max(MINI_AGAIN, first ? capped : Math.round(capped * MINI_JUMP_AGAIN));
   if (first) markMiniDone(id);
   profile().coins += coins;
   persist();
@@ -186,9 +230,9 @@ function payout(id: MiniId, perfect: boolean): { coins: number; first: boolean }
 /** いま遊んでいるゲーム。「もういちど」で使う（openGame が必ず上書きする） */
 let current: MiniId = 'count';
 
-function finish(id: MiniId, perfect: boolean, note: string): void {
+function finish(id: MiniId, perfect: boolean, note: string, jumped?: number): void {
   countPlayTime();
-  const { coins, first } = payout(id, perfect);
+  const { coins, first } = payout(id, perfect, jumped);
   sfx.clear();
   $('mini-clear-head').textContent = perfect ? 'ぜんぶ せいかい！' : 'できた！';
   $('mini-clear-coins').textContent = `+${coins}`;
@@ -644,10 +688,366 @@ function startCherry(): void {
   ask();
 }
 
+// ------------------------------------------------------------------ ぴょんぴょん ハードル
+
+interface HurdleLevel extends Level {
+  /** 出す式の 和のはんい */
+  min: number;
+  max: number;
+  endless?: boolean;
+}
+
+/**
+ * ロックはゲーム単位ではなくここで区切る。やさしい式でも「跳んだ数＝答え」は
+ * 成立するので、初日から遊べたほうがこのゲームの目的に合う。
+ */
+const HURDLE_LEVELS: HurdleLevel[] = [
+  { label: '10まで とぶ', min: 4, max: 10, need: 0 },
+  { label: '20まで とぶ', min: 11, max: 18, need: 5 },
+  { label: 'どこまで とべる？', min: 0, max: 0, endless: true, need: 5 },
+];
+
+const HURDLE_ROUNDS = 5;
+
+let hurdleLevel = 0;
+let hurdle: HurdleGame | null = null;
+let hurdleCanvas: HTMLCanvasElement | null = null;
+
+/** `8 + 5 = ?` と、答えが出たあとの `8 + 5 = 13` */
+function hurdleGoal(f: Fact, sum: number | null): void {
+  const box = $('mini-goal');
+  box.replaceChildren(`${f.a} + ${f.b} = `);
+  const b = document.createElement('b');
+  b.className = sum === null ? 'hq' : 'hq got';
+  b.textContent = sum === null ? '?' : String(sum);
+  box.append(b);
+}
+
+function hurdleDone(clean: number, jumped: number, best: boolean): void {
+  const lv = HURDLE_LEVELS[hurdleLevel];
+  let note: string;
+
+  if (lv.endless) {
+    const p = profile();
+    const prev = p.hurdleBest;
+    if (best) {
+      p.hurdleBest = jumped;
+      persist();
+    }
+    note = best
+      ? `${jumped}こ！ さいこう きろく こうしん！`
+      : `${jumped}こ とんだ（さいこう ${prev}こ）`;
+  } else {
+    note =
+      clean === jumped
+        ? `${jumped}こ ぜんぶ きれいに とべた！`
+        : `${jumped}こ とんで、コインを ${clean}まい ひろった`;
+  }
+
+  finish('hurdle', clean === jumped, note, clean);
+}
+
+/**
+ * canvas と エンジンは1つだけ作って使いまわす。
+ * HurdleGame は作るときに window の resize を取るので、毎回 new すると
+ * 1回あそぶごとにリスナーが1つ増える。
+ */
+function hurdleGame(): HurdleGame {
+  if (!hurdle) {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'mini-canvas';
+    canvas.setAttribute('aria-hidden', 'true');
+    hurdleCanvas = canvas;
+    hurdle = new HurdleGame(canvas, $('mini-body'), {
+      onProgress: (at, total, f) => {
+        if (f) hurdleGoal(f, null);
+        if (total) renderPips(total, at);
+      },
+      onSay: say,
+      onAnswer: (f, sum) => {
+        // 子どもが自分の足で出した数が、そのまま ? の場所に入る瞬間
+        hurdleGoal(f, sum);
+        say(`${f.a} と ${f.b} で ${sum}！`);
+      },
+      onDone: (r) => hurdleDone(r.clean, r.jumped, r.best),
+    });
+  }
+  return hurdle;
+}
+
+function startHurdle(): void {
+  const lv = HURDLE_LEVELS[hurdleLevel];
+  const game = hurdleGame();
+  game.stop();
+
+  const board = $('mini-body');
+  board.className = 'mini-body hurdle';
+  board.replaceChildren(hurdleCanvas as HTMLCanvasElement);
+
+  // ボタンは使わない。前のゲームのものを残さない（隠すだけだと読み上げに残る）
+  $('mini-choices').replaceChildren();
+  $('mini-choices').hidden = true;
+  $('mini-hint-btn').hidden = true;
+  hideFrame();
+  renderChips(HURDLE_LEVELS, hurdleLevel, (i) => {
+    hurdleLevel = i;
+    startHurdle();
+  });
+
+  const look = currentLook();
+  const slow = save.settings.slow;
+
+  // #mini-play を出したのと同じ処理の中で測ると、canvas の実寸が 0 になる。
+  // 1フレームおいてから始める（本編の startRun と同じ）
+  const begin = (go: () => void): void => {
+    requestAnimationFrame(() => {
+      if (current !== 'hurdle' || $('mini-play').hidden) return;
+      go();
+    });
+  };
+
+  if (lv.endless) {
+    $('mini-goal').textContent = 'どこまで とべる？';
+    $('mini-pips').replaceChildren();
+    const best = profile().hurdleBest;
+    say(best ? `さいこう ${best}こ。こえられる？` : 'ハートが なくなるまで！');
+    begin(() => game.start({ mode: 'endless', best, slow, look }));
+    return;
+  }
+
+  const pool = env
+    .facts()
+    .filter((f) => f.a < 10 && f.b < 10 && f.a + f.b >= lv.min && f.a + f.b <= lv.max);
+  const facts = weakestFacts(pool, HURDLE_ROUNDS);
+  // 解放ずみの式だけを見ているので、はんい外しか無い日はありうる
+  if (!facts.length) {
+    renderMiniList();
+    return;
+  }
+  renderPips(facts.length, 0);
+  hurdleGoal(facts[0], null);
+  begin(() => game.start({ mode: 'facts', facts, slow, look }));
+}
+
+// ------------------------------------------------------------------ かずの ものさし
+
+interface RulerLevel extends Level {
+  max: number;
+}
+
+const RULER_LEVELS: RulerLevel[] = [
+  { label: '0〜10', max: 10, need: 0 },
+  // 10 が 20 のまん中、という関係が読めるようになってから（W4 = じゅう の まち）
+  { label: '0〜20', max: 20, need: 4 },
+  { label: '0〜100', max: 100, need: 6 },
+];
+
+const RULER_ROUNDS = 6;
+
+export type RulerBand = 'hit' | 'near' | 'far';
+
+/**
+ * 置いた旗の近さ。
+ *
+ * 「ぴったり」は、いちばん近い整数が答えになる幅（±0.5）を下限にして、
+ * 0〜100 のときだけ画面の細かさに合わせて広げる。1.5px を狙わせない。
+ */
+export function bandFor(guess: number, answer: number, max: number): RulerBand {
+  const err = Math.abs(guess - answer);
+  if (err <= Math.max(0.5, max * 0.04)) return 'hit';
+  if (err <= Math.max(1.5, max * 0.1)) return 'near';
+  return 'far';
+}
+
+let rulerLevel = 0;
+
+function startRuler(): void {
+  const level = RULER_LEVELS[rulerLevel];
+  const max = level.max;
+  let at = 0;
+  let misses = 0;
+  let guess = -1;
+  let locked = false;
+
+  const board = $('mini-body');
+  board.className = 'mini-body ruler';
+  board.replaceChildren();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'ruler-wrap';
+  const band = document.createElement('div');
+  band.className = 'ruler-band';
+  const line = document.createElement('div');
+  line.className = 'ruler-line';
+  const ticks = document.createElement('div');
+  ticks.className = 'ruler-ticks';
+  const fill = document.createElement('div');
+  fill.className = 'ruler-fill';
+  const flag = document.createElement('div');
+  flag.className = 'ruler-flag';
+  flag.hidden = true;
+  flag.textContent = '🚩';
+  const truth = document.createElement('div');
+  truth.className = 'ruler-true';
+  truth.hidden = true;
+  const walk = document.createElement('div');
+  walk.className = 'ruler-walk';
+  walk.hidden = true;
+  band.append(line, ticks, fill, flag, truth, walk);
+
+  const ends = document.createElement('div');
+  ends.className = 'ruler-ends';
+  const e0 = document.createElement('span');
+  e0.textContent = '0';
+  const e1 = document.createElement('span');
+  e1.textContent = String(max);
+  ends.append(e0, e1);
+  wrap.append(band, ends);
+  board.append(wrap);
+
+  // まん中の印だけは、答える前から出す。
+  // 0〜20 で 10 を見せるのは「10 は 20 のまん中」を教えるためで、これは狙い。
+  // 目もりを全部出さないのは、そうすると「見積もる」ではなく「数える」になるから
+  const mid = document.createElement('div');
+  mid.className = 'ruler-mid';
+  const midBar = document.createElement('i');
+  const midLabel = document.createElement('span');
+  midLabel.textContent = String(max / 2);
+  mid.append(midBar, midLabel);
+  band.append(mid);
+
+  $('mini-levels').hidden = false;
+  $('mini-choices').hidden = false;
+  $('mini-hint-btn').hidden = true;
+  hideFrame();
+
+  const put = (v: number): void => {
+    guess = Math.min(Math.max(v, 0), max);
+    flag.hidden = false;
+    flag.style.left = `${(guess / max) * 100}%`;
+  };
+
+  band.addEventListener('pointerdown', (e) => {
+    if (locked) return;
+    const rect = band.getBoundingClientRect();
+    if (rect.width < 2) return;
+    put(((e.clientX - rect.left) / rect.width) * max);
+    sfx.tap();
+    ok.disabled = false;
+  });
+
+  /** 答え合わせのときだけ出す目もり */
+  const drawTicks = (): void => {
+    ticks.replaceChildren();
+    const step = max > 20 ? 10 : 1;
+    for (let v = 0; v <= max; v += step) {
+      const i = document.createElement('i');
+      i.style.left = `${(v / max) * 100}%`;
+      if (v % (max > 20 ? 50 : 5) === 0) i.className = 'big';
+      ticks.appendChild(i);
+    }
+  };
+
+  /** 0 から答えまで、数えながら歩く。ふきだしはハードルと同じ「数の見せかた」 */
+  const countTo = (answer: number, then: () => void): void => {
+    const step = answer > 20 ? 10 : 1;
+    walk.hidden = false;
+    let v = 0;
+    const hop = (): void => {
+      v = Math.min(v + step, answer);
+      walk.style.left = `${(v / max) * 100}%`;
+      walk.textContent = String(v);
+      fill.style.width = `${(v / max) * 100}%`;
+      if (v >= answer) {
+        later(then, 650);
+        return;
+      }
+      later(hop, 110);
+    };
+    hop();
+  };
+
+  const ask = (): void => {
+    renderPips(RULER_ROUNDS, at);
+    if (at >= RULER_ROUNDS) {
+      $('mini-choices').replaceChildren();
+      finish(
+        'ruler',
+        misses === 0,
+        misses === 0 ? 'ぜんぶ ちかかった！' : `${RULER_ROUNDS}かい あてられた`,
+      );
+      return;
+    }
+
+    locked = false;
+    guess = -1;
+    flag.hidden = true;
+    truth.hidden = true;
+    walk.hidden = true;
+    ticks.replaceChildren();
+    fill.style.width = '0%';
+    ok.disabled = true;
+
+    // 3ラウンドめからは たし算。7 のあたりに旗を立ててから 5つぶん動かす、
+    // という数直線の数え足しになる
+    const useFact = at >= 2;
+    const pool = env.facts().filter((f) => f.a + f.b <= max && f.a + f.b >= Math.max(3, max * 0.15));
+    const fact = useFact && pool.length ? weakestFacts(pool, 1)[0] : null;
+    const answer = fact ? fact.a + fact.b : 1 + Math.floor(Math.random() * max);
+
+    $('mini-goal').textContent = fact ? `${fact.a} + ${fact.b} は どこ？` : `${answer} は どこ？`;
+    say('せんを タップして、はたを たてよう');
+
+    ok.onclick = () => {
+      if (locked || guess < 0) return;
+      locked = true;
+      ok.disabled = true;
+      sfx.tap();
+      drawTicks();
+      truth.hidden = false;
+      truth.style.left = `${(answer / max) * 100}%`;
+      truth.textContent = String(answer);
+
+      const band2 = bandFor(guess, answer, max);
+      if (band2 === 'far') misses++;
+      countTo(answer, () => {
+        if (band2 === 'hit') {
+          sfx.correct(at);
+          say('ぴったり！');
+        } else if (band2 === 'near') {
+          sfx.correct(0);
+          say('おしい、ちかい！');
+        } else {
+          sfx.wrong();
+          say(`${answer} は ここだったね`);
+        }
+        at++;
+        later(ask, 900);
+      });
+    };
+  };
+
+  const box = $('mini-choices');
+  box.replaceChildren();
+  const ok = document.createElement('button');
+  ok.type = 'button';
+  ok.className = 'btn btn-primary btn-xl';
+  ok.textContent = 'これで いい';
+  ok.disabled = true;
+  box.appendChild(ok);
+
+  renderChips(RULER_LEVELS, rulerLevel, (i) => {
+    rulerLevel = i;
+    startRuler();
+  });
+  ask();
+}
+
 // ------------------------------------------------------------------ 一覧と出入り
 
 /** ミニゲームの一覧。きょうの ごほうびが残っているかも ここに出す */
 export function renderMiniList(): void {
+  hurdle?.stop();
   countPlayTime();
   $('mini-coins').textContent = String(profile().coins);
   $('mini-name').textContent = 'ミニゲーム';
@@ -693,6 +1093,8 @@ export function renderMiniList(): void {
 
 function openGame(id: MiniId): void {
   clearTimers();
+  // later() は setTimeout しか覚えていない。rAF はここで自分で止める
+  hurdle?.stop();
   countPlayTime();
   // 上限に達したら、新しい1回は始めない（走るステージと同じ。途中では止めない）。
   // ここを見ないと「もういちど」を押しつづけるかぎり、いつまでも遊べてしまう
@@ -708,14 +1110,33 @@ function openGame(id: MiniId): void {
   $('mini-list').hidden = true;
   $('mini-play').hidden = false;
   $('overlay-mini').hidden = true;
-  if (id === 'count') startCount();
-  else if (id === 'pair') startPair();
-  else startCherry();
+  // 裸の else にすると、知らない id が黙って1つのゲームに流れる。
+  // switch なら、id を増やしたときに tsc が漏れを教えてくれる
+  switch (id) {
+    case 'count':
+      startCount();
+      break;
+    case 'pair':
+      startPair();
+      break;
+    case 'cherry':
+      startCherry();
+      break;
+    case 'hurdle':
+      startHurdle();
+      break;
+    case 'ruler':
+      startRuler();
+      break;
+  }
 }
 
 /** ← を押した。ゲーム中なら一覧へ、一覧ならホームへ */
 export function miniBack(): void {
   sfx.tap();
+  // 一覧へ戻るときも ホームへ戻るときも、まず走りを止める。
+  // 下の早期 return より前でないと、ホームに戻る道で止め忘れる
+  hurdle?.stop();
   if ($('mini-play').hidden) {
     env.onExit();
     return;
@@ -727,6 +1148,7 @@ export function miniBack(): void {
 /** 画面を離れるとき。動いているものを全部止め、遊んだ時間を記録する */
 export function stopMini(): void {
   clearTimers();
+  hurdle?.stop();
   countPlayTime();
   $('overlay-mini').hidden = true;
 }
@@ -746,6 +1168,7 @@ export function initMini(e: MiniEnv): void {
   $('mini-other').addEventListener('click', () => {
     sfx.tap();
     clearTimers();
+    hurdle?.stop();
     renderMiniList();
   });
 }

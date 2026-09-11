@@ -101,6 +101,13 @@ export interface Profile {
   zukanNew: string[];
   /** ずかんの ごほうびを もらった回数（ZUKAN_STEP まいごとに1回） */
   zukanGot: number;
+  /**
+   * ミニゲーム「ぴょんぴょん ハードル」のエンドレスで、いちばん多く跳んだ数。
+   *
+   * **習熟度ではない**ので、★・ずかん・おうちのかたの画面には出さない。
+   * ミニゲームの中だけの記録（ミニゲームは記録を動かさない、という線は守る）。
+   */
+  hurdleBest: number;
   /** 最後に遊んだ日（YYYY-MM-DD）。きろくを選ぶ画面で出す */
   seen: string;
 }
@@ -165,6 +172,7 @@ function freshProfile(): Profile {
     mini: { date: '', done: [] },
     zukanNew: [],
     zukanGot: 0,
+    hurdleBest: 0,
     seen: '',
   };
 }
@@ -281,6 +289,8 @@ function read(): SaveData {
       // ずかんの合図とごほうびは後から足した。古いセーブには無い
       zukanNew: Array.isArray(p?.zukanNew) ? p.zukanNew : [],
       zukanGot: Number.isFinite(p?.zukanGot) ? Number(p?.zukanGot) : 0,
+      // ハードルのきろくは後から足した。古いセーブには無い
+      hurdleBest: Number.isFinite(p?.hurdleBest) ? Number(p?.hurdleBest) : 0,
       // ペットは後から足した。古いセーブには無いので必ず既定値に落とす
       pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
     }));

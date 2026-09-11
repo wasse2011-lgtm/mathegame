@@ -42,6 +42,7 @@ const { QuestionPicker, MASTERED, distractorPool, blankPool } = await load('ques
 const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
 const { frameArt, PLACE_MAX } = await load('tenframe');
+const { laneFor, endlessLane, cadenceAt, AIRTIME } = await load('hurdle');
 
 const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
@@ -297,7 +298,71 @@ if (noArtSteps.length) {
   console.log(`   ヒントが1問も出ない面（${noArtSteps.length}）: ${noArtSteps.join(' / ')}`);
 }
 
-console.log('\nG) 出題の例');
+console.log('\nG) ぴょんぴょん ハードルの道すじ');
+{
+  // ここで確かめているのは、そのまま企画の主張になっている:
+  //  ・跳ぶ回数は かならず答えと一致する（数の体感が式とずれない）
+  //  ・10のもんは かならず10こめ（10のまとまりが走りの区切りになる）
+  //  ・色の切れめが cherry() の分解と重なる（さくらんぼ わけ と同じ話をしている）
+  const bad = [];
+  const kinds = (lane, k) => lane.filter((h) => h.kind === k).length;
+
+  for (const w of WORLDS) {
+    for (const f of allFacts(w)) {
+      if (f.a >= 10 || f.b >= 10) continue;
+      const lane = laneFor(f);
+      const tag = `${f.a}+${f.b}`;
+      const sum = f.a + f.b;
+
+      if (lane.length !== sum) bad.push(`${tag}: 本数 ${lane.length} ≠ こたえ ${sum}`);
+      if (lane.some((h, i) => h.n !== i + 1)) bad.push(`${tag}: 番号が とんでいる`);
+
+      const gate = lane.filter((h) => h.kind === 'gate');
+      if (sum >= 10) {
+        if (gate.length !== 1 || lane[9]?.kind !== 'gate') bad.push(`${tag}: 10のもんが 10こめに無い`);
+      } else if (gate.length) {
+        bad.push(`${tag}: こたえが 10 未満なのに 10のもんが ある`);
+      }
+
+      const c = cherry(f);
+      if (c) {
+        // gate は need の さいごの1こ。だから need の本数は c.need - 1 になる
+        if (kinds(lane, 'base') !== c.base) bad.push(`${tag}: もとの数 ${kinds(lane, 'base')} ≠ ${c.base}`);
+        if (kinds(lane, 'need') !== c.need - 1) bad.push(`${tag}: きいろ ${kinds(lane, 'need')} ≠ ${c.need - 1}`);
+        if (kinds(lane, 'rest') !== c.rest) bad.push(`${tag}: みどり ${kinds(lane, 'rest')} ≠ ${c.rest}`);
+      }
+    }
+  }
+
+  // エンドレスは 10本ごとに区切りが来る
+  const long = endlessLane(1, 95);
+  if (long.length !== 95) bad.push('エンドレス: 本数が合わない');
+  for (const h of long) {
+    if ((h.n % 10 === 0) !== (h.kind === 'gate')) bad.push(`エンドレス: ${h.n} こめの区切りがおかしい`);
+  }
+
+  // 拍は詰まる一方で、しかも かならず滞空より長い。
+  // ここが破れると、前の滞空が終わる前に次が来て、原理的に跳べなくなる
+  for (const slow of [false, true]) {
+    let prev = Infinity;
+    for (let i = 0; i <= 120; i++) {
+      const c = cadenceAt(i, 60, slow);
+      if (c > prev + 1e-9) bad.push(`拍が ${i} 本めで ゆるんだ（slow=${slow}）`);
+      if (c <= AIRTIME) bad.push(`拍 ${c.toFixed(2)}s が 滞空 ${AIRTIME}s 以下（slow=${slow}）`);
+      prev = c;
+    }
+  }
+
+  if (bad.length) {
+    failed++;
+    console.log('   ' + bad.slice(0, 8).join('\n   '));
+  } else {
+    const ex = laneFor({ a: 8, b: 5 }).map((h) => h.kind[0]).join('');
+    console.log(`   すべて正常（8+5 の道すじ: ${ex} / 拍 ${cadenceAt(0, 60, false).toFixed(2)}→${cadenceAt(60, 60, false).toFixed(2)}s）`);
+  }
+}
+
+console.log('\nH) 出題の例');
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {
     if (!st.facts.length) continue;

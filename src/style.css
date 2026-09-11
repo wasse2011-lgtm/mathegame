@@ -1550,6 +1550,74 @@ button.zukan-mini:active { transform: translateY(1px); }
 /* 玉は大きく。ぱっと見て かたまりで つかむための絵なので、小さいと数えてしまう */
 .mini-dots { width: 100%; max-width: 20rem; max-height: 120px; }
 
+/* ぴょんぴょん ハードル。
+   .mini-body は flex:1 0 auto なので、canvas に height:100% を与えても
+   基準が不定になって 150px に潰れる。高さのほうを確定させる。
+   タップがスクロールに化けないよう touch-action も切る（.mini-play は縦スクロールする）*/
+/* flex-basis を 0 にして、高さを flex に決めさせる。
+   .mini-body の 1 0 auto のままだと height の指定ごと伸ばされ、
+   flex: 0 0 auto にすると こんどは下に大きな空きが残る */
+.mini-body.hurdle { flex: 1 1 0; display: block; min-height: 150px; max-height: min(44vh, 330px); }
+#mini-canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+@media (max-height: 620px) { .mini-body.hurdle { min-height: 120px; } }
+/* 答えが入る前は点線の ? 、入ったら みどりで受ける */
+.mini-goal .hq { display: inline-block; color: var(--ink-2); border-bottom: 3px dashed var(--line); padding: 0 .18em; }
+.mini-goal .hq.got { color: var(--good-dark); border-bottom-color: transparent; animation: pop .34s ease; }
+
+/* かずの ものさし。
+   目もりは答え合わせのときだけ出す。ぜんぶ出ていると「見積もる」ではなく
+   「数える」になってしまい、このゲームの狙いが消える。 */
+.mini-body.ruler { display: flex; align-items: center; justify-content: center; padding: 1.2rem .2rem; }
+.ruler-wrap { width: 100%; max-width: 26rem; }
+.ruler-band {
+  position: relative; height: 6.6rem; touch-action: none; cursor: pointer;
+}
+.ruler-line {
+  position: absolute; left: 0; right: 0; top: 50%; height: 6px; margin-top: -3px;
+  background: var(--line); border-radius: 3px;
+}
+.ruler-fill {
+  position: absolute; left: 0; top: 50%; height: 6px; margin-top: -3px; width: 0;
+  background: var(--good); border-radius: 3px; transition: width .1s linear;
+}
+.ruler-ticks i {
+  position: absolute; top: 50%; width: 2px; height: 10px; margin: -5px 0 0 -1px;
+  background: rgba(38,49,61,.35);
+}
+.ruler-ticks i.big { height: 18px; margin-top: -9px; background: var(--ink-2); }
+/* まん中の印だけは、答える前から出す。10 が 20 のまん中、という関係そのものを教える */
+.ruler-mid { position: absolute; left: 50%; top: 0; bottom: 0; }
+.ruler-mid i {
+  position: absolute; left: -1px; top: 50%; width: 2px; height: 22px; margin-top: -11px;
+  background: var(--ink-2);
+}
+.ruler-mid span {
+  position: absolute; left: 0; bottom: 0; transform: translateX(-50%);
+  font-size: .8rem; font-weight: 700; color: var(--ink-2);
+}
+.ruler-flag { position: absolute; top: 0; transform: translateX(-50%); font-size: 1.7rem; line-height: 1; }
+/* 数え歩きのふきだしは線の上を通るので、答えの札は線の下いっぱいに逃がす。
+   同じ位置に来ると2つが重なって、どちらも読めなくなる */
+.ruler-true {
+  position: absolute; bottom: 0; transform: translateX(-50%);
+  min-width: 2rem; padding: .1rem .35rem; border-radius: 8px;
+  background: var(--amber); color: #4a3400; border: 2px solid var(--amber-dark);
+  font-weight: 700; font-size: .95rem; text-align: center;
+  font-variant-numeric: tabular-nums; animation: pop .3s ease;
+}
+/* 0 から答えまで、数えながら歩く。ハードルの頭の上のふきだしと同じ「数の見せかた」 */
+.ruler-walk {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  min-width: 1.9rem; padding: .12rem .3rem; border-radius: 8px;
+  background: var(--ink); color: #fff; font-weight: 700; font-size: .9rem;
+  text-align: center; font-variant-numeric: tabular-nums;
+}
+.ruler-ends { display: flex; justify-content: space-between; font-weight: 700; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) {
+  .ruler-fill { transition: none; }
+  .ruler-true, .mini-goal .hq.got { animation: none; }
+}
+
 /* 数のカード。指がおおざっぱでも押せる大きさを最優先にする */
 .mcard {
   width: 4rem; height: 4.4rem; font-family: inherit; font-weight: 700; font-size: 1.9rem;
