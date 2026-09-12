@@ -358,37 +358,125 @@ body {
 @media (max-height: 620px) { #home-char { height: 68px; } .yard-hint { display: none; } }
 @media (max-height: 540px) { .yard { display: none; } }
 
-/* ホーくん（ものしりフクロウ）。
-   草の上の右はしに立っていて、押すと にがてな しきを1つ出す。
+/* ホーくん（めがねの フクロウ）。
+   草の上の右はしに立っていて、押すと にがてな しき か まめちしきを1つ出す。
    ふきだしは **左どなり** に出す。上に出すと きせかえ／ペット／ずかん の
    ボタンの上に かぶさる（広場は画面のいちばん下にある）。
-   ふきだしは指を通す（pointer-events: none）ので、うしろのボタンは押せたまま。 */
+   まめちしきの ふきだしは それでも下のボタンに かぶるので、
+   ふきだし自身が指を受けて、もう一度押されたら閉じる（.sensei-say 参照）。 */
 .sensei-wrap {
   position: absolute; right: .1rem; bottom: 1.2rem; z-index: 2;
   display: flex; align-items: flex-end; gap: .35rem;
 }
 .sensei {
-  flex: 0 0 auto; width: 54px; height: 54px; padding: 0;
+  position: relative;
+  flex: 0 0 auto; width: 66px; height: 66px; padding: 0;
   display: grid; place-items: center; cursor: pointer;
-  background: rgba(255,255,255,.9); border: 3px solid var(--amber); border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #fffdf6 60%, #ffeec4 100%);
+  border: 3px solid var(--amber); border-radius: 50%;
   box-shadow: 0 3px 0 rgba(0,0,0,.12);
 }
 .sensei:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
-.sensei-face { font-size: 1.9rem; line-height: 1; animation: owl-bob 2.8s ease-in-out infinite; }
 .sensei:active { transform: translateY(2px); }
-.sensei.talk .sensei-face { animation: owl-talk .5s ease; }
-@keyframes owl-bob {
-  0%, 100% { transform: translateY(0) rotate(-3deg); }
-  50% { transform: translateY(-4px) rotate(3deg); }
+
+/* 「押していい」を、字を足さずに見せる。
+   輪が ゆっくり ひろがって消える。飾りなので指は通す（押せる面は ボタンのまま） */
+.sensei::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 3px solid var(--amber); pointer-events: none;
+  animation: owl-ring 2.6s ease-out infinite;
 }
-@keyframes owl-talk {
-  0% { transform: scale(1); } 35% { transform: scale(1.25) rotate(-8deg); } 100% { transform: scale(1); }
+@keyframes owl-ring {
+  0% { opacity: .55; transform: scale(1); }
+  70%, 100% { opacity: 0; transform: scale(1.55); }
 }
 
+/* ------- ホーくんの絵 -------
+   まるい ボタンから みみ と はねが 少しはみ出すので、はみ出しは切らない。
+   色は「木のいろ＋おなかのクリーム＋めがねの青」の3つだけにして、
+   ゲーム中の意味のある色（青＝もとの数／緑＝こたえ／黄＝コイン）とぶつけない。 */
+.owl { display: block; width: 108%; height: 108%; overflow: visible; }
+.owl-egg { fill: #bd8148; stroke: #7a4e26; stroke-width: 2; }
+.owl-belly { fill: #fbe8c4; }
+.owl-dots { fill: #e0c08c; }
+.owl-wing { fill: #a86e3a; stroke: #7a4e26; stroke-width: 1.8; }
+.owl-tuft { fill: #a86e3a; stroke: #7a4e26; stroke-width: 2; stroke-linejoin: round; }
+.owl-disc { fill: #fdf3e0; stroke: #d8b284; stroke-width: 1.2; }
+.owl-cheek { fill: #ff98a8; opacity: .5; }
+.owl-white { fill: #fff; stroke: #7a4e26; stroke-width: 1.1; }
+.owl-pupil { fill: var(--ink); }
+.owl-spark { fill: #fff; }
+.owl-lens { fill: #9fd8f7; opacity: .22; }
+.owl-specs { fill: none; stroke: #2f7fb5; stroke-width: 2.3; stroke-linecap: round; }
+.owl-glint { fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; opacity: 0; }
+.owl-beak { fill: #ffb63d; stroke: #d98a10; stroke-width: 1.3; stroke-linejoin: round; }
+.owl-feet { fill: none; stroke: #f0a23c; stroke-width: 2.6; stroke-linecap: round; }
+
+/* 動き。止まっている絵は「押しても何も起きない」に見えるので、
+   待っているあいだも かならず どこかが動いている。
+   transform-box: fill-box を付けないと、SVG の中では
+   transform-origin が canvas の左上になり、部品が飛んでいく。 */
+.owl-all, .owl-eyes, .owl-wing, .owl-glint, .owl-pupil {
+  transform-box: fill-box; transform-origin: center;
+}
+.owl-all { animation: owl-bob 2.9s ease-in-out infinite; }
+.owl-eyes { animation: owl-blink 4.4s infinite; }
+.owl-wing { transform-origin: center 12%; }
+.wl { animation: owl-flap-l 2.9s ease-in-out infinite; }
+.wr { animation: owl-flap-r 2.9s ease-in-out infinite; }
+.owl-glint { animation: owl-glint 5.2s ease-in-out infinite; }
+
+@keyframes owl-bob {
+  0%, 100% { transform: translateY(.6px) rotate(-2.5deg) scale(1, .99); }
+  50% { transform: translateY(-1.6px) rotate(2.5deg) scale(1, 1.01); }
+}
+/* まばたきは一瞬。1回の周期のうち 4%だけ とじる */
+@keyframes owl-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95%, 97% { transform: scaleY(.1); }
+}
+/* はねは いつも すこし ひらいた ところから 動かす（0 に戻すと からだに 埋まる） */
+@keyframes owl-flap-l {
+  0%, 100% { transform: rotate(13deg); } 50% { transform: rotate(1deg); }
+}
+@keyframes owl-flap-r {
+  0%, 100% { transform: rotate(-13deg); } 50% { transform: rotate(-1deg); }
+}
+/* めがねが きらり。ずっと光っていると うるさいので、1周期に1回だけ */
+@keyframes owl-glint {
+  0%, 78%, 100% { opacity: 0; transform: translateX(-3px); }
+  84% { opacity: .95; transform: translateX(0); }
+  92% { opacity: 0; transform: translateX(3px); }
+}
+
+/* 押されたとき。ぴょんと はねて、目が まるくなる（反応が返ってくる） */
+.sensei.talk .owl-all { animation: owl-hop .62s cubic-bezier(.3,1.4,.5,1); }
+.sensei.talk .owl-pupil { animation: owl-pupil .62s ease; }
+.sensei.talk .owl-glint { animation: owl-flash .62s ease; }
+.sensei.talk .wl { animation: owl-flap-l .21s ease-in-out 3; }
+.sensei.talk .wr { animation: owl-flap-r .21s ease-in-out 3; }
+@keyframes owl-hop {
+  0% { transform: translateY(0) scale(1, 1); }
+  25% { transform: translateY(-7px) scale(.94, 1.08); }
+  60% { transform: translateY(0) scale(1.06, .92); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+@keyframes owl-pupil {
+  0%, 100% { transform: scale(1); } 35% { transform: scale(1.35); }
+}
+@keyframes owl-flash {
+  0%, 100% { opacity: 0; } 30% { opacity: 1; } 70% { opacity: 0; }
+}
+
+/* ふきだしは 指を受ける（うしろの きせかえ・ペット・ずかん には通さない）。
+   まめちしきを入れてふきだしが大きくなり、下の3つのボタンに かぶるようになった。
+   通してしまうと、ふきだしを押したつもりで きせかえが開く。
+   受けたうえで「ホーくんを押したのと同じ」に扱うので、
+   ちいさい指でも こたえに届くし、もう一度押せば すぐ消えてボタンが戻る。 */
 .sensei-say {
   max-width: min(15rem, 62vw);
   background: #fff; border: 3px solid var(--amber); border-radius: 14px;
-  padding: .3rem .6rem .35rem; text-align: center; pointer-events: none;
+  padding: .3rem .6rem .35rem; text-align: center; cursor: pointer;
   box-shadow: 0 3px 0 rgba(0,0,0,.1); animation: say-in .22s ease-out;
 }
 .sensei-say[hidden] { display: none; }
@@ -398,11 +486,45 @@ body {
 .ss-fact { font-size: 1.3rem; font-weight: 700; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ss-q { color: var(--ink-2); }
 .ss-q.got { color: var(--good-dark); animation: pop .34s ease; }
-.ss-tip { font-size: .7rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
 @keyframes say-in { from { opacity: 0; transform: translateY(6px) scale(.9); } to { opacity: 1; transform: none; } }
-@media (max-height: 620px) { .sensei { width: 46px; height: 46px; } .sensei-face { font-size: 1.6rem; } }
+
+/* まめちしき。式の1行とちがって文が折りかえるので、ふきだしを広げて 行間もあける。
+   下のボタンの上まで伸びるが、読みおわって もう一度押せば すぐ閉じる。 */
+.sensei-say.trivia { max-width: min(19rem, 76vw); padding: .4rem .7rem .5rem; }
+.st-icon { font-size: 1.7rem; line-height: 1.1; animation: st-pop .4s ease-out; }
+.st-q { font-size: .86rem; font-weight: 700; line-height: 1.35; }
+/* こたえは いちばん大きく。ここだけ読めれば伝わる長さにしてある */
+.st-a { font-size: 1.2rem; font-weight: 900; line-height: 1.25; color: var(--good-dark); animation: pop .34s ease; }
+.st-sub { font-size: .72rem; font-weight: 700; line-height: 1.3; color: var(--ink-2); }
+.st-wait { font-size: .68rem; font-weight: 700; color: var(--amber-dark); }
+/* こたえまで出たら「消せる」ことを見せる。読みおわった子がボタンに戻れる出口 */
+.st-close { font-size: .68rem; font-weight: 700; color: var(--ink-2); }
+/* .sensei-say p { margin: 0 } のほうが強いので、ここだけ同じ強さで上書きする */
+.sensei-say .st-a { margin-top: .15rem; }
+.sensei-say .st-sub, .sensei-say .st-wait, .sensei-say .st-close { margin-top: .12rem; }
+@keyframes st-pop { from { transform: scale(.5) rotate(-14deg); } to { transform: none; } }
+@media (max-height: 620px) { .sensei { width: 54px; height: 54px; } }
+/* せの ひくい 画面では、まめちしきの ふきだしが「あそぶ」まで のびる。
+   閉じられる（タップで とじる）とはいえ、いちばん押させたいボタンを
+   まるごと隠すのは よくないので、ここだけ 字を ひとまわり小さくする */
+@media (max-height: 700px) {
+  .sensei-say.trivia { max-width: min(17rem, 72vw); padding: .3rem .55rem .4rem; }
+  .st-icon { font-size: 1.4rem; }
+  .st-q { font-size: .78rem; }
+  .st-a { font-size: 1.04rem; }
+  .st-sub { font-size: .66rem; }
+  .st-wait, .st-close { font-size: .62rem; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .sensei-face, .sensei.talk .sensei-face, .sensei-say, .ss-q.got { animation: none; }
+  .sensei::after, .owl-all, .owl-eyes, .owl-wing, .owl-glint,
+  .sensei.talk .owl-all, .sensei.talk .owl-pupil, .sensei.talk .owl-glint,
+  .sensei.talk .wl, .sensei.talk .wr,
+  .sensei-say, .ss-q.got, .st-icon, .st-a { animation: none; }
+  /* 光は 出しっぱなしにせず、完全に消す */
+  .owl-glint { opacity: 0; }
+  /* はねは 動かさないが、ひらいた かたちで 止める（0 だと からだに 埋まって消える） */
+  .wl { transform: rotate(10deg); }
+  .wr { transform: rotate(-10deg); }
 }
 
 /* ---------------- ホーム ---------------- */

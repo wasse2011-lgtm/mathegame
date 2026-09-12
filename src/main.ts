@@ -55,6 +55,7 @@ import {
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
+import { nextTrivia, type Trivia } from './trivia';
 import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
 
@@ -139,12 +140,17 @@ function startHomeIdle(): void {
 // ------------------------------------------------------------------ ホーくん（ものしりフクロウ）
 
 /**
- * タイトルの草の上にいる フクロウ。
+ * タイトルの草の上にいる めがねの フクロウ。
  *
- * タップすると、**いま にがてな式を1つ出して、ひと呼吸おいてから こたえを見せる。**
- * 走らなくても、押すだけで1問ぶん出会える場所をタイトルに1つ置く。
- * ここに来る子は「あそぶ」を押す前に かならずこの画面を見ているので、
- * いちばん通る道の上に、いちばん短い れんしゅうを置いたことになる。
+ * タップすると **2種類のどちらか**が、ひと呼吸おいて こたえまで出る。
+ * - にがてな式を1つ（走らなくても、押すだけで1問ぶん出会える）
+ * - 数の まめちしき・クイズを1つ（`trivia.ts`）
+ *
+ * 式だけを出していたときは、押すこと自体が れんしゅうの合図になってしまい、
+ * 「押すと おべんきょうが出てくるボタン」として避けられる。
+ * **当たりが2種類あると、もう一度押す。** ここに来る子は「あそぶ」を押す前に
+ * かならずこの画面を見ているので、いちばん通る道の上に、いちばん短い
+ * れんしゅうを1つ置いたことになる。
  *
  * すぐ答えを出さないのは、出てから答えが見えるまでの1〜2秒がいちばんおぼえる時間だから。
  * 待てない子は もう一度押せば出る（考えることを強制はしない）。
@@ -155,15 +161,24 @@ function startHomeIdle(): void {
  */
 const SENSEI_WAIT = 1900;
 const SENSEI_HIDE = 5200;
+/** まめちしきは もんだい文が長いぶん、読む時間を のばす */
+const TRIVIA_WAIT = 3000;
+const TRIVIA_HIDE = 8000;
 /** 語尾は「〜ホ」。ここだけは説明ではなく、話しかけられている形にする */
 const SENSEI_ASK = 'これ わかるホ？';
 
+/** いま ふきだしに出しているもの */
+type SenseiCard = { kind: 'fact'; fact: Fact } | { kind: 'trivia'; item: Trivia };
+
 let senseiList: Fact[] = [];
 let senseiAt = 0;
-let senseiFact: Fact | null = null;
+let senseiCard: SenseiCard | null = null;
 /** こたえまで出したか。出ていない間にもう一度押されたら、その場で見せる */
 let senseiOpen = false;
 let senseiTimer = 0;
+/** 同じ種類が何回つづいたか。3回つづいたら、つぎは かならず もう一方にする */
+let senseiRun = 0;
+let senseiWasTrivia = false;
 
 /** 出す式。にがてが1ぴきも居ない日でも空にはしない（いちばん あやしい式から） */
 function senseiPool(): Fact[] {
@@ -172,10 +187,34 @@ function senseiPool(): Fact[] {
   return weak.length ? weak : weakestFacts(pool, 8);
 }
 
-function renderSensei(fact: Fact, answer: number | null): void {
+/**
+ * つぎに出すのは まめちしきか、式か。
+ * 半々の くじ引きにしているが、**同じ種類が3回つづいたら 強制的に切りかえる。**
+ * 運まかせのままだと「5回押して ぜんぶ式」が普通に起きて、
+ * 2種類あることに気づかないまま やめてしまう。
+ */
+function wantTrivia(): boolean {
+  if (senseiRun >= 3) return !senseiWasTrivia;
+  return Math.random() < 0.5;
+}
+
+function nextCard(): SenseiCard | null {
+  const trivia = wantTrivia();
+  senseiRun = trivia === senseiWasTrivia ? senseiRun + 1 : 1;
+  senseiWasTrivia = trivia;
+  if (trivia) return { kind: 'trivia', item: nextTrivia() };
+
+  if (senseiAt >= senseiList.length) {
+    senseiList = senseiPool();
+    senseiAt = 0;
+  }
+  const f = senseiList[senseiAt++];
+  return f ? { kind: 'fact', fact: f } : null;
+}
+
+function renderFactCard(fact: Fact, answer: number | null): void {
   const box = $('sensei-say');
-  const big = Math.max(fact.a, fact.b);
-  const small = Math.min(fact.a, fact.b);
+  box.classList.remove('trivia');
 
   const lead = document.createElement('p');
   lead.className = 'ss-lead';
@@ -188,33 +227,95 @@ function renderSensei(fact: Fact, answer: number | null): void {
   q.textContent = answer === null ? '?' : String(answer);
   line.append(String(fact.a), ' ＋ ', String(fact.b), ' ＝ ', q);
 
-  // 数えかたは ハードルと同じことば（大きいほうから、のこりのぶんだけ）。
-  // アプリの中で、同じ話は いつも同じ言いかたにする
-  const tip = document.createElement('p');
-  tip.className = 'ss-tip';
-  tip.textContent = `${big} から ${small}かい ぴょん`;
+  box.replaceChildren(lead, line);
+  box.hidden = false;
+}
 
-  box.replaceChildren(lead, line, tip);
+function renderTriviaCard(t: Trivia, open: boolean): void {
+  const box = $('sensei-say');
+  box.classList.add('trivia');
+  const quiz = t.kind === 'quiz';
+
+  const lead = document.createElement('p');
+  lead.className = 'ss-lead';
+  lead.textContent = open
+    ? (quiz ? 'せいかいは…' : 'なるほど ホ〜！')
+    : (quiz ? 'クイズ だホ！' : 'しってる ホ？');
+
+  const icon = document.createElement('p');
+  icon.className = 'st-icon';
+  icon.textContent = t.icon;
+
+  const q = document.createElement('p');
+  q.className = 'st-q';
+  q.textContent = t.q;
+
+  const rows: HTMLElement[] = [lead, icon, q];
+  if (open) {
+    const a = document.createElement('p');
+    a.className = 'st-a';
+    a.textContent = t.a;
+    rows.push(a);
+    if (t.sub) {
+      const sub = document.createElement('p');
+      sub.className = 'st-sub';
+      sub.textContent = t.sub;
+      rows.push(sub);
+    }
+    const close = document.createElement('p');
+    close.className = 'st-close';
+    close.textContent = 'タップで とじる';
+    rows.push(close);
+  } else {
+    // 待てない子に「押せば出る」ことを教える。待つのを強制はしない
+    const wait = document.createElement('p');
+    wait.className = 'st-wait';
+    wait.textContent = quiz ? 'タップで こたえ' : 'タップで つづき';
+    rows.push(wait);
+  }
+
+  box.replaceChildren(...rows);
   box.hidden = false;
 }
 
 function revealSensei(): void {
-  const f = senseiFact;
-  if (!f) return;
+  const c = senseiCard;
+  if (!c) return;
   window.clearTimeout(senseiTimer);
   senseiOpen = true;
-  renderSensei(f, f.a + f.b);
-  sfx.correct(0);
-  senseiTimer = window.setTimeout(hideSensei, SENSEI_HIDE);
+  if (c.kind === 'fact') {
+    renderFactCard(c.fact, c.fact.a + c.fact.b);
+    sfx.correct(0);
+    senseiTimer = window.setTimeout(hideSensei, SENSEI_HIDE);
+  } else {
+    renderTriviaCard(c.item, true);
+    sfx.star(1);
+    senseiTimer = window.setTimeout(hideSensei, TRIVIA_HIDE);
+  }
 }
 
 function hideSensei(): void {
   window.clearTimeout(senseiTimer);
   senseiTimer = 0;
-  senseiFact = null;
+  senseiCard = null;
   senseiOpen = false;
   $('sensei-say').hidden = true;
 }
+
+/**
+ * ふきだしを押しても、ホーくんを押したのと同じ（こたえが出る）。
+ * ただし **こたえまで出ている ふきだしを押したら、閉じる。**
+ * ふきだしは下の3つのボタンに かぶるので、読みおわったら消す手が要る。
+ * ここで つぎのネタを出してしまうと、ボタンが ずっと隠れたままになる。
+ */
+$('sensei-say').addEventListener('click', () => {
+  if (senseiCard && !senseiOpen) {
+    unlockAudio();
+    revealSensei();
+    return;
+  }
+  hideSensei();
+});
 
 $('sensei').addEventListener('click', () => {
   unlockAudio();
@@ -224,22 +325,23 @@ $('sensei').addEventListener('click', () => {
   owl.classList.add('talk');
   sfx.voice('bird');
 
-  // 式が出ているだけなら、2回めの押しで こたえ
-  if (senseiFact && !senseiOpen) {
+  // もんだいが出ているだけなら、2回めの押しで こたえ
+  if (senseiCard && !senseiOpen) {
     revealSensei();
     return;
   }
-  if (senseiAt >= senseiList.length) {
-    senseiList = senseiPool();
-    senseiAt = 0;
-  }
-  const f = senseiList[senseiAt++];
-  if (!f) return;
+  const card = nextCard();
+  if (!card) return;
   window.clearTimeout(senseiTimer);
-  senseiFact = f;
+  senseiCard = card;
   senseiOpen = false;
-  renderSensei(f, null);
-  senseiTimer = window.setTimeout(revealSensei, SENSEI_WAIT);
+  if (card.kind === 'fact') {
+    renderFactCard(card.fact, null);
+    senseiTimer = window.setTimeout(revealSensei, SENSEI_WAIT);
+  } else {
+    renderTriviaCard(card.item, false);
+    senseiTimer = window.setTimeout(revealSensei, TRIVIA_WAIT);
+  }
 });
 
 /** ホームに戻る。描き直しを忘れないよう、必ずここを通す */
