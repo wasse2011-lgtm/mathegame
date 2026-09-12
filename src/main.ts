@@ -96,8 +96,12 @@ function show(name: ScreenName): void {
     screens[k].hidden = k !== name;
   });
   // 動いている画面は、表に出たときに描画ループを起こしなおす
-  if (name === 'title') startHomeIdle();
-  else yard.stop(); // 見ていないあいだは動かさない（電池を食う）
+  if (name === 'title') {
+    startHomeIdle();
+  } else {
+    yard.stop(); // 見ていないあいだは動かさない（電池を食う）
+    hideSensei(); // ふきだしのタイマーを、別の画面に持ちこさない
+  }
   if (name === 'shop') startShopIdle();
   if (name === 'ranch') startRanchIdle();
 }
@@ -131,6 +135,112 @@ function startHomeIdle(): void {
   yard.setCast(yardCast());
   yard.start();
 }
+
+// ------------------------------------------------------------------ ホーくん（ものしりフクロウ）
+
+/**
+ * タイトルの草の上にいる フクロウ。
+ *
+ * タップすると、**いま にがてな式を1つ出して、ひと呼吸おいてから こたえを見せる。**
+ * 走らなくても、押すだけで1問ぶん出会える場所をタイトルに1つ置く。
+ * ここに来る子は「あそぶ」を押す前に かならずこの画面を見ているので、
+ * いちばん通る道の上に、いちばん短い れんしゅうを置いたことになる。
+ *
+ * すぐ答えを出さないのは、出てから答えが見えるまでの1〜2秒がいちばんおぼえる時間だから。
+ * 待てない子は もう一度押せば出る（考えることを強制はしない）。
+ *
+ * **記録は読むだけで、一切動かさない。**（★・ずかん・習熟度）
+ * 押せば答えが出るものを「おぼえた」の証拠にしない、という線は
+ * ミニゲームと同じ。出すのは にがての記録を読んで決める。
+ */
+const SENSEI_WAIT = 1900;
+const SENSEI_HIDE = 5200;
+/** 語尾は「〜ホ」。ここだけは説明ではなく、話しかけられている形にする */
+const SENSEI_ASK = 'これ わかるホ？';
+
+let senseiList: Fact[] = [];
+let senseiAt = 0;
+let senseiFact: Fact | null = null;
+/** こたえまで出したか。出ていない間にもう一度押されたら、その場で見せる */
+let senseiOpen = false;
+let senseiTimer = 0;
+
+/** 出す式。にがてが1ぴきも居ない日でも空にはしない（いちばん あやしい式から） */
+function senseiPool(): Fact[] {
+  const pool = unlockedFacts();
+  const weak = weakFacts(pool, 8);
+  return weak.length ? weak : weakestFacts(pool, 8);
+}
+
+function renderSensei(fact: Fact, answer: number | null): void {
+  const box = $('sensei-say');
+  const big = Math.max(fact.a, fact.b);
+  const small = Math.min(fact.a, fact.b);
+
+  const lead = document.createElement('p');
+  lead.className = 'ss-lead';
+  lead.textContent = answer === null ? SENSEI_ASK : `${answer} だホ！`;
+
+  const line = document.createElement('p');
+  line.className = 'ss-fact';
+  const q = document.createElement('b');
+  q.className = answer === null ? 'ss-q' : 'ss-q got';
+  q.textContent = answer === null ? '?' : String(answer);
+  line.append(String(fact.a), ' ＋ ', String(fact.b), ' ＝ ', q);
+
+  // 数えかたは ハードルと同じことば（大きいほうから、のこりのぶんだけ）。
+  // アプリの中で、同じ話は いつも同じ言いかたにする
+  const tip = document.createElement('p');
+  tip.className = 'ss-tip';
+  tip.textContent = `${big} から ${small}かい ぴょん`;
+
+  box.replaceChildren(lead, line, tip);
+  box.hidden = false;
+}
+
+function revealSensei(): void {
+  const f = senseiFact;
+  if (!f) return;
+  window.clearTimeout(senseiTimer);
+  senseiOpen = true;
+  renderSensei(f, f.a + f.b);
+  sfx.correct(0);
+  senseiTimer = window.setTimeout(hideSensei, SENSEI_HIDE);
+}
+
+function hideSensei(): void {
+  window.clearTimeout(senseiTimer);
+  senseiTimer = 0;
+  senseiFact = null;
+  senseiOpen = false;
+  $('sensei-say').hidden = true;
+}
+
+$('sensei').addEventListener('click', () => {
+  unlockAudio();
+  const owl = $('sensei');
+  owl.classList.remove('talk');
+  void owl.offsetWidth;
+  owl.classList.add('talk');
+  sfx.voice('bird');
+
+  // 式が出ているだけなら、2回めの押しで こたえ
+  if (senseiFact && !senseiOpen) {
+    revealSensei();
+    return;
+  }
+  if (senseiAt >= senseiList.length) {
+    senseiList = senseiPool();
+    senseiAt = 0;
+  }
+  const f = senseiList[senseiAt++];
+  if (!f) return;
+  window.clearTimeout(senseiTimer);
+  senseiFact = f;
+  senseiOpen = false;
+  renderSensei(f, null);
+  senseiTimer = window.setTimeout(revealSensei, SENSEI_WAIT);
+});
 
 /** ホームに戻る。描き直しを忘れないよう、必ずここを通す */
 function goHome(): void {
@@ -315,6 +425,10 @@ function renderTitle(): void {
   }
 
   refreshDaily(p);
+  // 走ったあとは にがての顔ぶれが変わっている。ホーくんの手札は取りなおす
+  senseiList = [];
+  senseiAt = 0;
+  hideSensei();
   $('hello').textContent = `${p.name} の ぼうけん`;
   $('hello').setAttribute('aria-label', `${p.name} の ぼうけん。きろくを えらぶ`);
   $('home-coins').textContent = String(p.coins);
@@ -322,10 +436,9 @@ function renderTitle(): void {
   // 1日の上限に達したら、遊ぶ導線だけ閉じる（図鑑ときせかえは見られる）
   const over = overDailyLimit();
   const startBtn = $<HTMLButtonElement>('btn-start');
-  const daily = $<HTMLButtonElement>('daily-card');
+  const daily = $('daily-card');
   const hunt = $<HTMLButtonElement>('hunt-card');
   startBtn.disabled = over;
-  daily.disabled = over;
 
   // ミニゲームも「あそび」なので、1日の上限の中に入れる。
   // ここだけ外に置くと、上限をつけた家庭で ミニゲームだけ無限に遊べてしまう。
@@ -358,12 +471,13 @@ function renderTitle(): void {
   $('over-note').hidden = !over;
 
   daily.classList.toggle('done', p.daily.done);
-  // 問題数は押したあとに選ぶ。ここには「1もんでも いい」が読める形で出す
-  $('daily-state').textContent = over
-    ? 'また あした'
-    : p.daily.done
-      ? 'きょうは クリア！'
-      : '1・3・5もん から えらぶ';
+  // 何問やるかは このカードの中で直接えらぶ（1・3・5）。
+  // ふだんは説明の行を出さない。ボタンの数と ●の数で足りている
+  const dstate = $('daily-state');
+  dstate.hidden = !(over || p.daily.done);
+  // もらいずみの日は ✓ だけ。カードの枠も緑になるので、字を足す必要がない
+  dstate.textContent = over ? 'また あした' : '✓ クリア';
+  renderDailyQty(over);
   const streak = $('home-streak');
   streak.hidden = p.daily.streak < 1;
   const sb = streak.querySelector('b');
@@ -642,42 +756,58 @@ function startDaily(count: number): void {
   });
 }
 
-/** 「なんもん やる？」。ここで問題数を決めてから走り出す */
-function askDailyCount(): void {
+/**
+ * 「なんもん やる？」を、ホームのカードの中に置く。
+ *
+ * 以前は カードを押す → 別画面で 1／3／5 を選ぶ、の2段だった。あいだの画面には
+ * 「まえの ほうは かんたんな しき…」という説明が2行あり、遊びはじめるまでに
+ * 読む字と ひと押しが増えるだけだった（説明の中身は おうちのかた の画面にある）。
+ *
+ * 字ではなく数で分かるように、ボタンには **問題の数だけ ●** をならべる。
+ * ごほうびのコインも 数字と絵だけで出す（1日1回きり。もらいずみの日は出さない）。
+ */
+function renderDailyQty(over: boolean): void {
   const p = profile();
-  refreshDaily(p);
   const row = $('daily-qty');
   row.replaceChildren();
   for (const n of DAILY_COUNTS) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'qty-btn';
+    b.disabled = over;
+    b.setAttribute('aria-label', `きょうの もんだいを ${n}もん あそぶ`);
+
+    // ●の数 ＝ 問題の数。字が読めなくても「多い・少ない」が見て分かる
+    const pips = document.createElement('span');
+    pips.className = 'qty-pips';
+    pips.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < n; i++) pips.appendChild(document.createElement('i'));
+
     const big = document.createElement('b');
-    big.textContent = `${n}もん`;
-    const sub = document.createElement('span');
-    // ごほうびは1日1回きり。もらいずみの日は、枚数のかわりに その旨を出す
-    sub.textContent = p.daily.done ? 'れんしゅう' : `＋${dailyBonus(n)}`;
-    b.append(big, sub);
+    big.textContent = String(n);
+
+    b.append(pips, big);
+    // ごほうびは1日1回きり。もらいずみの日と 上限の日は、コインの行を出さない
+    if (!over && !p.daily.done) {
+      const coin = document.createElement('span');
+      coin.className = 'qty-coin';
+      coin.setAttribute('aria-hidden', 'true');
+      const dot = document.createElement('span');
+      dot.className = 'coin-dot';
+      const num = document.createElement('i');
+      num.textContent = String(dailyBonus(n));
+      coin.append(dot, num);
+      b.appendChild(coin);
+    }
+
     b.addEventListener('click', () => {
+      unlockAudio();
       sfx.tap();
-      $('overlay-daily').hidden = true;
       startDaily(n);
     });
     row.appendChild(b);
   }
-  $('overlay-daily').hidden = false;
 }
-
-$('daily-card').addEventListener('click', () => {
-  unlockAudio();
-  sfx.tap();
-  askDailyCount();
-});
-
-$('daily-cancel').addEventListener('click', () => {
-  sfx.tap();
-  $('overlay-daily').hidden = true;
-});
 
 /**
  * にがて たいじ。

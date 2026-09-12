@@ -62,7 +62,10 @@ const { QuestionPicker, MASTERED, distractorPool, blankPool } = await load('ques
 const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
 const { frameArt, PLACE_MAX } = await load('tenframe');
-const { laneFrom, endlessLane, cadenceAt, endlessCadence, AIRTIME } = await load('hurdle');
+const {
+  laneFrom, endlessLane, cadenceAt, endlessCadence,
+  AIRTIME, LAND_LAG, TRIP_LAG, CLEAR_RATIO, clearsAt, clearWindow,
+} = await load('hurdle');
 
 const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
@@ -374,8 +377,9 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     if ((h.n % 10 === 0) !== (h.kind === 'gate')) bad.push(`エンドレス: ${h.n} こめの区切りがおかしい`);
   }
 
-  // 拍は詰まる一方で、しかも かならず滞空より長い。
-  // ここが破れると、前の滞空が終わる前に次が来て、原理的に跳べなくなる
+  // 拍は詰まる一方で、しかも かならず「跳んで、着地して、また跳べるようになる」
+  // ぶんより長い。ここが破れると、次が来ても まだ跳べず、原理的に越えられなくなる
+  const READY = AIRTIME + LAND_LAG;
   for (const slow of [false, true]) {
     for (const [name, at] of [
       ['式モード', (i) => cadenceAt(i, 60, slow)],
@@ -385,10 +389,103 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
       for (let i = 0; i <= 200; i++) {
         const c = at(i);
         if (c > prev + 1e-9) bad.push(`${name}の拍が ${i} 本めで ゆるんだ（slow=${slow}）`);
-        if (c <= AIRTIME) bad.push(`${name}の拍 ${c.toFixed(2)}s が 滞空 ${AIRTIME}s 以下（slow=${slow}）`);
+        if (c < READY) {
+          bad.push(`${name}の拍 ${c.toFixed(2)}s が 跳べるようになるまで ${READY.toFixed(2)}s より短い（slow=${slow}）`);
+        }
         prev = c;
       }
     }
+  }
+
+  // 当たり判定。**跳んだ「つもり」では越えられない**
+  if (clearsAt(0)) bad.push('地面をはなれた瞬間に もう横木を越えている（当たり判定が無い）');
+  if (clearsAt(AIRTIME)) bad.push('着地した瞬間に まだ横木を越えている');
+  if (!clearsAt(AIRTIME / 2)) bad.push('いちばん高いところでも 横木を越えられない');
+  if (!(CLEAR_RATIO > 0.2 && CLEAR_RATIO < 0.9)) bad.push(`越える高さの割合が おかしい（${CLEAR_RATIO}）`);
+  // 越えていられる時間が 連打の拍より短い＝連打では かならず取りこぼす
+  if (clearWindow() >= READY) {
+    bad.push(`越えていられる ${clearWindow().toFixed(2)}s が 連打の拍 ${READY.toFixed(2)}s 以上（連打で ぜんぶ越えられる）`);
+  }
+
+  /**
+   * 連打（毎フレーム押しつづける）で走らせたときの成功率。
+   *
+   * 直す前は 100%だった。空中のタップをいつでも先行入力として受けて、
+   * 着地したフレームで即 跳びなおしていたので、押しつづけているあいだ
+   * ずっと空中にいた（＝ぶつかりようがない）。
+   * いまは跳躍が AIRTIME + LAND_LAG ごとの決まった拍になるので、
+   * ハードルの拍とは合わず、必ず取りこぼす。
+   */
+  const mash = (cadence, n) => {
+    const hits = [];
+    let t = 1.6;
+    for (let i = 0; i < n; i++) {
+      hits.push(t);
+      t += cadence(i + 1);
+    }
+    const dt = 1 / 120;
+    let clean = 0, air = false, airT = 0, lag = 0, at = 0;
+    for (let now = 0; at < n && now < 600; now += dt) {
+      if (!air && lag <= 0) { air = true; airT = 0; }  // 連打なので毎フレーム押す
+      if (lag > 0) lag = Math.max(0, lag - dt);
+      if (air) {
+        airT += dt;
+        if (airT >= AIRTIME) { air = false; airT = 0; lag = LAND_LAG; }
+      }
+      while (at < n && now >= hits[at]) {
+        if (air && clearsAt(airT)) clean++;
+        else { air = false; airT = 0; lag = TRIP_LAG; }
+        at++;
+      }
+    }
+    return clean / n;
+  };
+
+  const mashFacts = mash((i) => cadenceAt(i, 60, false), 60);
+  const mashEndless = mash((i) => endlessCadence(i, false), 120);
+  for (const [name, rate] of [['式モード', mashFacts], ['エンドレス', mashEndless]]) {
+    if (rate > 0.9) bad.push(`連打だけで ${name}の ${(rate * 100).toFixed(0)}% を きれいに跳べる`);
+  }
+
+  /**
+   * 拍に合わせて跳ぶ子は、**ぜんぶ取れる**。
+   *
+   * むずかしくしたのは「連打が通らない」ようにするためで、
+   * 跳ぶ場所が分かっている子に取りこぼさせるためではない。
+   * いちばん高いところがハードルに重なるように跳んだら 100% になることを見る。
+   */
+  const timed = (cadence, n) => {
+    const hits = [];
+    let t = 1.6;
+    for (let i = 0; i < n; i++) {
+      hits.push(t);
+      t += cadence(i + 1);
+    }
+    const dt = 1 / 120;
+    let clean = 0, air = false, airT = 0, lag = 0, at = 0;
+    for (let now = 0; at < n && now < 600; now += dt) {
+      // いちばん高いところ（AIRTIME/2）が ハードルに重なるように押す
+      const want = hits[at] - AIRTIME / 2;
+      if (!air && lag <= 0 && now >= want) { air = true; airT = 0; }
+      if (lag > 0) lag = Math.max(0, lag - dt);
+      if (air) {
+        airT += dt;
+        if (airT >= AIRTIME) { air = false; airT = 0; lag = LAND_LAG; }
+      }
+      while (at < n && now >= hits[at]) {
+        if (air && clearsAt(airT)) clean++;
+        else { air = false; airT = 0; lag = TRIP_LAG; }
+        at++;
+      }
+    }
+    return clean / n;
+  };
+
+  for (const [name, rate] of [
+    ['式モード', timed((i) => cadenceAt(i, 60, false), 60)],
+    ['エンドレス', timed((i) => endlessCadence(i, false), 150)],
+  ]) {
+    if (rate < 1) bad.push(`拍に合わせても ${name}で ${(100 - rate * 100).toFixed(0)}% 取りこぼす（速すぎる）`);
   }
 
   // エンドレスは「10本ごとに少しずつ速くなり、100本で いちばん速い」。
@@ -404,7 +501,13 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     const ex = laneFrom(8, 13).map((h) => h.kind[0]).join('');
     console.log(
       `   すべて正常（8+5 を 8 から: ${ex} / 式モードの拍 ${cadenceAt(0, 60, false).toFixed(2)}→${cadenceAt(60, 60, false).toFixed(2)}s` +
-        ` / エンドレス ${endlessCadence(0, false).toFixed(2)}→${endlessCadence(100, false).toFixed(2)}s・滞空 ${AIRTIME}s）`,
+        ` / エンドレス ${endlessCadence(0, false).toFixed(2)}→${endlessCadence(100, false).toFixed(2)}s）`,
+    );
+    console.log(
+      `   当たり判定: 跳んで ${AIRTIME}s のうち 越えていられるのは ${clearWindow().toFixed(2)}s、` +
+        `つぎに跳べるまで ${READY.toFixed(2)}s ` +
+        `→ 連打だけでは 式モード ${(mashFacts * 100).toFixed(0)}% / エンドレス ${(mashEndless * 100).toFixed(0)}%` +
+        `（拍に合わせれば どちらも 100%）`,
     );
   }
 }

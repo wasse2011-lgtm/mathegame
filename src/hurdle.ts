@@ -19,7 +19,24 @@
  * つまずいてもハードルは通過し、`counted` は増える。落とすのは そのハードルの
  * コイン1枚だけ。README の「腕前ではなく計算だけで越えられる」と同じ線で、
  * 運動が苦手な子でも「止まった数 ＝ こたえ」には必ず最後まで届く。
- * 下の update() の、カウントを進める分岐が `air` を読んでいないことがその保証。
+ * 下の update() の、カウントを進める分岐が 跳べたかどうかを読んでいないことが
+ * その保証。
+ *
+ * ## 当たり判定（跳んだ「つもり」では越えられない）
+ *
+ * 越えたことにする条件は **横木より足が上にあること**（clearsAt）で、
+ * 「空中にいるかどうか」ではない。地面をはなれた瞬間や、降りきる直前は
+ * まだ横木の高さに届いていないので、ぶつかる。
+ *
+ * あわせて、着地してすぐには跳べない（LAND_LAG）。前は 空中のタップを
+ * ぜんぶ先行入力として受け、着地したフレームで即 跳びなおしていたので、
+ * **連打しているあいだ ずっと空中**になり、一度もぶつからなかった。
+ * 先行入力は着地の直前（INPUT_BUFFER）だけ受ける。
+ *
+ * 結果、連打の跳躍は AIRTIME + LAND_LAG ごとの決まった拍になり、
+ * 越えていられる時間（clearWindow）はそれより短い。
+ * つまり **連打では必ず取りこぼす**（CI の G) が数字で見張っている）。
+ * 拍に合わせて跳べば ぜんぶ取れる（どの拍も AIRTIME + LAND_LAG より長い）。
  *
  * 10こめは「10」のアーチだが、**これも跳ぶ**。くぐるだけの ごほうびの拍にして
  * いたころは、10 をまたぐところだけ手が止まり、繰り上がりの山がいちばん
@@ -97,8 +114,33 @@ export function endlessLane(from: number, count: number): LaneItem[] {
 
 // ------------------------------------------------------------------ 拍
 
-/** 跳んでいる時間。判定はこの長さぶんの猶予になる */
+/** 跳んでいる時間 */
 export const AIRTIME = 0.68;
+
+/**
+ * 着地してから つぎに跳べるようになるまで（秒）。
+ *
+ * ここが 0 だったころは、空中で押しておけば着地したフレームでそのまま跳びなおし、
+ * 連打しているかぎり ずっと空中にいられた（＝ぶつかりようがなかった）。
+ * ひと呼吸おくと、連打の跳躍は AIRTIME + LAND_LAG ごとの決まった拍になる。
+ */
+export const LAND_LAG = 0.14;
+/** ぶつかったあと、体勢を立てなおすまで。連打の勢いを1回ここで切る */
+export const TRIP_LAG = 0.26;
+/** 先行入力を受けつける、着地までの残り時間 */
+const INPUT_BUFFER = 0.22;
+
+/** いちばん高いところ（足の高さ・s 倍する前） */
+const APEX = 42;
+/** ハードルの横木の てっぺん */
+const BAR = 22;
+/**
+ * 越えたことにする足の高さ。横木より 4 だけ低く取ってある（そのぶんの なさけ）。
+ * ここを 0 にすると「地面をはなれていれば越えたことになる」＝当たり判定が無いのと同じ。
+ */
+const CLEAR = 18;
+/** 越えられる高さを、いちばん高いところに対する割合で持つ */
+export const CLEAR_RATIO = CLEAR / APEX;
 
 const CADENCE_MAX = 1.35;
 const CADENCE_MIN = 0.95;
@@ -106,10 +148,35 @@ const CADENCE_MIN = 0.95;
 const SLOW_RATE = 1.35;
 
 /**
+ * 跳んでからの秒 t での 足の高さ。いちばん高いところを 1 とした割合。
+ *
+ * 位置を毎フレーム積分せずに ここから直に出すので、**画面に見えている高さと、
+ * 越えられたかの判定が ぜったいに食いちがわない**（CI からも同じ式を見られる）。
+ */
+export function hopHeight(t: number): number {
+  if (t <= 0 || t >= AIRTIME) return 0;
+  const u = t / AIRTIME;
+  return 4 * u * (1 - u);
+}
+
+/** その時点で 横木より上にいるか */
+export function clearsAt(t: number): boolean {
+  return hopHeight(t) >= CLEAR_RATIO;
+}
+
+/**
+ * 1回の跳躍のうち、横木を越えていられる時間（秒）。
+ * 4u(1-u) = r を解くと はばは √(1-r)。連打の拍（AIRTIME + LAND_LAG）より短い。
+ */
+export function clearWindow(): number {
+  return AIRTIME * Math.sqrt(1 - CLEAR_RATIO);
+}
+
+/**
  * i 本めのハードルと、その次との間隔（秒）。式モードで使う。
  *
- * **CADENCE_MIN は AIRTIME より必ず長くしてある。**
- * 詰めすぎると、前のハードルの滞空が終わる前に次が来て、原理的に跳べなくなる。
+ * **CADENCE_MIN は AIRTIME + LAND_LAG より必ず長くしてある。**
+ * 詰めすぎると、着地して跳べるようになる前に次が来て、原理的に跳べなくなる。
  * 速さは遊びの張りのためであって、数を読ませなくするためではないので、
  * ここは 0.95 で頭打ちにしてある（CI で単調性と下限を検査している）。
  */
@@ -122,17 +189,16 @@ export function cadenceAt(i: number, total: number, slow: boolean): number {
 
 /** エンドレスで、何本ごとに1段 速くなるか（10のもんの区切りと同じ） */
 const ENDLESS_STEP = 10;
-/** 1段あたり詰める秒数 */
-const ENDLESS_TIGHTEN = 0.06;
+/** 1段あたり詰める秒数。100本めで ちょうど ENDLESS_MIN に着く幅にしてある */
+const ENDLESS_TIGHTEN = 0.046;
 /**
  * エンドレスでいちばん速いときの拍。
  *
- * 滞空 0.68 秒に対して 0.76 秒。着地してから つぎのハードルが届くまで 0.08 秒しか
- * 無いので、**跳びっぱなしに近い**。先行入力（空中のタップを着地で使う）が
- * あるので不可能ではないが、ここが「ギリギリ こえられる」の帯。
- * AIRTIME より下げてはいけない（原理的に跳べなくなる。CI が見張っている）。
+ * 跳んでから つぎに跳べるようになるまでが AIRTIME + LAND_LAG ＝ 0.82 秒。
+ * それに対して 0.90 秒なので、**1本も休めない**。ここが「ギリギリ こえられる」の帯。
+ * AIRTIME + LAND_LAG より下げてはいけない（原理的に跳べなくなる。CI が見張っている）。
  */
-const ENDLESS_MIN = 0.76;
+const ENDLESS_MIN = 0.9;
 
 /**
  * エンドレスの拍。**10本ごとに1段ずつ速くなり、100本で いちばん速くなる。**
@@ -248,8 +314,6 @@ interface Coin {
 
 /** エンドレスのハート。アーチを通るたび満タンに戻る */
 const HEARTS = 3;
-/** つまずいた直後、これだけの間にタップすれば「跳べた」ことにする */
-const GRACE = 0.12;
 /** アーチの前後で、走りをほんの少し止めて見せる時間 */
 const GATE_HOLD = 0.55;
 
@@ -306,15 +370,17 @@ export class HurdleGame {
   private cardT = 0;
 
   // --- 跳躍
+  /** 足の高さ（0 が地面。上へ行くほどマイナス） */
   private py = 0;
-  private vy = 0;
   private air = false;
+  /** 跳んでからの秒。高さも 当たり判定も この1つから出す */
+  private airT = 0;
+  /** 着地の ため。0 になるまで つぎは跳べない */
+  private lag = 0;
   private queued = false;
   private hurt = 0;
   private squash = 1;
   private pop = 0;
-  private tripAt = -99;
-  private tripIdx = -1;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -364,14 +430,13 @@ export class HurdleGame {
     this.placed = 0;
     this.revealed = false;
     this.py = 0;
-    this.vy = 0;
     this.air = false;
+    this.airT = 0;
+    this.lag = 0;
     this.queued = false;
     this.hurt = 0;
     this.squash = 1;
     this.pop = 0;
-    this.tripAt = -99;
-    this.tripIdx = -1;
     this.last = 0;
     this.waiting = false;
     this.introLen = 0;
@@ -533,27 +598,21 @@ export class HurdleGame {
 
   // ---------------------------------------------------------------- 入力
 
+  /**
+   * タップ。**連打では跳びつづけられない。**
+   *
+   * 空中のタップを いつでも先行入力として受けていたころは、押しつづけているあいだ
+   * 着地したフレームで即 跳びなおしていた（＝ずっと空中にいて、ぶつかりようがない）。
+   * 受けるのは着地の直前だけにして、早すぎるタップは捨てる。
+   */
   private tap(): void {
     if (this.ended) return;
-
-    // つまずいた直後の取り消し。いちばん くやしい失敗をここで消す
-    if (this.t - this.tripAt <= GRACE && this.tripIdx >= 0) {
-      const h = this.lane[this.tripIdx];
-      if (h && !h.clean) {
-        h.clean = true;
-        h.broken = false;
-        this.clean++;
-        this.hurt = 0;
-        if (this.hearts < HEARTS) this.hearts++;
-        this.dropCoin(h);
-        sfx.coin();
-      }
-      this.tripAt = -99;
-      this.tripIdx = -1;
-    }
-
     if (this.air) {
-      // 先行入力。いちばん速い拍だと、地面にいる時間が 0.3 秒を切る
+      if (AIRTIME - this.airT <= INPUT_BUFFER) this.queued = true;
+      return;
+    }
+    if (this.lag > 0) {
+      // 着地の ため／つまずきの立てなおし。終わった瞬間に跳ぶ
       this.queued = true;
       return;
     }
@@ -562,22 +621,28 @@ export class HurdleGame {
 
   private jump(): void {
     this.air = true;
-    this.vy = this.jumpV();
+    this.airT = 0;
+    this.py = 0;
     this.squash = 0.86;
     sfx.jump();
   }
 
+  /** 横木を越えているか。**空中にいるかどうかではない**（それだと当たり判定が無いのと同じ） */
+  private clears(): boolean {
+    return this.air && clearsAt(this.airT);
+  }
+
+  /** ぶつかった。跳びかけていたら そこで落ちて、少しのあいだ跳べない */
+  private stumble(): void {
+    this.air = false;
+    this.airT = 0;
+    this.py = 0;
+    this.queued = false;
+    this.lag = TRIP_LAG;
+  }
+
   private apex(): number {
-    return 42 * this.s;
-  }
-
-  private gravity(): number {
-    const half = AIRTIME / 2;
-    return (2 * this.apex()) / (half * half);
-  }
-
-  private jumpV(): number {
-    return -this.gravity() * (AIRTIME / 2);
+    return APEX * this.s;
   }
 
   // ---------------------------------------------------------------- ループ
@@ -628,19 +693,27 @@ export class HurdleGame {
     if (this.card) this.cardT += dt;
     this.stepIntro(dt);
 
-    // 跳躍
+    // 着地の ため。ここが空くまで つぎは跳べない（連打で跳びっぱなしにさせない）
+    if (this.lag > 0) {
+      this.lag = Math.max(0, this.lag - dt);
+      if (this.lag === 0 && this.queued) {
+        this.queued = false;
+        this.jump();
+      }
+    }
+
+    // 跳躍。高さは積分せず、跳んでからの時間から直に出す（hopHeight）。
+    // 見えている高さと、越えられたかの判定が 同じ式から出ることが大事
     if (this.air) {
-      this.vy += this.gravity() * dt;
-      this.py += this.vy * dt;
-      if (this.py >= 0) {
-        this.py = 0;
-        this.vy = 0;
+      this.airT += dt;
+      if (this.airT >= AIRTIME) {
         this.air = false;
+        this.airT = 0;
+        this.py = 0;
         this.squash = 1.14;
-        if (this.queued) {
-          this.queued = false;
-          this.jump();
-        }
+        this.lag = LAND_LAG;
+      } else {
+        this.py = -this.apex() * hopHeight(this.airT);
       }
     }
 
@@ -650,8 +723,8 @@ export class HurdleGame {
       if (h.passed || this.t < h.tHit) continue;
 
       // ---- ここがゆずれない一点 ----------------------------------------
-      // カウントを進めるこの数行は `this.air` を読まない。跳べたかどうかに
-      // かかわらず、ハードルは通過し、数は必ず進む。腕前が効くのは下の
+      // カウントを進めるこの数行は、跳べたかどうかを読まない。越えても
+      // ぶつかっても、ハードルは通過し、数は必ず進む。腕前が効くのは下の
       // コイン（clean）だけ。ここに条件を足すと、企画そのものが崩れる。
       h.passed = true;
       this.counted = h.n;
@@ -666,7 +739,9 @@ export class HurdleGame {
       // ------------------------------------------------------------------
 
       this.jumped++;
-      if (this.air) {
+      // 越えたことにするのは「横木より足が上」のときだけ。
+      // 地面をはなれた瞬間や 降りきる直前は まだ届いていないので ぶつかる
+      if (this.clears()) {
         h.clean = true;
         this.clean++;
         this.dropCoin(h);
@@ -681,10 +756,12 @@ export class HurdleGame {
       } else {
         h.broken = true;
         this.hurt = 0.5;
-        this.tripAt = this.t;
-        this.tripIdx = i;
+        this.stumble();
         sfx.stumble();
-        if (this.opts?.mode === 'endless') this.hearts--;
+        // 10のもんは 区切りなので、ぶつかってもハートは減らない。
+        // 当たり判定を ほんとうに効かせたぶん、ここを ひと息つける場所にする
+        // （きれいに跳べたときは、上のとおり満タンに戻る）
+        if (this.opts?.mode === 'endless' && h.kind !== 'gate') this.hearts--;
       }
     }
 
@@ -880,7 +957,7 @@ export class HurdleGame {
     if (!g) return;
     const s = this.s;
     const [col, edge] = this.colorOf(h.kind);
-    const hh = 22 * s;
+    const hh = BAR * s;
 
     g.save();
     g.translate(x, groundY);
@@ -929,7 +1006,7 @@ export class HurdleGame {
     g.fillText('10', x, groundY - hh + w / 2);
 
     // 門の中の横木。ほかのハードルと同じ高さに置く（跳ぶものだと形で分かる）
-    const bar = 22 * s;
+    const bar = BAR * s;
     g.save();
     g.translate(x, groundY);
     if (h.broken) g.rotate(-0.9);

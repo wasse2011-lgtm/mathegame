@@ -151,31 +151,67 @@ export interface CherryArt {
 
 const CY_VIEWBOX = '0 0 240 162';
 
-/** 玉のかたまり。5こずつ並べる（10マスと同じ区切りかたにする） */
-function dotCluster(n: number, cx: number, y: number, cls: string): string {
-  if (n <= 0) return '';
+/** 玉のならびかた。5こずつ（10マスと同じ区切りかた） */
+function dotPositions(n: number, cx: number, y: number): { x: number; y: number }[] {
   const per = 5;
   const gapX = 11;
   const gapY = 11;
-  let out = '';
+  const out: { x: number; y: number }[] = [];
   for (let i = 0; i < n; i++) {
     const row = Math.floor(i / per);
     const inRow = Math.min(n - row * per, per);
-    const x = cx - ((inRow - 1) * gapX) / 2 + (i % per) * gapX;
-    out += `<circle cx="${x}" cy="${y + row * gapY}" r="4.2" class="cy-dot ${cls}" />`;
+    out.push({ x: cx - ((inRow - 1) * gapX) / 2 + (i % per) * gapX, y: y + row * gapY });
   }
   return out;
 }
 
+/** 玉のかたまり。`--i` は 1こずつ ずらして出すための番号（CSS が読む） */
+function dotCluster(n: number, cx: number, y: number, cls: string): string {
+  if (n <= 0) return '';
+  return dotPositions(n, cx, y)
+    .map((p, i) => `<circle cx="${p.x}" cy="${p.y}" r="4.2" class="cy-dot ${cls}" style="--i:${i}" />`)
+    .join('');
+}
+
+/**
+ * 左の箱へ飛んでいく玉。**このゲームでいちばん見せたい動き。**
+ *
+ * 「8 に 2 を あげて 10」の “あげて” が、絵の中で実際に起きる。
+ * 行き先までの差を `--dx` `--dy` で持たせて、動かすのは CSS にまかせる
+ * （絵を作る側は位置を知っているだけ。時間の管理をここに持ちこまない）。
+ */
+function flyCluster(n: number, cx: number, y: number, tx: number, ty: number, cls: string): string {
+  if (n <= 0) return '';
+  return dotPositions(n, cx, y)
+    .map(
+      (p, i) =>
+        `<circle cx="${p.x}" cy="${p.y}" r="4.2" class="cy-dot ${cls} fly"` +
+        ` style="--i:${i};--dx:${(tx - p.x).toFixed(1)}px;--dy:${(ty - p.y).toFixed(1)}px" />`,
+    )
+    .join('');
+}
+
+/**
+ * @param step どこまで分かったか。
+ *
+ * 絵は手が進むたびに作りなおす（innerHTML を差しかえる）ので、
+ * **その手で新しく出たものにだけ印（pop / fly / land / draw）を付けておけば、
+ * 入ったときのアニメがそのまま「いま変わったところ」を指す。**
+ * 時間の管理は CSS 側にあり、ここは印を置くだけ（style.css の「さくらんぼの うごき」）。
+ * 動きを減らす設定では ぜんぶ止まるが、出るもの・数は1つも変わらない。
+ */
 export function cherryArt(c: Cherry, step: 0 | 1 | 2): CherryArt {
   const made = step >= 2;
   const text = (x: number, y: number, cls: string, s: string) =>
     `<text x="${x}" y="${y}" class="${cls}">${s}</text>`;
 
-  // 左の箱。分かったところで「10（20…）ができた」に変わる
+  // 左の箱。玉が飛びこんで着いたところで「10（20…）ができた」に変わる。
+  // 変わる前の数（8）も重ねて描いてある。飛んでいる あいだは 8 のままで、
+  // 着いた瞬間に 8 が消えて 10 が出る（.gone と .land の受けわたし）
   let svg =
-    `<rect x="12" y="8" width="72" height="48" rx="14" class="cy-box${made ? ' made' : ''}" />` +
-    text(48, 33, 'cy-n big', String(made ? c.ten : c.base)) +
+    `<rect x="12" y="8" width="72" height="48" rx="14" class="cy-box${made ? ' made land' : ''}" />` +
+    (made ? text(48, 33, 'cy-n big gone', String(c.base)) : '') +
+    text(48, 33, `cy-n big${made ? ' land' : ''}`, String(made ? c.ten : c.base)) +
     text(100, 33, 'cy-op', '＋');
 
   // 分けるほうの数と、そこから伸びる枝
@@ -186,22 +222,25 @@ export function cherryArt(c: Cherry, step: 0 | 1 | 2): CherryArt {
     text(152, 33, 'cy-n', String(c.other));
 
   // 左の玉（わたす数）。分かるまでは点線の「？」
+  const justNeed = step === 1 ? ' pop' : '';
   svg +=
-    `<circle cx="104" cy="104" r="22" class="cy-leaf need${step >= 1 ? '' : ' unknown'}${made ? ' moved' : ''}" />` +
-    text(104, 105, 'cy-n', step >= 1 ? String(c.need) : '?');
-  if (step >= 1) svg += dotCluster(c.need, 104, 138, 'need');
+    `<circle cx="104" cy="104" r="22" class="cy-leaf need${step >= 1 ? '' : ' unknown'}${made ? ' moved' : ''}${justNeed}" />` +
+    text(104, 105, `cy-n${justNeed}`, step >= 1 ? String(c.need) : '?');
+  // 2手めまでは その場に置く。3手めで 左の箱へ飛んでいく
+  if (step === 1) svg += dotCluster(c.need, 104, 138, 'need pop');
+  if (made) svg += flyCluster(c.need, 104, 138, 48, 33, 'need');
 
-  // 右の玉（のこり）
+  // 右の玉（のこり）。10 ができたあとに出る（.late）ので、順番が読める
   svg +=
-    `<circle cx="196" cy="104" r="22" class="cy-leaf rest${made ? '' : ' unknown'}" />` +
-    text(196, 105, 'cy-n', made ? String(c.rest) : '?');
-  if (made) svg += dotCluster(c.rest, 196, 138, 'rest');
+    `<circle cx="196" cy="104" r="22" class="cy-leaf rest${made ? ' pop late' : ' unknown'}" />` +
+    text(196, 105, `cy-n${made ? ' pop late' : ''}`, made ? String(c.rest) : '?');
+  if (made) svg += dotCluster(c.rest, 196, 138, 'rest pop late');
 
-  // 「こっちへ わたす」矢印。わたす数が分かってから出す
+  // 「こっちへ わたす」矢印。わたす数が分かってから、線が のびて出る
   if (step >= 1) {
     svg +=
-      `<path d="M 82 100 Q 52 96 48 62" class="cy-arrow" />` +
-      `<path d="M 42 70 L 48 58 L 54 70" class="cy-arrow head" />`;
+      `<path d="M 82 100 Q 52 96 48 62" class="cy-arrow draw" />` +
+      `<path d="M 42 70 L 48 58 L 54 70" class="cy-arrow head draw" />`;
   }
 
   return { svg, viewBox: CY_VIEWBOX };
