@@ -40,6 +40,8 @@ function claimSession(): void {
 function build(): void {
   const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctor) return;
+  // 持続音は前の ctx の持ちもの。新しいほうには付けかえられないので手放す
+  drone = null;
   try {
     ctx = new Ctor();
     master = ctx.createGain();
@@ -81,7 +83,6 @@ function rebuild(): void {
   const old = ctx;
   ctx = null;
   master = null;
-  drone = null; // 古い ctx の持ちもの。新しいほうには付けかえられない
   try {
     void old?.close();
   } catch {
@@ -242,11 +243,17 @@ export function stopDrone(): void {
   const { osc, lfo, gain } = drone;
   drone = null;
   const t0 = ctx.currentTime;
-  gain.gain.cancelScheduledValues(t0);
-  gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t0);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
-  osc.stop(t0 + 0.25);
-  lfo.stop(t0 + 0.25);
+  // 閉じられた ctx のノードを触ると例外が出る。止めに失敗しても
+  // ゲームを落とさない（持続音は ctx ごと消えている）
+  try {
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+    osc.stop(t0 + 0.25);
+    lfo.stop(t0 + 0.25);
+  } catch {
+    /* すでに閉じている */
+  }
 }
 
 // ドミソド — 連続正解で音が上がっていくと、耳だけでコンボが分かる
