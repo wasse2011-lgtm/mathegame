@@ -324,37 +324,16 @@ body {
   .sun, .cloud, .bird, .spark, .logo-star, #btn-start::after { animation: none; }
 }
 
-/* いま持っている ぶき。さいごの1問で これが出る、とホームで見せておく */
-.weapon-strip {
-  display: flex; align-items: center; gap: .5rem; width: 100%;
-  font-family: inherit; text-align: left; cursor: pointer;
-  background: rgba(255,255,255,.9); border: 2px solid var(--amber);
-  border-bottom-width: 5px; border-radius: 999px; padding: .25rem .5rem .25rem .35rem;
-}
-.weapon-strip:active { transform: translateY(2px); border-bottom-width: 3px; }
-.weapon-strip canvas { width: 42px; height: 42px; flex: 0 0 auto; }
-.ws-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-.ws-text b { font-size: .98rem; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-text span { font-size: .72rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-go { margin-left: auto; flex: 0 0 auto; font-size: 1.3rem; color: var(--amber-dark); font-weight: 700; }
-
 .pause-note { margin: -.2rem 0 .2rem; font-size: .85rem; font-weight: 700; color: var(--amber-dark); text-align: center; }
 
-/* 縦の短い端末では、ホームの行が増えたぶん（ずかん＋ペット＋ぶき）を詰める。
+/* 縦の短い端末では、ホームの行を詰める。
    そのままだとロゴが画面の上に押し出されて切れる */
 @media (max-height: 720px) {
   .title-inner { gap: .5rem; }
   .logo { font-size: clamp(2rem, 9vw, 3rem); }
-  .zukan-mini { padding: .4rem .8rem; font-size: .82rem; }
   .daily-card { min-height: 60px; }
-  /* ぶきの帯は さいごの1問につながる導線なので、小さくしても残す */
-  .weapon-strip { padding: .15rem .4rem .15rem .25rem; }
-  .weapon-strip canvas { width: 34px; height: 34px; }
-  .ws-text b { font-size: .88rem; }
-  .ws-text span { font-size: .68rem; }
 }
 @media (max-height: 640px) {
-  .ws-text span { display: none; }
   .sun { width: 60px; height: 60px; }
 }
 
@@ -415,33 +394,13 @@ body {
 .hunt-card[disabled]:active { transform: none; border-bottom-width: 6px; }
 .hunt-card[disabled] .daily-state { color: var(--ink-2); }
 
-.zukan-mini {
-  display: flex; align-items: center; gap: .6rem; width: 100%;
-  background: rgba(255,255,255,.85); border: 0; border-radius: var(--r-md); padding: .55rem .9rem;
-  font-family: inherit; font-size: .88rem; font-weight: 700; color: var(--ink-2); text-align: left;
-}
-/* ずかんの行は押せる（＝入口）。ペットの行は表示だけなので、押した感じは出さない */
-button.zukan-mini { cursor: pointer; min-height: 48px; }
-button.zukan-mini:active { transform: translateY(1px); }
-.zukan-mini .zm-label { flex: 0 0 auto; }
-.zukan-mini b { flex: 0 0 auto; color: var(--ink); font-variant-numeric: tabular-nums; }
-/* あたらしいカード／ごほうびの合図。ここが光っていないと、ずかんは開かれない */
-.zm-new {
-  flex: 0 0 auto; font-size: .74rem; white-space: nowrap;
-  padding: .18rem .5rem; border-radius: 999px;
-  background: var(--blue); color: #fff;
-}
-.zm-new.prize { background: var(--amber); color: #4a3400; animation: zm-pop 1.4s ease-in-out infinite; }
-.zm-new[hidden] { display: none; }
 @keyframes zm-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
-@media (prefers-reduced-motion: reduce) { .zm-new.prize { animation: none; } }
 
 .bar {
   height: 10px; border-radius: 999px; background: var(--line);
   overflow: hidden; display: block;
 }
 .bar i { display: block; height: 100%; background: var(--amber); border-radius: 999px; transition: width .5s ease; }
-.zukan-mini .bar { flex: 1 1 auto; }
 /* 縦に並ぶ画面では、フレックスで伸びないように高さを固定する */
 .bar.big { flex: 0 0 auto; height: 14px; margin: 0 .2rem; }
 
@@ -486,8 +445,6 @@ button.zukan-mini:active { transform: translateY(1px); }
   .card-row .hunt-face { display: none; }
   .card-row .daily-title { font-size: .94rem; }
   .card-row .daily-state { font-size: .7rem; }
-  button.zukan-mini { min-height: 40px; }
-  .zukan-mini { padding: .3rem .7rem; }
 }
 
 /* ---------------- きろく（セーブデータ） ---------------- */
@@ -1563,59 +1520,129 @@ button.zukan-mini:active { transform: translateY(1px); }
 /* 答えが入る前は点線の ? 、入ったら みどりで受ける */
 .mini-goal .hq { display: inline-block; color: var(--ink-2); border-bottom: 3px dashed var(--line); padding: 0 .18em; }
 .mini-goal .hq.got { color: var(--good-dark); border-bottom-color: transparent; animation: pop .34s ease; }
+/* 数えはじめに えらんだほうの数。頭の上のふきだしと同じ数だと分かるよう印をつける */
+.mini-goal .hnum { display: inline-block; border-radius: 10px; padding: 0 .1em; }
+.mini-goal .hnum.on { background: var(--blue); color: #fff; padding: 0 .2em; }
+/* 「どちらから かぞえる？」のボタン。答えを選ぶボタンと取りちがえないよう色を変える */
+.mchoice.from { border-color: var(--blue); color: var(--blue-dark); }
 
 /* かずの ものさし。
    目もりは答え合わせのときだけ出す。ぜんぶ出ていると「見積もる」ではなく
-   「数える」になってしまい、このゲームの狙いが消える。 */
-.mini-body.ruler { display: flex; align-items: center; justify-content: center; padding: 1.2rem .2rem; }
-.ruler-wrap { width: 100%; max-width: 26rem; }
-.ruler-band {
-  position: relative; height: 6.6rem; touch-action: none; cursor: pointer;
+   「数える」になってしまい、このゲームの狙いが消える。
+
+   線は「みち」に見せてある。はしの 0 と おしまいの数、まん中の数は
+   **線の上に大きく** 置く。ここが小さいと、いちばん手がかりになる数が
+   いちばん読みにくいという、さかさまなことになる。 */
+.mini-body.ruler { display: flex; align-items: center; justify-content: center; padding: 1rem .4rem; }
+.ruler-wrap {
+  width: 100%; max-width: 26rem;
+  background: linear-gradient(180deg, #f4fbff, #eaf6ec);
+  border: 3px solid var(--line); border-radius: var(--r-lg);
+  padding: .8rem .9rem 1rem;
 }
+.ruler-band {
+  position: relative; height: 9.2rem; touch-action: none; cursor: pointer;
+}
+@media (max-height: 700px) { .ruler-band { height: 7.6rem; } }
+/* みち本体。白い破線を真ん中に入れて「歩いていく線」に見せる */
 .ruler-line {
-  position: absolute; left: 0; right: 0; top: 50%; height: 6px; margin-top: -3px;
-  background: var(--line); border-radius: 3px;
+  position: absolute; left: 0; right: 0; top: 50%; height: 16px; margin-top: -8px;
+  background: #e6d9bd; border: 2px solid #cbb48a; border-radius: 999px;
+  background-image: repeating-linear-gradient(
+    90deg, rgba(255,255,255,.85) 0 12px, rgba(255,255,255,0) 12px 26px
+  );
+  background-size: auto 4px; background-position: center; background-repeat: repeat-x;
 }
 .ruler-fill {
-  position: absolute; left: 0; top: 50%; height: 6px; margin-top: -3px; width: 0;
-  background: var(--good); border-radius: 3px; transition: width .1s linear;
+  position: absolute; left: 0; top: 50%; height: 16px; margin-top: -8px; width: 0;
+  background: var(--good); border: 2px solid var(--good-dark); border-radius: 999px;
+  transition: width .1s linear;
 }
+.ruler-band.hit .ruler-fill { background: var(--amber); border-color: var(--amber-dark); }
 .ruler-ticks i {
-  position: absolute; top: 50%; width: 2px; height: 10px; margin: -5px 0 0 -1px;
+  position: absolute; top: 50%; width: 2px; height: 12px; margin: -6px 0 0 -1px;
   background: rgba(38,49,61,.35);
 }
-.ruler-ticks i.big { height: 18px; margin-top: -9px; background: var(--ink-2); }
+.ruler-ticks i.big { height: 26px; margin-top: -13px; width: 3px; margin-left: -1.5px; background: var(--ink-2); }
+/* 目もりの数字。ここを読ませたいので、いちばん小さい字でも .95rem を切らない */
+.ruler-ticks b {
+  position: absolute; top: 50%; margin-top: 15px; transform: translateX(-50%);
+  font-size: .95rem; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+/* はしの数（0 と おしまい）。線の上に すわらせる */
+.ruler-end {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  min-width: 2.1rem; padding: .12rem .4rem; border-radius: 999px;
+  background: #fff; border: 3px solid var(--ink-2); color: var(--ink);
+  font-size: 1.1rem; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums;
+}
+.ruler-end.at0 { left: 0; }
+.ruler-end.at1 { left: 100%; }
+/* おしまいの数の上に ゴールの旗。どこまで行く線なのかを、絵でも出す */
+.ruler-end.at1::after {
+  content: '🏁'; position: absolute; left: 50%; bottom: 100%;
+  transform: translateX(-50%); margin-bottom: .2rem; font-size: 1.3rem; line-height: 1;
+}
 /* まん中の印だけは、答える前から出す。10 が 20 のまん中、という関係そのものを教える */
 .ruler-mid { position: absolute; left: 50%; top: 0; bottom: 0; }
 .ruler-mid i {
-  position: absolute; left: -1px; top: 50%; width: 2px; height: 22px; margin-top: -11px;
-  background: var(--ink-2);
+  position: absolute; left: -1.5px; top: 50%; width: 3px; height: 30px; margin-top: -15px;
+  background: var(--ink-2); border-radius: 2px;
 }
 .ruler-mid span {
-  position: absolute; left: 0; bottom: 0; transform: translateX(-50%);
-  font-size: .8rem; font-weight: 700; color: var(--ink-2);
+  position: absolute; left: 0; top: 50%; margin-top: 17px; transform: translateX(-50%);
+  min-width: 1.8rem; padding: .05rem .3rem; border-radius: 999px;
+  background: rgba(255,255,255,.9); border: 2px dashed var(--ink-2);
+  font-size: 1rem; font-weight: 700; color: var(--ink-2); text-align: center;
+  font-variant-numeric: tabular-nums;
 }
-.ruler-flag { position: absolute; top: 0; transform: translateX(-50%); font-size: 1.7rem; line-height: 1; }
+/* 立てた はた。指で置いた場所がひと目で分かるよう、大きく・跳ねさせる */
+.ruler-flag {
+  position: absolute; top: .2rem; transform: translateX(-50%); font-size: 2.2rem; line-height: 1;
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,.15));
+}
+.ruler-flag.drop { animation: flag-drop .34s ease; }
+@keyframes flag-drop {
+  0% { transform: translate(-50%, -16px) scale(.7); }
+  60% { transform: translate(-50%, 3px) scale(1.1); }
+  100% { transform: translate(-50%, 0) scale(1); }
+}
 /* 数え歩きのふきだしは線の上を通るので、答えの札は線の下いっぱいに逃がす。
    同じ位置に来ると2つが重なって、どちらも読めなくなる */
 .ruler-true {
   position: absolute; bottom: 0; transform: translateX(-50%);
-  min-width: 2rem; padding: .1rem .35rem; border-radius: 8px;
-  background: var(--amber); color: #4a3400; border: 2px solid var(--amber-dark);
-  font-weight: 700; font-size: .95rem; text-align: center;
+  min-width: 2.4rem; padding: .15rem .45rem; border-radius: 10px;
+  background: var(--amber); color: #4a3400; border: 3px solid var(--amber-dark);
+  font-weight: 700; font-size: 1.15rem; text-align: center;
   font-variant-numeric: tabular-nums; animation: pop .3s ease;
 }
 /* 0 から答えまで、数えながら歩く。ハードルの頭の上のふきだしと同じ「数の見せかた」 */
 .ruler-walk {
   position: absolute; top: 50%; transform: translate(-50%, -50%);
-  min-width: 1.9rem; padding: .12rem .3rem; border-radius: 8px;
-  background: var(--ink); color: #fff; font-weight: 700; font-size: .9rem;
+  display: flex; flex-direction: column; align-items: center; gap: .1rem;
+}
+/* display を持つので、hidden 属性だけでは消えない（答え合わせの前は出さない） */
+.ruler-walk[hidden] { display: none; }
+.ruler-walk .rw-face { font-size: 1.5rem; line-height: 1; }
+.ruler-walk b {
+  min-width: 2.1rem; padding: .1rem .35rem; border-radius: 10px;
+  background: var(--ink); color: #fff; font-weight: 700; font-size: 1.05rem;
   text-align: center; font-variant-numeric: tabular-nums;
 }
-.ruler-ends { display: flex; justify-content: space-between; font-weight: 700; color: var(--ink-2); }
+.ruler-walk.hop { animation: rw-hop .18s ease; }
+@keyframes rw-hop {
+  0% { transform: translate(-50%, -50%); }
+  50% { transform: translate(-50%, calc(-50% - 7px)); }
+  100% { transform: translate(-50%, -50%); }
+}
 @media (prefers-reduced-motion: reduce) {
   .ruler-fill { transition: none; }
-  .ruler-true, .mini-goal .hq.got { animation: none; }
+  .ruler-true, .mini-goal .hq.got, .ruler-flag.drop, .ruler-walk.hop { animation: none; }
+}
+/* 0〜100 は目もりが多い。数字がぶつからないよう、ひとまわり小さくする */
+@media (max-width: 24rem) {
+  .ruler-band.wide .ruler-ticks b { font-size: .85rem; }
+  .ruler-end { font-size: 1rem; min-width: 1.9rem; }
 }
 
 /* 数のカード。指がおおざっぱでも押せる大きさを最優先にする */
@@ -1644,6 +1671,9 @@ button.zukan-mini:active { transform: translateY(1px); }
   cursor: pointer; font-variant-numeric: tabular-nums;
 }
 .mchoice:active { transform: translateY(3px); border-bottom-width: 3px; }
+/* 出たばかりで まだ押せない（連打よけの ひと呼吸） */
+.mchoice[disabled] { opacity: .45; }
+.mchoice[disabled]:active { transform: none; border-bottom-width: 6px; }
 
 /* ことばと、押すもの（選択肢・ヒント）は下にまとめる。
    margin-top: auto なので、画面が低いときは 0 に戻り、上が切れることはない。 */
@@ -1759,6 +1789,23 @@ button.zukan-mini:active { transform: translateY(1px); }
   padding: 1.2rem; display: flex; flex-direction: column; gap: .6rem; align-items: stretch;
 }
 .sheet-head { margin: 0 0 .3rem; text-align: center; font-size: 1.2rem; font-weight: 700; }
+
+/* きょうの もんだい。1／3／5 を横に3つ並べる。
+   字を読まなくても「少ない・ふつう・多い」が大きさで分かるよう、数を大きく出す */
+.daily-note { margin: -.2rem 0 .2rem; font-size: .82rem; font-weight: 700; color: var(--ink-2); line-height: 1.5; text-align: center; }
+/* 「さいごの 1もん」が行またぎで割れると、いちばん伝えたい一句が読めなくなる */
+.daily-note b { color: var(--amber-dark); white-space: nowrap; }
+.qty-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.qty-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  font-family: inherit; cursor: pointer; min-height: 76px; padding: .5rem .2rem;
+  background: var(--paper); color: var(--ink);
+  border: 3px solid var(--amber); border-bottom-width: 6px; border-radius: var(--r-md);
+}
+.qty-btn:active { transform: translateY(3px); border-bottom-width: 3px; }
+.qty-btn b { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.qty-btn span { font-size: .78rem; font-weight: 700; color: var(--amber-dark); }
+
 .toggle {
   display: flex; align-items: center; gap: .7rem; font-weight: 700; font-size: 1.05rem;
   padding: .55rem .2rem; min-height: 52px; cursor: pointer;

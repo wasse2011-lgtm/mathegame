@@ -68,15 +68,16 @@
             <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
           </div>
 
+          <!-- きょうの もんだい。押すと「なんもん やる？」を先に聞く（1／3／5） -->
           <button class="daily-card" id="daily-card" type="button">
             <span class="daily-main">
-              <span class="daily-title">きょうの 5もん</span>
-              <span class="daily-state" id="daily-state">＋20 コイン</span>
+              <span class="daily-title">きょうの もんだい</span>
+              <span class="daily-state" id="daily-state">1・3・5もん から えらぶ</span>
             </span>
             <span class="streak" id="home-streak" hidden><b>0</b>にち れんぞく</span>
           </button>
 
-          <!-- にがて たいじ と ミニゲーム。どちらも「きょうの5もん」のあとの
+          <!-- にがて たいじ と ミニゲーム。どちらも「きょうの もんだい」のあとの
                おかわりなので、横に2つ並べて縦を使わない -->
           <div class="card-row">
             <button class="daily-card hunt-card" id="hunt-card" type="button">
@@ -96,32 +97,10 @@
             </button>
           </div>
 
-          <!-- ずかんの行そのものが入口。棒グラフだけ見せて入口を別に置くと、
-               子どもは伸びた棒を眺めるだけで中を見にいかない。
-               新しくおぼえたカードや ごほうびがあるときは、ここに合図を出す。 -->
-          <button class="zukan-mini" id="zukan-mini" type="button">
-            <span class="zm-label">ずかん</span>
-            <span class="bar"><i id="zukan-bar"></i></span>
-            <b id="zukan-count">0 / 81</b>
-            <span class="zm-new" id="zukan-new" hidden></span>
-          </button>
-
-          <div class="zukan-mini" id="pet-mini">
-            <span class="zm-label">ペット</span>
-            <span class="bar"><i id="pet-bar"></i></span>
-            <b id="pet-count">0 / 30</b>
-          </div>
-
-          <!-- いま持っている ぶき。さいごの1問で これを使って しとめる。
-               押すと きせかえの「ぶき」タブへ直行する -->
-          <button class="weapon-strip" id="weapon-strip" type="button">
-            <canvas id="weapon-icon" aria-hidden="true"></canvas>
-            <span class="ws-text">
-              <b id="weapon-name">ロケットパンチ</b>
-              <span id="weapon-note">さいごの 1もんで こぶしが とんでいく</span>
-            </span>
-            <span class="ws-go" aria-hidden="true">›</span>
-          </button>
+          <!-- ずかん・ペット・ぶきの進みぐあいは、それぞれの画面に置いてある。
+               ホームに並べていたころは、遊ぶ前に読む行が5つになって
+               ロゴと「あそぶ」が画面の外へ押し出されていた。合図（🆕・🎁・🥚）は
+               下の3つのボタンに付けてあるので、行かせたい先はそちらで分かる。 -->
 
           <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかん・きせかえ・ぼくじょうは みられるよ。</p>
         </div>
@@ -528,7 +507,7 @@
         <h3 class="p-h">きせかえと ぶき</h3>
         <p class="p-note">
           きせかえ（キャラ・ぶき・ぼうし・アクセ・いろ）は見た目だけで、問題の難しさ・制限時間・
-          ★・図鑑には一切影響しません。「ぶき」が効くのはステージ／きょうの5もん／にがて たいじの
+          ★・図鑑には一切影響しません。「ぶき」が効くのはステージ／きょうの もんだい／にがて たいじの
           最後の1問だけで、当てたときの倒しかたの演出が変わります（当たり判定はありません）。
         </p>
         <p class="p-note">
@@ -536,11 +515,28 @@
           どちらも付きません。面の途中で離脱しやすい子に、最後まで行く理由をひとつ置くための
           しかけです。まちがえて時間切れになった場合も演出は出ません。
         </p>
+        <p class="p-note">
+          「ノーミス」と「フィニッシュ」は10問のステージ1回ぶんとして決めた額なので、
+          きょうの もんだい や にがて たいじ のように問題数が少ない回では、その数に比例して
+          按分します（5問で満額）。満額のままだと、1問だけを何度も走るのがコインの
+          いちばん得な稼ぎかたになってしまうためです。
+        </p>
+
+        <h3 class="p-h">きょうの もんだい</h3>
+        <p class="p-note">
+          1問・3問・5問から選べます。前半はいま解ける式（おぼえた記録のある式）を出し、
+          <b>最後の1問だけ</b>、いま進めているステージの式を出します。毎日いちばん苦手な式ばかりを
+          並べると、開く理由のほうが先に折れるためです。1問でも連続記録は続きます。
+          コインは問題数に応じて＋20／＋36／＋60（1日1回）。
+        </p>
 
         <h3 class="p-h">ミニゲーム</h3>
         <p class="p-note">
-          「いくつ？」「ペアあわせ」「さくらんぼ わけ」の3つは、時間制限のない練習用です。
-          数の見取り・10の合成・繰り上がりの分解と、つまずきやすい順に並べてあります。
+          5つあります。「いくつ？」「ペアあわせ」「さくらんぼ わけ」「かずの ものさし」は
+          時間制限のない練習用で、数の見取り・10の合成・繰り上がりの分解・数直線の位置感覚を
+          扱います。「ぴょんぴょん ハードル」だけは拍がありますが、つまずいてもカウントは進むので
+          答えには必ずたどり着きます。式はまず「どちらの数から数えるか」を選ばせ、選んだ数から
+          残りの数だけ跳ぶ形（大きい数から数え足す練習）です。
         </p>
         <p class="p-note">
           ここでの正解・不正解は、習熟度・図鑑・★に一切反映していません。試行錯誤でも当たるため、
@@ -572,6 +568,18 @@
         <p class="pause-note" id="pause-note"></p>
         <button class="btn btn-primary btn-xl" id="pause-resume" type="button">つづける</button>
         <button class="btn btn-ghost" id="pause-quit" type="button">もどる</button>
+      </div>
+    </div>
+
+    <!-- きょうの もんだい。何問やるかを先に聞く。
+         5問しか無かったころは「きょうは そんなに やりたくない日」の逃げ場が
+         「やらない」しかなかった。1問でも来た日は れんぞくが続く。 -->
+    <div class="overlay" id="overlay-daily" hidden>
+      <div class="sheet">
+        <p class="sheet-head">なんもん やる？</p>
+        <p class="daily-note">まえの ほうは かんたんな しき。<b>さいごの 1もん</b>だけ、いま れんしゅうしている しきが でるよ。</p>
+        <div class="qty-row" id="daily-qty"></div>
+        <button class="btn btn-ghost" id="daily-cancel" type="button">やめる</button>
       </div>
     </div>
 

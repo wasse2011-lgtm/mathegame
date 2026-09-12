@@ -300,6 +300,37 @@ export function weakFactCount(pool: Fact[]): number {
 }
 
 /**
+ * 「いま わりと かんたんに とける式」を えらぶ。
+ *
+ * きょうの もんだい の前半に出す。以前は5問ぜんぶ weakestFacts（いちばん苦手な式）
+ * だったので、毎日ひらくたびに その子にとって いちばん重い5問が並んでいた。
+ * 助走で「解ける」を数回ふませてから、さいごの1問だけ いまのレベルに当てる。
+ *
+ * 効かせる順は 習熟度 ＞ まちがえた回数 ＞ 和の小ささ。ゆらぎを足しているのは、
+ * 毎日おなじ顔ぶれにしないため。記録がまだ無い子は全部が未出題（m = 0）なので、
+ * 和の小さい式が自然に前に来る。
+ *
+ * @param exclude ここに入っている式は出さない（さいごの1問と重ねない）
+ */
+export function easiestFacts(pool: Fact[], n: number, exclude: Fact[] = []): Fact[] {
+  if (n <= 0) return [];
+  const skip = new Set(exclude.map(factKey));
+  const scored = pool
+    .filter((f) => !skip.has(factKey(f)))
+    .map((f) => {
+      const s = peekFact(factKey(f));
+      return { f, score: s.m * 12 - Math.min(s.miss, 5) * 5 - (f.a + f.b) * 0.2 + Math.random() * 8 };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  // 「にがて」と記録された式は、どれだけ点が高くても やさしい側には回さない。
+  // 足りないときだけ、うしろから借りる（5問ぶん埋まらないほうが困る）
+  const easy = scored.filter((x) => !isWeakFact(x.f));
+  const list = easy.length >= n ? easy : [...easy, ...scored.filter((x) => isWeakFact(x.f))];
+  return list.slice(0, n).map((x) => x.f);
+}
+
+/**
  * デイリーチャレンジ用に「いま苦手な式」を選ぶ。
  * 一度でも出した式を習熟度の低い順に取り、足りなければ未出題から埋める。
  */

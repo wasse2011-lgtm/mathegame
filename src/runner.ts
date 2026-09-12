@@ -50,7 +50,7 @@ import { activePet, petPower, voiceOf, type PetDef } from './pets';
 import { QuestionPicker, isWeakFact, recordAnswer, type Question } from './questions';
 import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
-  COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, scaled, type CoinGain,
+  COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, lumpRate, scaled, type CoinGain,
 } from './rewards';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
@@ -97,7 +97,7 @@ function showSvg(el: SVGElement, on: boolean): void {
 /**
  * 走りの種類。
  *   stage … マップのステージ（ボスもここ）。★が付く
- *   daily … きょうの 5もん
+ *   daily … きょうの もんだい（1・3・5問）
  *   hunt  … にがて たいじ（立ち止まってビームで倒す）
  *
  * stage === 0 で見分けていたが、マップに属さない走りが2種類になったので
@@ -119,6 +119,14 @@ export interface RunConfig {
   stepName?: string | null;
   /** 指定するとワールドの式ではなくこの中から出す */
   facts?: Fact[];
+  /**
+   * facts を **並べた順に** 出す（にがて たいじ は常にこの形）。
+   *
+   * きょうの もんだい は「前半はやさしく、さいごの1問だけ いまのレベル」に
+   * 並べてから渡す。ふつうの出題（習熟度で重みづけしたランダム）に流すと
+   * その並びが崩れて、さいごの1問という約束が成り立たない。
+   */
+  ordered?: boolean;
   /** 指定するとワールドの既定より優先して穴埋め形式にする／しない */
   blank?: boolean;
   bonusCoins?: number;
@@ -319,6 +327,8 @@ export class Runner {
   private worldRate = 1;
   /** ワールド × 周回。ふだんのコインはこれを掛ける */
   private rate = 1;
+  /** ノーミス・フィニッシュに掛ける、問題数ぶんの倍率（rewards.ts の lumpRate） */
+  private lump = 1;
   /** 走る前の★。0 なら初クリア、3 なら周回 */
   private prevStars = 0;
   /** 画面に描いたペットの位置。ここをタップしてもヒントが出せる */
@@ -478,6 +488,10 @@ export class Runner {
     this.prevStars = cfg.prevStars ?? 0;
     this.worldRate = cfg.world.coinRate ?? 1;
     this.rate = this.worldRate * (this.prevStars >= 3 ? REPLAY_RATE : 1);
+    // ノーミス・フィニッシュは「1回ぶん」の額なので、問題数の少ない走りでは
+    // そのぶん薄くする。満額のままだと 1問を何度も走るのが得になる（rewards.ts）。
+    // 5問で満額なので、10問のステージとボスは掛けても 1 のまま
+    this.lump = lumpRate(this.total);
     this.coinsShown = 0;
     this.combo = 0;
     this.learned = [];
@@ -962,11 +976,13 @@ export class Runner {
   private nextQuestion(): void {
     // リベンジ中は、まちがえた式そのものを順に出す（引き直さない）。
     // にがて たいじ も同じで、選んできた にがてを 1ぴきずつ順に出す
-    // （引き直すと、同じ式が2回出て、別の にがてが 出ないままになる）
+    // （引き直すと、同じ式が2回出て、別の にがてが 出ないままになる）。
+    // きょうの もんだい（ordered）も並べた順に出す。さいごの1問だけ
+    // 「いまのレベル」という約束が、順番の上に乗っている
     this.q = this.revenge
       ? this.picker.question(this.revengeQ[this.revengeIndex])
-      : this.hunt
-        ? this.picker.question(this.huntFact())
+      : this.hunt || this.cfg.ordered
+        ? this.picker.question(this.orderedFact())
         : this.picker.next();
     this.wrongThisQ = false;
     this.dodgedThisQ = false;
@@ -1022,8 +1038,8 @@ export class Runner {
     this.renderDock();
   }
 
-  /** にがて たいじ で、いま出す にがて。連れてきた順に 1ぴきずつ */
-  private huntFact(): Fact {
+  /** 並べた順に出すモード（にがて たいじ・きょうの もんだい）の、いまの式 */
+  private orderedFact(): Fact {
     const pool = this.cfg.facts ?? [];
     return pool[this.qIndex % Math.max(1, pool.length)] ?? { a: 1, b: 1 };
   }
@@ -1448,7 +1464,7 @@ export class Runner {
 
   /** やりきったごほうび。フィニッシュを見た人にだけ払う */
   private payFinish(): void {
-    const bonus = scaled(COIN_FINISH, this.rate);
+    const bonus = scaled(COIN_FINISH, this.rate * this.lump);
     if (bonus <= 0) return;
     this.gain.finish += bonus;
     // 「＋20」は倒した相手のところに出す。主人公の頭の上だと
@@ -1741,7 +1757,7 @@ export class Runner {
     const stars = this.failed ? 0 : this.misses === 0 ? 3 : this.misses <= 2 ? 2 : 1;
     let firstKind: StageResult['firstKind'] = null;
     if (!this.failed) {
-      if (stars === 3) this.gain.perfect = scaled(COIN_PERFECT, this.rate);
+      if (stars === 3) this.gain.perfect = scaled(COIN_PERFECT, this.rate * this.lump);
       this.gain.bonus = scaled(this.cfg.bonusCoins ?? 0, this.rate);
 
       // 「はじめて」は周回では出ないので、周回の割引は掛けない。

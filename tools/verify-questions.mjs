@@ -42,7 +42,7 @@ const { QuestionPicker, MASTERED, distractorPool, blankPool } = await load('ques
 const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
 const { frameArt, PLACE_MAX } = await load('tenframe');
-const { laneFor, endlessLane, cadenceAt, AIRTIME } = await load('hurdle');
+const { laneFrom, endlessLane, cadenceAt, endlessCadence, AIRTIME } = await load('hurdle');
 
 const N = 60000;
 const pct = (n, d = N) => `${((n / d) * 100).toFixed(1)}%`;
@@ -301,8 +301,9 @@ if (noArtSteps.length) {
 console.log('\nG) ぴょんぴょん ハードルの道すじ');
 {
   // ここで確かめているのは、そのまま企画の主張になっている:
-  //  ・跳ぶ回数は かならず答えと一致する（数の体感が式とずれない）
-  //  ・10のもんは かならず10こめ（10のまとまりが走りの区切りになる）
+  //  ・えらんだ数から数え足すと、止まった数が かならず答えになる
+  //  ・跳ぶ回数は えらばなかったほうの数（大きいほうを選ぶと いちばん少ない）
+  //  ・10のもんは かならず 10 のところ（10のまとまりが走りの区切りになる）
   //  ・色の切れめが cherry() の分解と重なる（さくらんぼ わけ と同じ話をしている）
   const bad = [];
   const kinds = (lane, k) => lane.filter((h) => h.kind === k).length;
@@ -310,26 +311,38 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
   for (const w of WORLDS) {
     for (const f of allFacts(w)) {
       if (f.a >= 10 || f.b >= 10) continue;
-      const lane = laneFor(f);
-      const tag = `${f.a}+${f.b}`;
       const sum = f.a + f.b;
 
-      if (lane.length !== sum) bad.push(`${tag}: 本数 ${lane.length} ≠ こたえ ${sum}`);
-      if (lane.some((h, i) => h.n !== i + 1)) bad.push(`${tag}: 番号が とんでいる`);
+      // どちらの数からでも走れる。どちらを選んでも、止まる数は答えと一致する
+      for (const start of [Math.max(f.a, f.b), Math.min(f.a, f.b)]) {
+        const other = sum - start;
+        const lane = laneFrom(start, sum);
+        const tag = `${f.a}+${f.b}（${start} から）`;
 
-      const gate = lane.filter((h) => h.kind === 'gate');
-      if (sum >= 10) {
-        if (gate.length !== 1 || lane[9]?.kind !== 'gate') bad.push(`${tag}: 10のもんが 10こめに無い`);
-      } else if (gate.length) {
-        bad.push(`${tag}: こたえが 10 未満なのに 10のもんが ある`);
+        if (lane.length !== other) bad.push(`${tag}: 本数 ${lane.length} ≠ のこり ${other}`);
+        if (lane.length && lane[lane.length - 1].n !== sum) {
+          bad.push(`${tag}: 止まる数 ${lane[lane.length - 1].n} ≠ こたえ ${sum}`);
+        }
+        if (lane.some((h, i) => h.n !== start + i + 1)) bad.push(`${tag}: 番号が とんでいる`);
+
+        const gate = lane.filter((h) => h.kind === 'gate');
+        if (sum >= 10 && start < 10) {
+          if (gate.length !== 1 || gate[0].n !== 10) bad.push(`${tag}: 10のもんが 10 のところに無い`);
+        } else if (gate.length) {
+          bad.push(`${tag}: 10 をまたがないのに 10のもんが ある`);
+        }
       }
 
+      // 色の切れめは、大きいほうから数えたときに cherry() の分解と重なる
       const c = cherry(f);
       if (c) {
+        const lane = laneFrom(c.base, sum);
+        const tag = `${f.a}+${f.b}`;
         // gate は need の さいごの1こ。だから need の本数は c.need - 1 になる
-        if (kinds(lane, 'base') !== c.base) bad.push(`${tag}: もとの数 ${kinds(lane, 'base')} ≠ ${c.base}`);
         if (kinds(lane, 'need') !== c.need - 1) bad.push(`${tag}: きいろ ${kinds(lane, 'need')} ≠ ${c.need - 1}`);
         if (kinds(lane, 'rest') !== c.rest) bad.push(`${tag}: みどり ${kinds(lane, 'rest')} ≠ ${c.rest}`);
+        // もとの数は頭の上に乗っているので、ハードルには1本も出てこない
+        if (kinds(lane, 'base')) bad.push(`${tag}: もとの数が ハードルに出ている`);
       }
     }
   }
@@ -344,21 +357,35 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
   // 拍は詰まる一方で、しかも かならず滞空より長い。
   // ここが破れると、前の滞空が終わる前に次が来て、原理的に跳べなくなる
   for (const slow of [false, true]) {
-    let prev = Infinity;
-    for (let i = 0; i <= 120; i++) {
-      const c = cadenceAt(i, 60, slow);
-      if (c > prev + 1e-9) bad.push(`拍が ${i} 本めで ゆるんだ（slow=${slow}）`);
-      if (c <= AIRTIME) bad.push(`拍 ${c.toFixed(2)}s が 滞空 ${AIRTIME}s 以下（slow=${slow}）`);
-      prev = c;
+    for (const [name, at] of [
+      ['式モード', (i) => cadenceAt(i, 60, slow)],
+      ['エンドレス', (i) => endlessCadence(i, slow)],
+    ]) {
+      let prev = Infinity;
+      for (let i = 0; i <= 200; i++) {
+        const c = at(i);
+        if (c > prev + 1e-9) bad.push(`${name}の拍が ${i} 本めで ゆるんだ（slow=${slow}）`);
+        if (c <= AIRTIME) bad.push(`${name}の拍 ${c.toFixed(2)}s が 滞空 ${AIRTIME}s 以下（slow=${slow}）`);
+        prev = c;
+      }
     }
   }
+
+  // エンドレスは「10本ごとに少しずつ速くなり、100本で いちばん速い」。
+  // ここが効いていないと、どこまで行っても同じ速さのまま長いだけになる
+  if (!(endlessCadence(0, false) > endlessCadence(10, false))) bad.push('エンドレス: 10本めで速くなっていない');
+  if (!(endlessCadence(90, false) > endlessCadence(100, false))) bad.push('エンドレス: 100本めで速くなっていない');
+  if (endlessCadence(100, false) !== endlessCadence(200, false)) bad.push('エンドレス: 100本を過ぎても速くなり続ける');
 
   if (bad.length) {
     failed++;
     console.log('   ' + bad.slice(0, 8).join('\n   '));
   } else {
-    const ex = laneFor({ a: 8, b: 5 }).map((h) => h.kind[0]).join('');
-    console.log(`   すべて正常（8+5 の道すじ: ${ex} / 拍 ${cadenceAt(0, 60, false).toFixed(2)}→${cadenceAt(60, 60, false).toFixed(2)}s）`);
+    const ex = laneFrom(8, 13).map((h) => h.kind[0]).join('');
+    console.log(
+      `   すべて正常（8+5 を 8 から: ${ex} / 式モードの拍 ${cadenceAt(0, 60, false).toFixed(2)}→${cadenceAt(60, 60, false).toFixed(2)}s` +
+        ` / エンドレス ${endlessCadence(0, false).toFixed(2)}→${endlessCadence(100, false).toFixed(2)}s・滞空 ${AIRTIME}s）`,
+    );
   }
 }
 
