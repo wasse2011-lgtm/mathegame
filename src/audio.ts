@@ -4,6 +4,13 @@
  * iOS の落とし穴:
  *  1. AudioContext は最初のユーザー操作の中でしか resume できない
  *  2. 消音スイッチが ON だと既定では鳴らない → Safari 16.4+ の audioSession を playback にする
+ *  3. 電話・ほかのアプリの音・アプリを裏に回す、で AudioContext が止まる。このとき
+ *     iOS が入れる state は仕様にない **'interrupted'** で、'suspended' だけを見て
+ *     起こしていると二度と戻らない（＝開き直したあと、音が鳴らないままになる）
+ *
+ * なので「最初の1回だけ unlock する」作りにはしない。**どのタップでも、
+ * 止まっていたら起こす**（installAudioWake）。せっていの「おと」を消して戻す操作も
+ * タップなので、ここを通れば必ず鳴る状態に戻る。
  */
 
 import { save } from './save';
@@ -13,33 +20,161 @@ interface AudioSessionLike { type: string }
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 
-export function unlockAudio(): void {
-  if (ctx) {
-    if (ctx.state === 'suspended') void ctx.resume();
-    return;
-  }
+/** 直近に resume を頼んだ時刻。返事を待っているあいだは「起きなかった」と数えない */
+let lastResume = 0;
+/** 間をあけて resume を頼んだのに起きなかった回数 */
+let misses = 0;
+/** 作りなおした回数。iOS は同時に持てる AudioContext が少ないので上限を置く */
+let rebuilds = 0;
+const MAX_REBUILD = 3;
+/** これだけ起こしそこねたら、resume では戻れないと見て作りなおす */
+const MISS_LIMIT = 2;
+
+/** 消音スイッチが入っていても鳴らす（未対応ブラウザでは何も起きない）。
+ *  割りこみのあとに iOS が戻すことがあるので、起こすたびに入れなおす */
+function claimSession(): void {
+  const session = (navigator as unknown as { audioSession?: AudioSessionLike }).audioSession;
+  if (session && session.type !== 'playback') session.type = 'playback';
+}
+
+function build(): void {
   const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!Ctor) return;
-
+  // 持続音は前の ctx の持ちもの。新しいほうには付けかえられないので手放す
+  drone = null;
   try {
     ctx = new Ctor();
     master = ctx.createGain();
     master.gain.value = 0.32;
     master.connect(ctx.destination);
-    void ctx.resume();
-
-    // 消音スイッチが入っていても鳴らす（未対応ブラウザでは何も起きない）
-    const session = (navigator as unknown as { audioSession?: AudioSessionLike }).audioSession;
-    if (session) session.type = 'playback';
   } catch {
     ctx = null;
+    master = null;
+    return;
   }
+  misses = 0;
+  lastResume = 0;
+  resume();
+}
+
+/**
+ * 止まっている AudioContext を起こす。
+ * 'suspended' だけでなく iOS の 'interrupted' も拾うため、'running' 以外は必ず頼む。
+ */
+function resume(): void {
+  if (!ctx || ctx.state === 'running') return;
+  const now = performance.now();
+  // 頼んでもすぐには起きない（resume は非同期）。間をあけた分だけ「起きなかった」と数える
+  if (now - lastResume >= 600) {
+    lastResume = now;
+    misses++;
+  }
+  void ctx.resume().then(
+    () => {
+      misses = 0;
+    },
+    () => undefined, // ユーザー操作の外では断られる。次のタップでまた頼む
+  );
+}
+
+/** 割りこみから resume で戻れないとき。古いほうは閉じて、持つ数を増やさない */
+function rebuild(): void {
+  rebuilds++;
+  const old = ctx;
+  ctx = null;
+  master = null;
+  try {
+    void old?.close();
+  } catch {
+    /* 閉じられなくても作りなおす */
+  }
+  build();
+}
+
+/**
+ * 音を鳴らせる状態にする。ユーザー操作の中から呼ぶ（iOS はそこでしか起きない）。
+ * 作っていなければ作り、止まっていれば起こす。
+ */
+export function unlockAudio(): void {
+  claimSession();
+  if (!ctx || ctx.state === 'closed') {
+    build();
+    return;
+  }
+  if (ctx.state === 'running') {
+    misses = 0;
+    return;
+  }
+  // 何度 頼んでも起きないなら、iOS 側の割りこみから resume では戻れていない。
+  // 作りなおすしか手がない
+  if (misses >= MISS_LIMIT && rebuilds < MAX_REBUILD) {
+    rebuild();
+    return;
+  }
+  resume();
+}
+
+/**
+ * どのタップでも、止まっていたら起こす。起動時に1回だけ呼ぶ。
+ *
+ * 外さずに置いておくのが肝。最初の1回で外してしまうと、割りこみ（電話・開き直し）の
+ * あとに戻す手が「たまたま unlockAudio を呼んでいる画面」に限られ、せっていの
+ * トグルのように呼んでいない場所では鳴らないままになる。
+ * ほとんどの呼び出しは state を見るだけで終わるので、負荷にはならない。
+ */
+export function installAudioWake(): void {
+  const wake = (): void => {
+    if (ctx && ctx.state === 'running') return;
+    unlockAudio();
+  };
+  for (const ev of ['pointerdown', 'touchstart', 'keydown'] as const) {
+    window.addEventListener(ev, wake, { capture: true, passive: true });
+  }
+}
+
+/** AudioContext が起きてから cb を呼ぶ。起きないままなら何もしない */
+function whenRunning(cb: () => void, waitMs = 1200): void {
+  const c = ctx;
+  if (!c) return;
+  if (c.state === 'running') {
+    cb();
+    return;
+  }
+  if (waitMs <= 0) return;
+  window.setTimeout(() => {
+    if (ctx !== c) return; // 作りなおされた
+    whenRunning(cb, waitMs - 80);
+  }, 80);
+}
+
+/**
+ * せっていの「おと」を切りかえたときの後始末。
+ *
+ * ON に戻したとき、その場で sfx.tap() を鳴らしても音は出ない。止まっていた
+ * AudioContext が起きるのは resume の返事が来てから（非同期）なので、
+ * 起きるのを待って鳴らす。ここが「戻しても鳴らない」の見え方そのものだった。
+ * OFF にしたときは、鳴りっぱなしになる持続音をここで止める。
+ */
+export function applySoundSetting(): void {
+  if (!save.settings.sound) {
+    stopDrone();
+    return;
+  }
+  unlockAudio();
+  whenRunning(() => sfx.tap());
 }
 
 type Wave = 'sine' | 'square' | 'triangle' | 'sawtooth';
 
+/**
+ * 止まっているあいだは鳴らさずに捨てる。
+ *
+ * 止まった AudioContext では currentTime が進まないので、そのあいだに積んだ音は
+ * **起きた瞬間に全部同時に鳴る**（割りこみ中に遊んでいた分がまとめて爆発する）。
+ * 起こすのはタップの側（installAudioWake）に任せて、ここでは捨てる。
+ */
 function tone(freq: number, dur: number, opts: { at?: number; wave?: Wave; vol?: number; to?: number } = {}): void {
-  if (!ctx || !master || !save.settings.sound) return;
+  if (!ctx || !master || ctx.state !== 'running' || !save.settings.sound) return;
   const t0 = ctx.currentTime + (opts.at ?? 0);
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -58,7 +193,7 @@ function tone(freq: number, dur: number, opts: { at?: number; wave?: Wave; vol?:
 }
 
 function noise(dur: number, vol = 0.3): void {
-  if (!ctx || !master || !save.settings.sound) return;
+  if (!ctx || !master || ctx.state !== 'running' || !save.settings.sound) return;
   const len = Math.floor(ctx.sampleRate * dur);
   const buf = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = buf.getChannelData(0);
@@ -80,7 +215,7 @@ function noise(dur: number, vol = 0.3): void {
 let drone: { osc: OscillatorNode; lfo: OscillatorNode; gain: GainNode } | null = null;
 
 export function startDrone(): void {
-  if (!ctx || !master || !save.settings.sound || drone) return;
+  if (!ctx || !master || ctx.state !== 'running' || !save.settings.sound || drone) return;
   const t0 = ctx.currentTime;
 
   const osc = ctx.createOscillator();
@@ -108,11 +243,17 @@ export function stopDrone(): void {
   const { osc, lfo, gain } = drone;
   drone = null;
   const t0 = ctx.currentTime;
-  gain.gain.cancelScheduledValues(t0);
-  gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t0);
-  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
-  osc.stop(t0 + 0.25);
-  lfo.stop(t0 + 0.25);
+  // 閉じられた ctx のノードを触ると例外が出る。止めに失敗しても
+  // ゲームを落とさない（持続音は ctx ごと消えている）
+  try {
+    gain.gain.cancelScheduledValues(t0);
+    gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0001), t0);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+    osc.stop(t0 + 0.25);
+    lfo.stop(t0 + 0.25);
+  } catch {
+    /* すでに閉じている */
+  }
 }
 
 // ドミソド — 連続正解で音が上がっていくと、耳だけでコンボが分かる

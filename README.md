@@ -1120,6 +1120,13 @@ tools/build-single.mjs dist/ を 1枚の HTML にまとめる
 - `position: fixed` + `overscroll-behavior: none` で引っぱって更新（バウンス）を止める
 - 音は最初のタップで unlock。消音スイッチが ON でも鳴るように
   Safari 16.4+ の `navigator.audioSession.type = 'playback'` を設定
+- **unlock は1回で終わりにしない。** 電話・ほかのアプリの音・アプリを裏に回すと
+  AudioContext が止まり、iOS はそこで仕様にない `'interrupted'` を入れる。
+  `'suspended'` だけを見て起こしていると二度と戻らないので、`'running'` 以外は
+  すべて起こしにかかり、どのタップ（`pointerdown`／`touchstart`／`keydown`）でも
+  止まっていれば起こす。resume が何度も通らなければ AudioContext を作りなおす
+- 止まっているあいだに鳴らそうとした音は捨てる。止まった AudioContext は
+  `currentTime` が進まないので、積んだままにすると起きた瞬間に全部同時に鳴る
 - 低電力モードで 30fps に落ちても速度が変わらないよう、フレーム数ではなく経過時間で動かす
 - `devicePixelRatio` は 2 で頭打ち（3倍は塗り面積が 2.25 倍になり発熱する）
 

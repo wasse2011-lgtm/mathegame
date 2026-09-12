@@ -1,6 +1,6 @@
 import './style.css';
 
-import { sfx, unlockAudio } from './audio';
+import { applySoundSetting, installAudioWake, sfx, unlockAudio } from './audio';
 import {
   DAILY_WORLD,
   HUNT_WORLD,
@@ -1745,7 +1745,9 @@ gear.addEventListener('keydown', (e) => {
 setSound.addEventListener('change', () => {
   save.settings.sound = setSound.checked;
   persist();
-  if (setSound.checked) sfx.tap();
+  // ON に戻したときは、止まっていた音を起こしてから確認の音を鳴らす。
+  // OFF にしたときは鳴りっぱなしの持続音を止める（audio 側でまとめて面倒を見る）
+  applySoundSetting();
 });
 setSlow.addEventListener('change', () => {
   save.settings.slow = setSlow.checked;
@@ -1811,14 +1813,9 @@ $('set-reset').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ 起動
 
-// iOS は最初のユーザー操作の中でしか音を鳴らせない
-const unlockOnce = (): void => {
-  unlockAudio();
-  window.removeEventListener('pointerdown', unlockOnce);
-  window.removeEventListener('touchstart', unlockOnce);
-};
-window.addEventListener('pointerdown', unlockOnce);
-window.addEventListener('touchstart', unlockOnce);
+// iOS は最初のユーザー操作の中でしか音を鳴らせない。
+// しかも電話や開き直しで止まるので、1回で外さずに「どのタップでも起こす」を置く
+installAudioWake();
 
 // user-scalable=no は iOS Safari では無視されるので、ピンチ／ダブルタップを個別に止める
 document.addEventListener('gesturestart', (e) => e.preventDefault());
