@@ -26,6 +26,25 @@
  * 軽い場所になっていた。色は tenframe.ts と同じ約束（きいろ＝10へわたす玉／
  * みどり＝のこる玉）なので、さくらんぼ わけ と同じ話を、走りながらすることになる。
  *
+ * ## 入りの演出（どちらを えらんだかを、絵で見せる）
+ *
+ * ボタンを押した直後に、`8` と `5` の札が盤面に出て、
+ *   ・えらんだ `8` は **キャラの頭の上のふきだしに飛びこむ**（そこから数えはじめる）
+ *   ・えらばなかった `5` は **5本のハードルに割れて** 右へ流れていく（それが道になる）
+ * という 1.5秒 を置く。ハードルはそのぶん おくらせて積むので、走りだす前に
+ * 「頭の上の数」と「ハードルの本数」がどこから来たのかが一度で分かる。
+ *
+ * 押した瞬間にいきなり走りだしていたころは、頭の上に急に 8 が出て、ハードルが
+ * 何本来るのかも分からないまま拍が始まっていた。えらんだことの意味
+ * （＝このゲームの主題）が、いちばん伝わらない場所になっていた。
+ * 視差効果を減らす設定では演出ごと飛ばす（数と本数は変わらない）。
+ *
+ * ## 走りおわりの式（おぼえて帰る場所）
+ *
+ * 1式ぶん跳びおわったら、走りを伏せて `8 ＋ 5 ＝ 13` の札を大きく出す。
+ * 自分の足で出した数が式の形になって残る、ここが「おぼえる」拍。
+ * 以前は #mini-goal の `?` が 13 に変わるだけで、1.2秒後には次の式に進んでいた。
+ *
  * 記録（★・図鑑・習熟度）は一切動かさない。出るのはコインだけ。
  * それはこのファイルの外（minigame.ts）の仕事で、ここは数えて返すところまで。
  */
@@ -48,6 +67,7 @@ export interface LaneItem {
  * 式1つぶんの道すじ。**えらんだ数の つぎから、答えまで**。
  *
  * 8+5 で 8 をえらぶと 9〜13 の5本。**本数は えらばなかったほうの数**になる。
+ * えらんだ瞬間に、その関係は絵でも出す（下の「入りの演出」）。
  * 色の切れめは `cherry()` の分解とぴったり重なる（8+5 なら need=2・rest=3）。
  *   9     … need（10へ わたす玉。きいろ）
  *   10    … gate（10のもん。need の最後の1こが、そのままアーチになる）
@@ -127,6 +147,34 @@ export function endlessCadence(i: number, slow: boolean): number {
   const base = Math.max(CADENCE_MAX - step * ENDLESS_TIGHTEN, ENDLESS_MIN);
   return slow ? base * SLOW_RATE : base;
 }
+
+// ------------------------------------------------------------------ 入りの演出
+
+/**
+ * えらんだ数が頭に入り、のこりがハードルに割れるまでの間（秒）。
+ *
+ * ハードルはこのぶん おくらせて積む（pushLane の lead）。演出だけ足して
+ * 積むのを おくらせないと、数が頭に入る前に1本めが来て、順番が逆になる。
+ */
+export const INTRO = 1.5;
+/** その中で、えらんだ数が あたまに届く時点（0〜1） */
+const INTRO_HEAD = 0.44;
+/** えらばなかった数が ハードルに割れる時点 */
+const INTRO_BREAK = 0.54;
+/** 破片1つが 右のはしへ飛ぶのにかける時間（INTRO に対する割合） */
+const INTRO_FLY = 0.3;
+
+/**
+ * 1式ぶん跳びおわったあと、こたえの式を出しておく時間（秒）。
+ *
+ * 1.2秒だったころは、`?` が 13 に変わった次の瞬間には
+ * 「どちらから かぞえる？」に切りかわっていた。おぼえて帰る場所が無かった。
+ */
+const REVEAL_HOLD = 2.4;
+
+const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** 出だしが速く、着くところで ゆるむ */
+const ease = (u: number): number => 1 - (1 - u) ** 3;
 
 // ------------------------------------------------------------------ 見た目
 
@@ -241,6 +289,22 @@ export class HurdleGame {
   /** 「どちらから かぞえる？」の返事待ち。走りは止めずに、レーンだけ積まない */
   private waiting = false;
 
+  // --- 入りの演出（えらんだ数 → あたま、のこり → ハードル）
+  /** 演出の長さ（秒）。0 なら演出なし（視差効果を減らす設定） */
+  private introLen = 0;
+  /** 演出の経過（秒） */
+  private intro = 0;
+  /** えらんだ数（あたまに入る）。こたえの札で「どちらから数えたか」にも使う */
+  private introFrom = 0;
+  /** ハードルに割れる数の内わけ。色は そのまま来るハードルの色になる */
+  private introKinds: LaneKind[] = [];
+  private introHeadDone = false;
+  private introBroke = false;
+
+  // --- こたえの札
+  private card: { a: number; b: number; from: number; sum: number } | null = null;
+  private cardT = 0;
+
   // --- 跳躍
   private py = 0;
   private vy = 0;
@@ -310,6 +374,14 @@ export class HurdleGame {
     this.tripIdx = -1;
     this.last = 0;
     this.waiting = false;
+    this.introLen = 0;
+    this.intro = 0;
+    this.introFrom = 0;
+    this.introKinds = [];
+    this.introHeadDone = false;
+    this.introBroke = false;
+    this.card = null;
+    this.cardT = 0;
     // 式モードの拍は、その回に出る本数ぜんぶを分母にして詰めていく。
     // 「大きいほうから数える」とハードルは小さいほうの数だけになるので、
     // 5式でも 15本くらいにしかならない。分母を固定にすると、最後まで
@@ -346,6 +418,9 @@ export class HurdleGame {
     this.counted = 0;
     this.tens = 0;
     this.ones = [];
+    this.card = null;
+    this.introLen = 0;
+    this.introKinds = [];
     this.hooks.onProgress(this.at, o.facts.length, f);
     this.hooks.onPick(f);
   }
@@ -356,6 +431,10 @@ export class HurdleGame {
    * えらんだ数はそのまま頭の上に乗り、左上の10マスにも最初から並ぶ
    * （「8 は すでに 8こ ある」を、走る前に量として見せておく）。
    * 小さいほうをえらんでも走れる。そのぶんハードルが増えるだけで、止めはしない。
+   *
+   * すぐには走らせない。えらんだ数が頭に飛びこみ、のこりがハードルに割れる
+   * 1.5秒（INTRO）を置いてから1本めが来る。演出のあいだも時計（this.t）は
+   * 進めたままで、おくらせるのは積む位置だけ。拍そのものは1本も変わらない。
    */
   pick(start: number): void {
     const o = this.opts;
@@ -363,11 +442,40 @@ export class HurdleGame {
     if (!o || o.mode !== 'facts' || !f || !this.waiting) return;
     const total = f.a + f.b;
     const other = total - start;
+    const lane = laneFrom(start, total);
     this.waiting = false;
+    this.introFrom = start;
+    this.introKinds = lane.map((it) => it.kind);
+    this.introHeadDone = false;
+    this.introBroke = false;
+    this.intro = 0;
+    this.introLen = reduced() ? 0 : INTRO;
+    this.pushLane(lane, (i) => cadenceAt(i, this.ramp, o.slow), this.introLen);
+
+    if (this.introLen <= 0) {
+      // 演出なし。いままでどおり、えらんだ数がその場で頭に乗る
+      this.headIn();
+      this.sayCount(start, other);
+      return;
+    }
+    this.hooks.onSay(`${start} を あたまに いれるよ`);
+  }
+
+  /** えらんだ数が あたまに入った。ここから数えはじめる */
+  private headIn(): void {
+    this.introHeadDone = true;
+    const start = this.introFrom;
     this.counted = start;
     this.tens = Math.floor(start / 10);
     this.ones = Array.from({ length: start % 10 }, (): LaneKind => 'base');
-    this.pushLane(laneFrom(start, total), (i) => cadenceAt(i, this.ramp, o.slow));
+    this.pop = 0.4;
+  }
+
+  /**
+   * 「8 から 5かい ぴょん！」。
+   * 小さいほうをえらんだときだけ、本数の差をそのまま口に出す（止めはしない）。
+   */
+  private sayCount(start: number, other: number): void {
     this.hooks.onSay(
       start >= other
         ? `${start} から ${other}かい ぴょん！`
@@ -403,10 +511,11 @@ export class HurdleGame {
    * @param cadence 何本めと その次のあいだを何秒あけるか。
    *   式モードは1つの式の中ではなくセッション全体で詰めていく（式ごとに巻きもどすと、
    *   5式ぜんぶが同じ速さで始まって張りが出ない）。エンドレスは10本ごとに1段はやい。
+   * @param lead 1本めを さらに何秒 先に置くか。入りの演出のぶん（INTRO）。
    */
-  private pushLane(items: LaneItem[], cadence: (i: number) => number): void {
+  private pushLane(items: LaneItem[], cadence: (i: number) => number, lead = 0): void {
     // 1本めは、画面を横切る時間ぶん先に置く（出てくる前に通過しない）
-    let tHit = Math.max(this.t + 1.6, this.lastHit() + cadence(this.placed));
+    let tHit = Math.max(this.t + 1.6 + lead, this.lastHit() + cadence(this.placed));
     for (const it of items) {
       this.lane.push({ ...it, tHit, passed: false, clean: false, broken: false });
       this.placed++;
@@ -516,6 +625,8 @@ export class HurdleGame {
     this.pop = Math.max(0, this.pop - dt);
     this.hurt = Math.max(0, this.hurt - dt);
     this.squash += (1 - this.squash) * Math.min(1, dt * 12);
+    if (this.card) this.cardT += dt;
+    this.stepIntro(dt);
 
     // 跳躍
     if (this.air) {
@@ -609,11 +720,14 @@ export class HurdleGame {
 
     if (!this.revealed) {
       // ここで はじめて答えを見せる。子どもが自分の足で出した数が、
-      // そのまま `?` の場所に入る
+      // そのまま `?` の場所に入る。
+      // 走りを伏せて式の札を出すのは、ここが「おぼえて帰る」唯一の拍だから
       this.revealed = true;
-      this.hold = 1.2;
+      this.hold = REVEAL_HOLD;
       const f = this.currentFact();
       if (f) {
+        this.card = { a: f.a, b: f.b, from: this.introFrom, sum: f.a + f.b };
+        this.cardT = 0;
         this.hooks.onAnswer(f, f.a + f.b);
         sfx.correct(this.at);
       }
@@ -622,6 +736,27 @@ export class HurdleGame {
 
     this.hold -= dt;
     if (this.hold <= 0) this.advance();
+  }
+
+  /**
+   * 入りの演出を1フレーム進める。
+   *
+   * 走りそのものは止めない（this.t は動きつづける）。ここでやるのは
+   * 「いつ頭に入るか」「いつ割れるか」の 2つの合図だけ。
+   */
+  private stepIntro(dt: number): void {
+    if (this.introLen <= 0 || this.intro >= this.introLen) return;
+    this.intro += dt;
+    const u = this.intro / this.introLen;
+    if (!this.introHeadDone && u >= INTRO_HEAD) {
+      this.headIn();
+      sfx.beat();
+    }
+    if (!this.introBroke && u >= INTRO_BREAK) {
+      this.introBroke = true;
+      sfx.crack();
+      this.sayCount(this.introFrom, this.introKinds.length);
+    }
   }
 
   private advance(): void {
@@ -700,7 +835,7 @@ export class HurdleGame {
     }
 
     // 頭の上の数。**このゲームの本体**なので、いちばん大きく出す
-    this.drawCount(px, footY - size - 10 * s);
+    this.drawCount();
 
     for (const c of this.coins) {
       g.globalAlpha = Math.max(0, Math.min(1, c.life / 0.7));
@@ -714,8 +849,29 @@ export class HurdleGame {
     }
     g.globalAlpha = 1;
 
+    // 入りの演出と こたえの札は、走りの上に重ねる。
+    // 10マス（drawTens）はそのさらに上。札のうしろで「13 の量」も見えている
+    this.drawIntro();
+    this.drawCard();
     this.drawTens();
     this.drawStatus();
+  }
+
+  /** ハードルの色。10マスの絵と同じ約束（青＝もとの数・きいろ＝10へ・みどり＝のこり） */
+  private colorOf(kind: LaneKind): [string, string] {
+    if (kind === 'need' || kind === 'gate') return [KIIRO, KIIRO_DARK];
+    if (kind === 'rest') return [MIDORI, MIDORI_DARK];
+    return [BLUE, BLUE_DARK];
+  }
+
+  /**
+   * 頭の上のふきだしの まん中。
+   * えらんだ数が飛びこむ先でもあるので、1か所で持って draw と共有する。
+   */
+  private headPoint(): { x: number; y: number } {
+    const s = this.s;
+    const footY = this.groundY() + this.py;
+    return { x: this.playerX(), y: Math.max(footY - 40 * s, 26 * s) - 13 * s };
   }
 
   /** ふつうのハードル。つまずいたものは たおれる */
@@ -723,8 +879,7 @@ export class HurdleGame {
     const g = this.g;
     if (!g) return;
     const s = this.s;
-    const col = h.kind === 'need' ? KIIRO : h.kind === 'rest' ? MIDORI : BLUE;
-    const edge = h.kind === 'need' ? KIIRO_DARK : h.kind === 'rest' ? MIDORI_DARK : BLUE_DARK;
+    const [col, edge] = this.colorOf(h.kind);
     const hh = 22 * s;
 
     g.save();
@@ -789,16 +944,19 @@ export class HurdleGame {
   }
 
   /** 頭の上のふきだし。増えるたびに はずむ */
-  private drawCount(x: number, y: number): void {
+  private drawCount(): void {
     const g = this.g;
     if (!g) return;
     const s = this.s;
+    const p = this.headPoint();
     const grow = reduced() ? 1 : 1 + this.pop * 0.8;
-    // 返事待ちのあいだは「？」。ここに入る数を、じぶんで選ぶ場所だと見せておく
-    const text = this.waiting ? '?' : String(this.counted);
+    // 返事待ちのあいだと、えらんだ数が まだ飛んでいる あいだは「？」。
+    // ここに入る数を、じぶんで選ぶ場所だと見せておく
+    const empty = this.waiting || (this.introLen > 0 && !this.introHeadDone);
+    const text = empty ? '?' : String(this.counted);
 
     g.save();
-    g.translate(x, Math.max(y, 26 * s));
+    g.translate(p.x, p.y);
     g.scale(grow, grow);
     g.font = `900 ${20 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
     const w = Math.max(g.measureText(text).width + 16 * s, 30 * s);
@@ -806,13 +964,225 @@ export class HurdleGame {
     g.fillStyle = this.pop > 0.2 ? KIIRO : '#fff';
     g.strokeStyle = INK;
     g.lineWidth = 2.5 * s;
-    this.round(-w / 2, -h, w, h, 8 * s);
+    this.round(-w / 2, -h / 2, w, h, 8 * s);
     g.fill();
     g.stroke();
     g.fillStyle = INK;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(text, 0, -h / 2);
+    g.fillText(text, 0, 0);
+    g.restore();
+  }
+
+  /**
+   * 入りの演出。**えらんだ数は あたまへ、えらばなかった数は ハードルへ。**
+   *
+   * 札を2枚出して、片方をキャラの頭のふきだしへ飛ばし、もう片方を
+   * ハードルの形に割って右へ流す。割れる数は これから来る本数そのもので、
+   * 色も来るハードルと同じ（きいろ＝10へわたす・みどり＝のこり・青＝くりあがらない）。
+   * 「5 をえらばなかったから ハードルが5本」を、字ではなく形で見せる場所。
+   */
+  private drawIntro(): void {
+    const g = this.g;
+    if (!g || this.introLen <= 0 || this.intro >= this.introLen) return;
+    const s = this.s;
+    const u = clamp01(this.intro / this.introLen);
+    const groundY = this.groundY();
+
+    // 札を置く高さ。頭より上、左上の10マスより下
+    const cy = Math.max(groundY - 82 * s, 42 * s);
+    const cx = Math.min(Math.max(this.W * 0.56, 96 * s), this.W - 52 * s);
+    const gap = 34 * s;
+    const rise = ease(clamp01(u / 0.16));
+
+    // ＋ の記号。2枚が そろっているあいだだけ
+    if (u < INTRO_HEAD) {
+      g.save();
+      g.globalAlpha = rise;
+      g.fillStyle = INK;
+      g.font = `900 ${17 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText('+', cx, cy);
+      g.restore();
+    }
+
+    // えらばなかった数 → ハードルに割れて 右へ
+    const kinds = this.introKinds;
+    const bx = cx + gap;
+    if (u < INTRO_BREAK) {
+      // 割れる直前だけ こまかくふるえる。「これから何かが起きる」の合図
+      const near = clamp01((u - (INTRO_BREAK - 0.16)) / 0.16);
+      const shake = Math.sin(this.intro * 60) * 2.5 * s * near;
+      // 札の色は、割れて出てくるハードルの色。ここで飾りの色を混ぜると、
+      // 「きいろ＝10へわたす玉」の約束が くりあがらない式でも黄色くなって崩れる
+      const [col, edge] = this.colorOf(kinds[0] ?? 'base');
+      this.drawChip(bx + shake, cy, String(kinds.length), col, edge, 0.55 + 0.45 * rise);
+    } else {
+      const n = kinds.length;
+      const room = Math.max(1 - INTRO_BREAK - INTRO_FLY, 0);
+      const step = n > 1 ? Math.min(0.035, room / (n - 1)) : 0;
+      for (let i = 0; i < n; i++) {
+        const k = clamp01((u - (INTRO_BREAK + i * step)) / INTRO_FLY);
+        if (k <= 0 || k >= 1) continue;
+        const e = ease(k);
+        const tx = this.W + 24 * s + i * 15 * s;
+        const ty = groundY - 12 * s;
+        const x = bx + (tx - bx) * e;
+        const y = cy + (ty - cy) * e - Math.sin(Math.PI * k) * 18 * s;
+        this.drawFlyHurdle(x, y, kinds[i], 1 - 0.25 * k);
+      }
+    }
+
+    // えらんだ数 → あたまのふきだしへ
+    if (u < INTRO_HEAD) {
+      const fly = clamp01((u - 0.16) / (INTRO_HEAD - 0.16));
+      const head = this.headPoint();
+      const ax = cx - gap;
+      const e = ease(fly);
+      const x = ax + (head.x - ax) * e;
+      const y = cy + (head.y - cy) * e - Math.sin(Math.PI * fly) * 20 * s;
+      this.drawChip(x, y, String(this.introFrom), BLUE, BLUE_DARK, (0.55 + 0.45 * rise) * (1 - 0.3 * fly));
+    }
+  }
+
+  /** 数の札。入りの演出で飛ぶ、あの札 */
+  private drawChip(x: number, y: number, text: string, col: string, edge: string, scale: number): void {
+    const g = this.g;
+    if (!g) return;
+    const s = this.s;
+    g.save();
+    g.translate(x, y);
+    g.scale(scale, scale);
+    g.font = `900 ${22 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    const w = Math.max(g.measureText(text).width + 18 * s, 32 * s);
+    const h = 32 * s;
+    g.fillStyle = col;
+    g.strokeStyle = edge;
+    g.lineWidth = 3 * s;
+    this.round(-w / 2, -h / 2, w, h, 9 * s);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#fff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(text, 0, 0);
+    g.restore();
+  }
+
+  /** 割れて飛んでいく ハードル1本。来る本物と同じ形・同じ色 */
+  private drawFlyHurdle(x: number, y: number, kind: LaneKind, alpha: number): void {
+    const g = this.g;
+    if (!g) return;
+    const s = this.s;
+    const [col, edge] = this.colorOf(kind);
+    g.save();
+    g.globalAlpha = clamp01(alpha);
+    g.translate(x, y);
+    g.fillStyle = col;
+    g.strokeStyle = edge;
+    g.lineWidth = 2 * s;
+    g.fillRect(-2 * s, -11 * s, 4 * s, 22 * s);
+    g.strokeRect(-2 * s, -11 * s, 4 * s, 22 * s);
+    g.fillRect(-9 * s, -11 * s, 18 * s, 6 * s);
+    g.strokeRect(-9 * s, -11 * s, 18 * s, 6 * s);
+    g.restore();
+  }
+
+  /**
+   * こたえの札。**1式ぶん走りおわったあと、式そのものを大きく出す。**
+   *
+   * 走りを白く伏せるのは、この数秒だけは式だけを見てほしいから。
+   * 伏せても左上の10マスは上に描くので、`13` が どれだけの量かは横に出たまま。
+   */
+  private drawCard(): void {
+    const c = this.card;
+    const g = this.g;
+    if (!c || !g) return;
+    const s = this.s;
+    const k = reduced() ? 1 : clamp01(this.cardT / 0.22);
+    const e = ease(k);
+    // 次の式へ移るところで すっと消す
+    const fade = clamp01(Math.max(this.hold, 0) / 0.3);
+
+    g.save();
+    g.globalAlpha = fade;
+    // 角を丸めて少し内側に敷く。画面いっぱいに塗ると、canvas のふちが
+    // そのまま白い四角の境目になって、演出ではなく描画の切れめに見える
+    g.fillStyle = `rgba(255,253,247,${0.9 * e})`;
+    this.round(4 * s, 4 * s, this.W - 8 * s, this.H - 8 * s, 14 * s);
+    g.fill();
+
+    const cx = this.W / 2;
+    const cy = this.H * 0.5;
+    const big = 30 * s;
+    const mid = 22 * s;
+    // こたえだけ、ひと呼吸おいて はずむ
+    const popK = reduced() ? 0 : clamp01((this.cardT - 0.2) / 0.34);
+    const sumGrow = 1 + Math.sin(Math.PI * popK) * 0.3;
+
+    // どちらから数えたかを 1つだけ青くする（a と b が同じ数なら 左だけ）
+    const fromA = c.from === c.a;
+    const parts = [
+      { t: String(c.a), size: big, col: fromA ? BLUE_DARK : INK, pop: false },
+      { t: '+', size: mid, col: INK, pop: false },
+      { t: String(c.b), size: big, col: !fromA && c.from === c.b ? BLUE_DARK : INK, pop: false },
+      { t: '=', size: mid, col: INK, pop: false },
+      { t: String(c.sum), size: big, col: MIDORI_DARK, pop: true },
+    ];
+    const font = (px: number): string => `900 ${px}px "Hiragino Maru Gothic ProN", sans-serif`;
+    const gap = 7 * s;
+    let total = gap * (parts.length - 1);
+    for (const p of parts) {
+      g.font = font(p.size);
+      total += g.measureText(p.t).width;
+    }
+
+    g.save();
+    g.translate(cx, cy);
+    g.scale(0.8 + 0.2 * e, 0.8 + 0.2 * e);
+
+    // 札。式より ひとまわり大きく取って、上下に ことばを置く
+    const bw = total + 44 * s;
+    const bh = 104 * s;
+    g.fillStyle = '#fff';
+    g.strokeStyle = INK;
+    g.lineWidth = 3.5 * s;
+    this.round(-bw / 2, -bh / 2, bw, bh, 16 * s);
+    g.fill();
+    g.stroke();
+
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = 'rgba(38,49,61,.62)';
+    g.font = `700 ${12 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    g.fillText('おぼえた！', 0, -bh / 2 + 17 * s);
+
+    g.textAlign = 'left';
+    let x = -total / 2;
+    for (const p of parts) {
+      g.font = font(p.size);
+      const w = g.measureText(p.t).width;
+      g.fillStyle = p.col;
+      if (p.pop) {
+        // こたえだけ はずませる。中心を動かさずに大きくする
+        g.save();
+        g.translate(x + w / 2, 0);
+        g.scale(sumGrow, sumGrow);
+        g.textAlign = 'center';
+        g.fillText(p.t, 0, 0);
+        g.restore();
+      } else {
+        g.fillText(p.t, x, 0);
+      }
+      x += w + gap;
+    }
+
+    g.textAlign = 'center';
+    g.fillStyle = 'rgba(38,49,61,.62)';
+    g.font = `700 ${12 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
+    g.fillText(`${c.from} から ${c.sum - c.from}かい ぴょん`, 0, bh / 2 - 17 * s);
+    g.restore();
     g.restore();
   }
 
