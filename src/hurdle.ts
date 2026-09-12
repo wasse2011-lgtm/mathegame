@@ -537,14 +537,20 @@ export class HurdleGame {
   }
 
   /**
-   * 「8 から 5かい ぴょん！」。
-   * 小さいほうをえらんだときだけ、本数の差をそのまま口に出す（止めはしない）。
+   * 数えはじめの ひとこと。
+   *
+   * 以前は「8 から 5かい ぴょん！」と 跳ぶ回数まで読み上げていたが、
+   * **のこりの数＝目の前に並ぶハードルの数**なので、同じことを字でも言うと
+   * 画面を見なくなる。ここは「どこから数えるか」だけにして、
+   * 何回ぶんかは ハードルそのものに数えさせる。
+   *
+   * 小さいほうをえらんだときだけ、もう一方のほうが らくだと言い添える（止めはしない）。
    */
   private sayCount(start: number, other: number): void {
     this.hooks.onSay(
       start >= other
-        ? `${start} から ${other}かい ぴょん！`
-        : `${start} から ${other}かい…　${other} から だと ${start}かいで すむよ`,
+        ? `${start} から かぞえるよ！`
+        : `${other} から かぞえると もっと らくだよ`,
     );
   }
 
@@ -1219,9 +1225,11 @@ export class HurdleGame {
     g.translate(cx, cy);
     g.scale(0.8 + 0.2 * e, 0.8 + 0.2 * e);
 
-    // 札。式より ひとまわり大きく取って、上下に ことばを置く
+    // 札。式より ひとまわり大きく取って、上に ひとこと置く。
+    // 下にも「N から Mかい ぴょん」を書いていたが、跳びおわった あとに
+    // 跳んだ回数を字で言われても もう見ていない。式だけ大きく残す
     const bw = total + 44 * s;
-    const bh = 104 * s;
+    const bh = 88 * s;
     g.fillStyle = '#fff';
     g.strokeStyle = INK;
     g.lineWidth = 3.5 * s;
@@ -1235,6 +1243,9 @@ export class HurdleGame {
     g.font = `700 ${12 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
     g.fillText('おぼえた！', 0, -bh / 2 + 17 * s);
 
+    // 式は 札のまんなかより すこし下。上の「おぼえた！」のぶん、
+    // 真ん中に置くと 上が詰まって 下が空く
+    const ty = 8 * s;
     g.textAlign = 'left';
     let x = -total / 2;
     for (const p of parts) {
@@ -1244,21 +1255,17 @@ export class HurdleGame {
       if (p.pop) {
         // こたえだけ はずませる。中心を動かさずに大きくする
         g.save();
-        g.translate(x + w / 2, 0);
+        g.translate(x + w / 2, ty);
         g.scale(sumGrow, sumGrow);
         g.textAlign = 'center';
         g.fillText(p.t, 0, 0);
         g.restore();
       } else {
-        g.fillText(p.t, x, 0);
+        g.fillText(p.t, x, ty);
       }
       x += w + gap;
     }
 
-    g.textAlign = 'center';
-    g.fillStyle = 'rgba(38,49,61,.62)';
-    g.font = `700 ${12 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
-    g.fillText(`${c.from} から ${c.sum - c.from}かい ぴょん`, 0, bh / 2 - 17 * s);
     g.restore();
     g.restore();
   }
