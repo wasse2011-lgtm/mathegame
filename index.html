@@ -68,14 +68,20 @@
             <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
           </div>
 
-          <!-- きょうの もんだい。押すと「なんもん やる？」を先に聞く（1／3／5） -->
-          <button class="daily-card" id="daily-card" type="button">
-            <span class="daily-main">
+          <!-- きょうの もんだい。1・3・5 をここで直接えらぶ。
+               以前は押すと「なんもん やる？」の画面がはさまり、そこに
+               「まえの ほうは かんたんな しき…」という説明が2行あった。
+               遊びはじめるまでに 読む字と ひと押しが増えるだけなので、
+               画面ごと やめて、3つのボタンを ホームに出す。
+               数のぶんだけ ●が ならぶので、字が読めなくても多い少ないが分かる。 -->
+          <div class="daily-card daily-pick" id="daily-card">
+            <div class="daily-head">
               <span class="daily-title">きょうの もんだい</span>
-              <span class="daily-state" id="daily-state">1・3・5もん から えらぶ</span>
-            </span>
-            <span class="streak" id="home-streak" hidden><b>0</b>にち れんぞく</span>
-          </button>
+              <span class="daily-state" id="daily-state" hidden></span>
+              <span class="streak" id="home-streak" hidden><b>0</b>にち</span>
+            </div>
+            <div class="qty-row" id="daily-qty"></div>
+          </div>
 
           <!-- にがて たいじ と ミニゲーム。どちらも「きょうの もんだい」のあとの
                おかわりなので、横に2つ並べて縦を使わない -->
@@ -122,6 +128,18 @@
         <!-- ぴょんぴょん広場。じぶんの子と なかまが跳ねていて、さわると反応する -->
         <div class="yard" id="yard">
           <canvas id="home-char" aria-hidden="true"></canvas>
+
+          <!-- ホーくん（ものしりフクロウ）。
+               タップすると、いま にがてな しきを1つ出して、ひと呼吸おいてから
+               こたえを見せる。走らなくても、ここを押すだけで1問ぶん出会える。
+               記録（★・ずかん・習熟度）は読むだけで、一切動かさない。 -->
+          <div class="sensei-wrap" id="sensei-wrap">
+            <div class="sensei-say" id="sensei-say" hidden aria-live="polite"></div>
+            <button class="sensei" id="sensei" type="button" aria-label="ホーくんに しきを おしえてもらう">
+              <span class="sensei-face" aria-hidden="true">🦉</span>
+            </button>
+          </div>
+
           <p class="yard-hint">なかまを タップしてみて！</p>
         </div>
       </div>
@@ -506,6 +524,10 @@
 
         <h3 class="p-h">きせかえと ぶき</h3>
         <p class="p-note">
+          きせかえのタブ（キャラ・ぶき・ぼうし・アクセ・いろ）は、左右のスワイプでも切り替わります。
+          端まで行くと反対の端へ回ります。
+        </p>
+        <p class="p-note">
           きせかえ（キャラ・ぶき・ぼうし・アクセ・いろ）は見た目だけで、問題の難しさ・制限時間・
           ★・図鑑には一切影響しません。「ぶき」が効くのはステージ／きょうの もんだい／にがて たいじの
           最後の1問だけで、当てたときの倒しかたの演出が変わります（当たり判定はありません）。
@@ -524,10 +546,21 @@
 
         <h3 class="p-h">きょうの もんだい</h3>
         <p class="p-note">
-          1問・3問・5問から選べます。前半はいま解ける式（おぼえた記録のある式）を出し、
+          ホームのカードで 1問・3問・5問から直接選べます（以前は「なんもん やる？」の画面を
+          はさんでいましたが、遊びはじめるまでに読む字とひと押しが増えるだけなのでやめました）。
+          前半はいま解ける式（おぼえた記録のある式）を出し、
           <b>最後の1問だけ</b>、いま進めているステージの式を出します。毎日いちばん苦手な式ばかりを
           並べると、開く理由のほうが先に折れるためです。1問でも連続記録は続きます。
           コインは問題数に応じて＋20／＋36／＋60（1日1回）。
+        </p>
+
+        <h3 class="p-h">ホーくん（タイトルの フクロウ）</h3>
+        <p class="p-note">
+          タイトルの草の上にいます。押すと、いま苦手と記録されている式を1つ出し、
+          1.9秒おいてから答えを見せます（もう一度押すとすぐ出ます）。すぐ答えを出さないのは、
+          式が出てから答えが見えるまでの数秒がいちばん記憶に残るためです。走らなくても、
+          押すだけで1問ぶん出会える場所として置いています。
+          ここでの表示は記録を読むだけで、★・図鑑・習熟度は一切動かしません。
         </p>
 
         <h3 class="p-h">ミニゲーム</h3>
@@ -537,6 +570,13 @@
           扱います。「ぴょんぴょん ハードル」だけは拍がありますが、つまずいてもカウントは進むので
           答えには必ずたどり着きます。式はまず「どちらの数から数えるか」を選ばせ、選んだ数から
           残りの数だけ跳ぶ形（大きい数から数え足す練習）です。
+        </p>
+        <p class="p-note">
+          ハードルの当たり判定は「横木より足が上にあるか」で見ています。以前は空中にいるかどうか
+          だけを見ていたため、連打しているあいだは一度もぶつかりませんでした（着地したフレームで
+          すぐ跳びなおしていたため、ずっと空中にいた状態です）。いまは着地から次の跳躍まで
+          0.14秒あくので、連打では拍が合わず取りこぼします。拍に合わせて跳べばすべて越えられます。
+          ぶつかっても頭の上の数は必ず進むので、答えには変わらずたどり着きます（減るのはコインだけ）。
         </p>
         <p class="p-note">
           ここでの正解・不正解は、習熟度・図鑑・★に一切反映していません。試行錯誤でも当たるため、
@@ -568,18 +608,6 @@
         <p class="pause-note" id="pause-note"></p>
         <button class="btn btn-primary btn-xl" id="pause-resume" type="button">つづける</button>
         <button class="btn btn-ghost" id="pause-quit" type="button">もどる</button>
-      </div>
-    </div>
-
-    <!-- きょうの もんだい。何問やるかを先に聞く。
-         5問しか無かったころは「きょうは そんなに やりたくない日」の逃げ場が
-         「やらない」しかなかった。1問でも来た日は れんぞくが続く。 -->
-    <div class="overlay" id="overlay-daily" hidden>
-      <div class="sheet">
-        <p class="sheet-head">なんもん やる？</p>
-        <p class="daily-note">まえの ほうは かんたんな しき。<b>さいごの 1もん</b>だけ、いま れんしゅうしている しきが でるよ。</p>
-        <div class="qty-row" id="daily-qty"></div>
-        <button class="btn btn-ghost" id="daily-cancel" type="button">やめる</button>
       </div>
     </div>
 

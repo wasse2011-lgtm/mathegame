@@ -336,10 +336,15 @@ body {
 @media (max-height: 640px) {
   .sun { width: 60px; height: 60px; }
 }
+/* 320×568 のような小さい端末。ここまで詰めて、ようやくスクロールなしで収まる */
+@media (max-height: 600px) {
+  .title-inner { gap: .4rem; }
+  .qty-btn b { font-size: 1.25rem; }
+}
 
 /* ホームの草の上に、いま着せているキャラが立っている */
 /* ぴょんぴょん広場。なかまが跳ねまわっていて、さわると反応する */
-.yard { width: 100%; margin-top: -.3rem; }
+.yard { position: relative; width: 100%; margin-top: -.3rem; }
 .yard[hidden] { display: none; }
 #home-char { display: block; width: 100%; height: 116px; cursor: pointer; touch-action: manipulation; }
 #home-char[hidden] { display: none; }
@@ -348,8 +353,57 @@ body {
   color: #2f6b2a; text-shadow: 0 1px 0 rgba(255,255,255,.7);
 }
 @media (max-height: 720px) { #home-char { height: 94px; } }
-@media (max-height: 620px) { #home-char { height: 76px; } .yard-hint { display: none; } }
+/* きょうの もんだいが 1枚ぶん高くなったぶん、ここで草の高さを返す */
+@media (max-height: 660px) { #home-char { height: 84px; } }
+@media (max-height: 620px) { #home-char { height: 68px; } .yard-hint { display: none; } }
 @media (max-height: 540px) { .yard { display: none; } }
+
+/* ホーくん（ものしりフクロウ）。
+   草の上の右はしに立っていて、押すと にがてな しきを1つ出す。
+   ふきだしは **左どなり** に出す。上に出すと きせかえ／ペット／ずかん の
+   ボタンの上に かぶさる（広場は画面のいちばん下にある）。
+   ふきだしは指を通す（pointer-events: none）ので、うしろのボタンは押せたまま。 */
+.sensei-wrap {
+  position: absolute; right: .1rem; bottom: 1.2rem; z-index: 2;
+  display: flex; align-items: flex-end; gap: .35rem;
+}
+.sensei {
+  flex: 0 0 auto; width: 54px; height: 54px; padding: 0;
+  display: grid; place-items: center; cursor: pointer;
+  background: rgba(255,255,255,.9); border: 3px solid var(--amber); border-radius: 50%;
+  box-shadow: 0 3px 0 rgba(0,0,0,.12);
+}
+.sensei:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+.sensei-face { font-size: 1.9rem; line-height: 1; animation: owl-bob 2.8s ease-in-out infinite; }
+.sensei:active { transform: translateY(2px); }
+.sensei.talk .sensei-face { animation: owl-talk .5s ease; }
+@keyframes owl-bob {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-4px) rotate(3deg); }
+}
+@keyframes owl-talk {
+  0% { transform: scale(1); } 35% { transform: scale(1.25) rotate(-8deg); } 100% { transform: scale(1); }
+}
+
+.sensei-say {
+  max-width: min(15rem, 62vw);
+  background: #fff; border: 3px solid var(--amber); border-radius: 14px;
+  padding: .3rem .6rem .35rem; text-align: center; pointer-events: none;
+  box-shadow: 0 3px 0 rgba(0,0,0,.1); animation: say-in .22s ease-out;
+}
+.sensei-say[hidden] { display: none; }
+.sensei-say p { margin: 0; }
+.ss-lead { font-size: .76rem; font-weight: 700; color: var(--amber-dark); }
+/* しきは この中でいちばん大きく。読ませたいのは ここ */
+.ss-fact { font-size: 1.3rem; font-weight: 700; line-height: 1.2; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ss-q { color: var(--ink-2); }
+.ss-q.got { color: var(--good-dark); animation: pop .34s ease; }
+.ss-tip { font-size: .7rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+@keyframes say-in { from { opacity: 0; transform: translateY(6px) scale(.9); } to { opacity: 1; transform: none; } }
+@media (max-height: 620px) { .sensei { width: 46px; height: 46px; } .sensei-face { font-size: 1.6rem; } }
+@media (prefers-reduced-motion: reduce) {
+  .sensei-face, .sensei.talk .sensei-face, .sensei-say, .ss-q.got { animation: none; }
+}
 
 /* ---------------- ホーム ---------------- */
 .home { width: 100%; display: flex; flex-direction: column; gap: .6rem; }
@@ -365,6 +419,56 @@ body {
 }
 .daily-card:active { transform: translateY(3px); border-bottom-width: 3px; }
 .daily-main { display: flex; flex-direction: column; gap: .1rem; }
+
+/* きょうの もんだい。1・3・5 を カードの中で直接えらぶ。
+   別画面で聞いていたころは、遊びはじめるまでに「なんもん やる？」を読んで
+   ひと押しする手間があり、そこに説明が2行ついていた。
+   字のかわりに **問題の数だけ ● をならべる**ので、読めなくても多い少ないが分かる。 */
+.daily-pick {
+  flex-direction: column; align-items: stretch; gap: .45rem;
+  cursor: default; padding: .55rem .6rem .65rem;
+}
+.daily-pick:active { transform: none; border-bottom-width: 6px; }
+/* 見出しの行は 折り返さない。「きょうの もんだい」が2行になると、
+   カードの主役（1・3・5 のボタン）より上が重くなる */
+.daily-head { display: flex; align-items: center; gap: .45rem; white-space: nowrap; }
+.daily-head .daily-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.daily-head .daily-state { margin-left: auto; font-size: .8rem; }
+.daily-head .streak { margin-left: auto; padding: .2rem .5rem; }
+.daily-head .daily-state + .streak { margin-left: 0; }
+.daily-state[hidden] { display: none; }
+
+.qty-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .45rem; }
+.qty-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .18rem;
+  font-family: inherit; cursor: pointer; min-height: 72px; padding: .45rem .2rem;
+  background: #fffdf6; color: var(--ink);
+  border: 3px solid var(--amber); border-bottom-width: 6px; border-radius: var(--r-md);
+}
+.qty-btn:active { transform: translateY(3px); border-bottom-width: 3px; }
+.qty-btn[disabled] { opacity: .45; cursor: default; border-color: var(--line); }
+.qty-btn[disabled]:active { transform: none; border-bottom-width: 6px; }
+.qty-btn b { font-size: 1.75rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+/* ●の数 ＝ もんだいの数。ここが「1・3・5」を字なしで伝えている本体 */
+.qty-pips { display: flex; align-items: center; justify-content: center; gap: .18rem; min-height: 9px; }
+.qty-pips i { width: 9px; height: 9px; border-radius: 50%; background: var(--amber); }
+/* ごほうびのコイン。1日1回きりなので、もらいずみの日は そもそも出さない */
+.qty-coin {
+  display: flex; align-items: center; gap: .2rem;
+  font-size: .74rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+.qty-coin .coin-dot { width: 12px; height: 12px; }
+.qty-coin i { font-style: normal; }
+/* 縦の短い端末。カードが1枚ぶん高くなったので、ここで詰めておかないと
+   ロゴが画面の外へ押し出される（このカードは いちばん上に来る） */
+@media (max-height: 720px) {
+  .daily-pick { padding: .4rem .5rem .5rem; gap: .35rem; }
+  .daily-pick .daily-title { font-size: 1.05rem; }
+  /* 48px は指で押せる下限（Apple の 44pt）。ここより下げない */
+  .qty-btn { min-height: 48px; gap: .05rem; padding: .3rem .2rem; }
+  .qty-btn b { font-size: 1.4rem; }
+  .qty-pips i { width: 8px; height: 8px; }
+}
 .daily-title { font-weight: 700; font-size: 1.15rem; color: var(--ink); }
 .daily-state { font-size: .88rem; color: var(--amber-dark); font-weight: 700; }
 .daily-card.done { border-color: var(--good); }
@@ -859,6 +963,71 @@ body {
 .cy-n.big { font-size: 32px; }
 .cy-op { font-family: var(--font); font-weight: 700; font-size: 24px; fill: var(--ink-2);
   text-anchor: middle; dominant-baseline: central; }
+
+/* ---- さくらんぼの うごき ----
+   絵は手が進むたびに作りなおされるので、**その手で新しく出たものにだけ**
+   印が付いている（tenframe.ts の cherryArt）。入ったときのアニメが
+   そのまま「いま変わったところ」を指す。順番はこう:
+
+     1手め  わたす数が わかる  → 実と玉が ぽんと出て、矢印が のびる（pop / draw）
+     2手め  のこりが わかる
+     3手め  10 が できる      → 玉が 左の箱へ飛びこむ（fly）→ 8 が 10 に変わる（gone → land）
+                              → そのあとで のこりの実が出る（late）
+
+   ぜんぶ CSS の中で完結させてある（タイマーを持たない）ので、途中で
+   ← を押されても残るものが無い。動きを減らす設定では止まるが、
+   出るもの・数は1つも変わらない。 */
+@keyframes cy-pop {
+  from { transform: scale(.35); opacity: 0; }
+  60% { transform: scale(1.12); opacity: 1; }
+  to { transform: scale(1); opacity: 1; }
+}
+/* わたす玉が 左の箱へ飛びこむ。「8 に 2 を あげて 10」の “あげて” そのもの */
+@keyframes cy-fly {
+  from { transform: translate(0, 0) scale(1); opacity: 1; }
+  /* とちゅうで ひとまわり大きくする。小さい玉のままだと、飛んでいるのが見えない */
+  55% { transform: translate(calc(var(--dx, 0px) * .55), calc(var(--dy, 0px) * .55)) scale(1.45); opacity: 1; }
+  to { transform: translate(var(--dx, 0), var(--dy, 0)) scale(.6); opacity: 0; }
+}
+/* 飛んできた玉が着くまでの あいだ、箱はまだ もとの数（8）のまま */
+@keyframes cy-gone { from { opacity: 1; } 55%, to { opacity: 0; } }
+@keyframes cy-land {
+  from { opacity: 0; transform: scale(.5); }
+  60% { opacity: 1; transform: scale(1.2); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes cy-made {
+  from { fill: #fff; stroke: var(--blue); transform: scale(1); }
+  60% { fill: #fff2d4; stroke: var(--amber-dark); transform: scale(1.09); }
+  to { fill: #fff2d4; stroke: var(--amber-dark); transform: scale(1); }
+}
+/* 線が のびて出る。dasharray は keyframes の中だけに置く
+   （素の指定にすると、動きを止めたときに 線が消えたままになる） */
+@keyframes cy-draw {
+  from { stroke-dasharray: 130; stroke-dashoffset: 130; }
+  to { stroke-dasharray: 130; stroke-dashoffset: 0; }
+}
+/* SVG の既定の原点は座標系の (0,0) なので、そのまま scale すると
+   絵の左上を軸にすっ飛ぶ。自分の形を基準にする */
+.cy-leaf, .cy-dot, .cy-n, .cy-box { transform-box: fill-box; transform-origin: center; }
+.cy-leaf.pop, .cy-n.pop, .cy-dot.pop { animation: cy-pop .3s cubic-bezier(.2, 1.5, .4, 1) both; }
+.cy-dot.pop { animation-delay: calc(var(--i, 0) * .05s); }
+.cy-dot.fly { animation: cy-fly .52s ease-in-out both; animation-delay: calc(var(--i, 0) * .07s); }
+.cy-n.gone { animation: cy-gone .56s linear both; }
+.cy-n.land { animation: cy-land .36s ease .52s both; }
+.cy-box.land { animation: cy-made .44s ease .5s both; }
+.cy-arrow.draw { animation: cy-draw .45s ease-out .1s both; }
+.cy-arrow.head.draw { animation-delay: .42s; }
+/* のこりの実は、10 ができてから出す。順番どおりに見えるほうが話が通る */
+.cy-leaf.pop.late, .cy-n.pop.late { animation-delay: .66s; }
+.cy-dot.pop.late { animation-delay: calc(.72s + var(--i, 0) * .05s); }
+@media (prefers-reduced-motion: reduce) {
+  .cy-leaf.pop, .cy-n.pop, .cy-dot.pop, .cy-dot.fly, .cy-n.land, .cy-box.land, .cy-arrow.draw {
+    animation: none;
+  }
+  /* 動かさないときは、重ねて描いてある「変わる前の数」を出さない（10 と重なる） */
+  .cy-n.gone { display: none; }
+}
 .hint-text {
   margin: 0; font-size: .98rem; font-weight: 700; color: var(--ink); line-height: 1.35;
   text-align: center; flex: 0 1 auto; min-width: 0;
@@ -1268,6 +1437,11 @@ body {
 .lg:not(:first-child) { margin-left: .5rem; }
 
 /* ---------------- きせかえ ---------------- */
+/* よこスワイプで タブを送れるようにするための一行。
+   pan-y にしておかないと、指がよこに動いた瞬間に ブラウザが
+   「これはスクロールだ」と決めて pointercancel を投げ、スワイプが
+   **たまにしか効かないボタン**になる。たてのスクロールは そのまま効く。 */
+#screen-shop { touch-action: pan-y; }
 .dress-row { display: flex; align-items: center; gap: .6rem; flex: 0 0 auto; }
 #shop-preview {
   width: 112px; height: 112px; flex: 0 0 auto;
@@ -1337,6 +1511,15 @@ body {
 .shop-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .shop-h { margin: .6rem 0 .5rem; font-size: .92rem; color: var(--ink-2); }
 .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.2rem, 1fr)); gap: .55rem; }
+/* よこにスワイプして タブを送ったとき。
+   はらった向きの反対からマスが流れこむので、「いま めくった」が目で分かる */
+.item-grid.slide-l { animation: grid-slide-l .2s ease; }
+.item-grid.slide-r { animation: grid-slide-r .2s ease; }
+@keyframes grid-slide-l { from { transform: translateX(26px); opacity: .25; } to { transform: none; opacity: 1; } }
+@keyframes grid-slide-r { from { transform: translateX(-26px); opacity: .25; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .item-grid.slide-l, .item-grid.slide-r { animation: none; }
+}
 .item {
   display: grid; justify-items: center; gap: .1rem; padding: .4rem .2rem .5rem;
   font-family: inherit; font-weight: 700; font-size: .82rem; color: var(--ink-2);
@@ -1811,22 +1994,6 @@ body {
   padding: 1.2rem; display: flex; flex-direction: column; gap: .6rem; align-items: stretch;
 }
 .sheet-head { margin: 0 0 .3rem; text-align: center; font-size: 1.2rem; font-weight: 700; }
-
-/* きょうの もんだい。1／3／5 を横に3つ並べる。
-   字を読まなくても「少ない・ふつう・多い」が大きさで分かるよう、数を大きく出す */
-.daily-note { margin: -.2rem 0 .2rem; font-size: .82rem; font-weight: 700; color: var(--ink-2); line-height: 1.5; text-align: center; }
-/* 「さいごの 1もん」が行またぎで割れると、いちばん伝えたい一句が読めなくなる */
-.daily-note b { color: var(--amber-dark); white-space: nowrap; }
-.qty-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-.qty-btn {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
-  font-family: inherit; cursor: pointer; min-height: 76px; padding: .5rem .2rem;
-  background: var(--paper); color: var(--ink);
-  border: 3px solid var(--amber); border-bottom-width: 6px; border-radius: var(--r-md);
-}
-.qty-btn:active { transform: translateY(3px); border-bottom-width: 3px; }
-.qty-btn b { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.qty-btn span { font-size: .78rem; font-weight: 700; color: var(--amber-dark); }
 
 .toggle {
   display: flex; align-items: center; gap: .7rem; font-weight: 700; font-size: 1.05rem;

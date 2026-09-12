@@ -53,6 +53,106 @@ export function setShopTab(kind: ItemKind): void {
   tab = kind;
 }
 
+// ---------------------------------------------------------------- スワイプ
+
+/**
+ * よこにスワイプしてタブを送る。
+ *
+ * タブは 44px のマスが5つ。指のおおざっぱな子には、狙って押すより
+ * 「はらって めくる」ほうが速い。アルバムをめくる感じで ぜんぶ見てまわれる。
+ * はしまで行ったら反対のはしへ回る（行き止まりを作らない）。
+ */
+const SWIPE_MIN = 44;
+const SWIPE_MS = 800;
+
+function moveTab(dir: 1 | -1): void {
+  const next = TABS[(TABS.indexOf(tab) + dir + TABS.length) % TABS.length];
+  if (next === tab) return;
+  tab = next;
+  sfx.tap();
+  $('shop-msg').textContent = '';
+  renderShop();
+  // めくった向きにマスが流れこむ。どちらへ動いたのかを目で分かるようにする
+  const grid = $('item-grid');
+  grid.classList.remove('slide-l', 'slide-r');
+  void grid.offsetWidth;
+  grid.classList.add(dir > 0 ? 'slide-l' : 'slide-r');
+}
+
+/**
+ * スワイプを見はる。
+ *
+ * 指が はなれるのを待たずに、**動いた時点で** めくる。待つ作りにすると、
+ * ブラウザが「これは たてスクロールだ」と判断した瞬間に pointercancel が来て、
+ * 指をはなしても何も起きない（＝たまに効かないボタン）になる。
+ *
+ * はらった指が そのままマスを押さないよう、そのあとの click は捨てる。
+ */
+function initSwipe(): void {
+  const screen = $('screen-shop');
+  let x0 = 0;
+  let y0 = 0;
+  let t0 = 0;
+  /** いま追いかけている指。めくったあとは、はなすまで見ない */
+  let live = false;
+  /** めくった直後か。次に来る click ひとつを捨てるための印 */
+  let swiped = false;
+
+  const begin = (x: number, y: number): void => {
+    x0 = x;
+    y0 = y;
+    t0 = performance.now();
+    live = true;
+    swiped = false;
+  };
+
+  const move = (x: number, y: number): void => {
+    if (!live) return;
+    const dx = x - x0;
+    const dy = y - y0;
+    // たての動きのほうが大きいときは たてスクロール。この指は もう見ない
+    if (Math.abs(dy) > Math.abs(dx) * 1.4 && Math.abs(dy) > SWIPE_MIN) {
+      live = false;
+      return;
+    }
+    if (Math.abs(dx) < SWIPE_MIN || performance.now() - t0 > SWIPE_MS) return;
+    live = false;
+    swiped = true;
+    moveTab(dx < 0 ? 1 : -1);
+  };
+
+  screen.addEventListener('pointerdown', (e) => begin(e.clientX, e.clientY));
+  screen.addEventListener('pointermove', (e) => move(e.clientX, e.clientY));
+  // 指は pointer とは別にも受ける。ブラウザが「これはスクロールだ」と決めると
+  // その場で pointercancel が来て pointermove が止まるが、touchmove は届きつづける。
+  // 片方だけに頼ると、機種やブラウザによって「たまに効かない」ものになる
+  const touch = (e: TouchEvent, fn: (x: number, y: number) => void): void => {
+    const t = e.touches[0];
+    if (t) fn(t.clientX, t.clientY);
+  };
+  screen.addEventListener('touchstart', (e) => touch(e, begin), { passive: true });
+  screen.addEventListener('touchmove', (e) => touch(e, move), { passive: true });
+
+  // pointercancel と pointerleave はここに入れない。
+  // ブラウザが「これはスクロールだ」と決めた時点で 3つまとめて飛んでくるので、
+  // 入れると touchmove 側の道もいっしょに閉じてしまう（実測で これが原因だった）
+  for (const ev of ['pointerup', 'touchend', 'touchcancel']) {
+    screen.addEventListener(ev, () => { live = false; });
+  }
+
+  // click は pointerup のあと。押したことにせず、印だけ消す
+  screen.addEventListener(
+    'click',
+    (e) => {
+      if (!swiped) return;
+      swiped = false;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    true,
+  );
+}
+
 // ---------------------------------------------------------------- すがた見本
 
 const preview = () => $<HTMLCanvasElement>('shop-preview');
@@ -250,6 +350,8 @@ function showGachaResult(item: Item): void {
 }
 
 export function initShop(): void {
+  initSwipe();
+
   $('gacha-btn').addEventListener('click', () => {
     const item = rollGacha(tab);
     if (!item) return;
