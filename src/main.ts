@@ -155,15 +155,21 @@ function startHomeIdle(): void {
  * すぐ答えを出さないのは、出てから答えが見えるまでの1〜2秒がいちばんおぼえる時間だから。
  * 待てない子は もう一度押せば出る（考えることを強制はしない）。
  *
+ * **こたえが出たあとは、押されるまで消さない。**
+ * 前は 5〜8秒で 勝手に消していたが、字を おぼえたてで ゆっくり読む子には
+ * 短すぎて、読みおわる前に消えていた（読める子の速さで計った時間だった）。
+ * 読む速さは子によって何倍もちがうので、時間で決めること自体をやめて、
+ * 「読みおわった」を決めるのを 子ども自身の指にわたす。
+ * 消す手だては ふきだしを押すこと1つで、その案内を ふきだしの中に必ず出す。
+ * 画面を離れるときは `show()` が消すので、別の画面には持ちこさない。
+ *
  * **記録は読むだけで、一切動かさない。**（★・ずかん・習熟度）
  * 押せば答えが出るものを「おぼえた」の証拠にしない、という線は
  * ミニゲームと同じ。出すのは にがての記録を読んで決める。
  */
 const SENSEI_WAIT = 1900;
-const SENSEI_HIDE = 5200;
-/** まめちしきは もんだい文が長いぶん、読む時間を のばす */
+/** まめちしきは もんだい文が長いぶん、こたえを出すまでを のばす */
 const TRIVIA_WAIT = 3000;
-const TRIVIA_HIDE = 8000;
 /** 語尾は「〜ホ」。ここだけは説明ではなく、話しかけられている形にする */
 const SENSEI_ASK = 'これ わかるホ？';
 
@@ -227,7 +233,13 @@ function renderFactCard(fact: Fact, answer: number | null): void {
   q.textContent = answer === null ? '?' : String(answer);
   line.append(String(fact.a), ' ＋ ', String(fact.b), ' ＝ ', q);
 
-  box.replaceChildren(lead, line);
+  // こたえが出たら、消しかたを必ず出す。時間では消えないので、
+  // これが無いと ふきだしが下のボタンに かぶったまま戻らない
+  const foot = document.createElement('p');
+  foot.className = answer === null ? 'st-wait' : 'st-close';
+  foot.textContent = answer === null ? 'タップで こたえ' : 'タップで とじる';
+
+  box.replaceChildren(lead, line, foot);
   box.hidden = false;
 }
 
@@ -282,15 +294,15 @@ function revealSensei(): void {
   const c = senseiCard;
   if (!c) return;
   window.clearTimeout(senseiTimer);
+  senseiTimer = 0;
   senseiOpen = true;
+  // ここで 消すタイマーは しかけない。消すのは押されたときだけ
   if (c.kind === 'fact') {
     renderFactCard(c.fact, c.fact.a + c.fact.b);
     sfx.correct(0);
-    senseiTimer = window.setTimeout(hideSensei, SENSEI_HIDE);
   } else {
     renderTriviaCard(c.item, true);
     sfx.star(1);
-    senseiTimer = window.setTimeout(hideSensei, TRIVIA_HIDE);
   }
 }
 
