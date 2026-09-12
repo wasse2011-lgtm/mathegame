@@ -167,7 +167,7 @@ const CYCLE: TimeId[] = ['day', 'dawn', 'sunset', 'night'];
 
 export function timeIdFor(stage: number, boss: boolean): TimeId {
   if (boss) return 'boss';
-  if (stage <= 0) return 'dawn'; // デイリー（きょうの 5もん）は朝の空
+  if (stage <= 0) return 'dawn'; // デイリー（きょうの もんだい）は朝の空
   return CYCLE[(stage - 1) % CYCLE.length];
 }
 

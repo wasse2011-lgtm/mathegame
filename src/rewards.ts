@@ -15,8 +15,19 @@ export const COIN_COMBO = 3;
 export const COIN_PERFECT = 30;
 /** ボスステージのごほうび */
 export const COIN_BOSS = 60;
-/** きょうの5もんのごほうび */
+/** きょうの もんだい を 5問やりきったごほうび（1日1回） */
 export const COIN_DAILY = 60;
+
+/**
+ * 問題数を選べるようにしたぶんのごほうび。
+ *
+ * 枚数は問題数なりに減らすが、下限を置く。1問を 12枚にすると
+ * 「1問はやるだけむだ」になり、気乗りしない日の逃げ場をつくった意味が消える。
+ * 逆に一律にすると、だれも5問を選ばなくなる。
+ */
+export function dailyBonus(count: number): number {
+  return Math.max(20, Math.round((COIN_DAILY * count) / 5));
+}
 /**
  * にがて たいじ を やりきったごほうび。
  * デイリーより軽いのは、にがてが残っているかぎり何度でも挑めるから。
@@ -100,6 +111,19 @@ export const REPLAY_RATE = 0.4;
 export const COIN_FIRST_CLEAR = 20;
 /** はじめて ★3 を とったときの上乗せ */
 export const COIN_FIRST_PERFECT = 40;
+
+/**
+ * 「1回ぶんの大きな額」（ノーミス・フィニッシュ）に掛ける、問題数ぶんの倍率。
+ *
+ * この2つは 10問のステージ1回ぶんとして決めてある額で、問題数では増えない。
+ * きょうの もんだい が 1・3・5問から選べるようになったので、満額のまま払うと
+ * **1問だけを何度も走るのがコインの最適解**になり、走る理由が消える
+ * （★3 のステージ周回に REPLAY_RATE を置いたのと同じ話）。
+ * 5問を満額として、問題数に比例させる。増やす方向には効かせない。
+ */
+export function lumpRate(total: number, full = 5): number {
+  return Math.min(1, Math.max(0, total) / full);
+}
 
 /** 倍率を掛けて整数にする。0枚にはしない（「もらった」という手ざわりが消える） */
 export function scaled(base: number, rate: number): number {

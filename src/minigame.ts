@@ -104,8 +104,8 @@ const GAMES: MiniDef[] = [
   {
     id: 'hurdle',
     name: 'ぴょんぴょん ハードル',
-    sub: 'こたえの かずだけ ハードルを とぶ',
-    short: 'こたえの かずだけ とぶ',
+    sub: 'おおきい かずから かぞえて、のこりの かずだけ とぶ',
+    short: 'かぞえながら とぶ',
     emoji: '🏃',
     // やさしい式でも「跳んだ数＝答え」は成立するので、ここは開けておく。
     // むずかしさはレベル帯（HURDLE_LEVELS）のほうで区切る
@@ -417,9 +417,19 @@ function renderChips(list: Level[], at: number, pick: (i: number) => void): void
  * 「5と2で7」のように かたまりで見る（サビタイジング）ための場なので、
  * ゆっくり数えられる長さにすると、ねらいが変わってしまう。
  * 見のがしても ヒントで見なおせるので、こわい設定にはならない。
+ *
+ * ただし 6こ以上は、ひとかたまりでは見えない（人が一度に つかめるのは 5こまで）。
+ * 「5と2」の2かたまりに割って、足しなおす手間がそのぶん増えるので、
+ * 玉が1つ増えるごとに 90ms だけ足す。数えきれる長さにはしない（上限つき）。
  */
 const PEEK_MS = 1500;
+const PEEK_STEP_MS = 90;
+const PEEK_MAX_MS = 2300;
 const COUNT_ROUNDS = 6;
+
+export function peekMs(n: number): number {
+  return n <= 5 ? PEEK_MS : Math.min(PEEK_MS + (n - 5) * PEEK_STEP_MS, PEEK_MAX_MS);
+}
 
 const COUNT_LEVELS: (Level & { min: number; max: number })[] = [
   { label: '1〜5', min: 1, max: 5, need: 0 },
@@ -467,17 +477,19 @@ function startCount(): void {
     }
 
     const n = level.min + Math.floor(Math.random() * (level.max - level.min + 1));
+    // 玉が多いほど、見せる時間を少しだけ延ばす（peekMs のコメントを見る）
+    const peek = peekMs(n);
     paint(n, true);
     say('よく 見てね…');
     later(() => {
       paint(n, false);
       say('いくつ だった？');
-    }, PEEK_MS);
+    }, peek);
 
     $('mini-hint-btn').onclick = () => {
       sfx.tap();
       paint(n, true);
-      later(() => paint(n, false), PEEK_MS);
+      later(() => paint(n, false), peek);
     };
 
     const box = $('mini-choices');
@@ -495,7 +507,7 @@ function startCount(): void {
           // まちがえたら もう一度見せる。当てずっぽうを続けさせない
           paint(n, true);
           say('もう いちど 見てみよう');
-          later(() => paint(n, false), PEEK_MS);
+          later(() => paint(n, false), peek);
           return;
         }
         sfx.correct(at);
@@ -698,8 +710,8 @@ interface HurdleLevel extends Level {
 }
 
 /**
- * ロックはゲーム単位ではなくここで区切る。やさしい式でも「跳んだ数＝答え」は
- * 成立するので、初日から遊べたほうがこのゲームの目的に合う。
+ * ロックはゲーム単位ではなくここで区切る。やさしい式でも「えらんだ数から
+ * 数え足す」は成立するので、初日から遊べたほうがこのゲームの目的に合う。
  */
 const HURDLE_LEVELS: HurdleLevel[] = [
   { label: '10まで とぶ', min: 4, max: 10, need: 0 },
@@ -709,18 +721,31 @@ const HURDLE_LEVELS: HurdleLevel[] = [
 
 const HURDLE_ROUNDS = 5;
 
+/** 「どちらから かぞえる？」のボタンが押せるようになるまでの間（連打よけ） */
+const PICK_GUARD_MS = 450;
+
 let hurdleLevel = 0;
 let hurdle: HurdleGame | null = null;
 let hurdleCanvas: HTMLCanvasElement | null = null;
+/** どちらの数から数えているか（0 = 左、1 = 右）。式が変わるたびに消す */
+let hurdleFrom: 0 | 1 | null = null;
 
-/** `8 + 5 = ?` と、答えが出たあとの `8 + 5 = 13` */
+/**
+ * `8 + 5 = ?` と、答えが出たあとの `8 + 5 = 13`。
+ * 数えはじめに えらんだほうの数には印をつける（頭の上の数と結びつける）。
+ */
 function hurdleGoal(f: Fact, sum: number | null): void {
   const box = $('mini-goal');
-  box.replaceChildren(`${f.a} + ${f.b} = `);
+  const num = (v: number, at: 0 | 1): HTMLElement => {
+    const el = document.createElement('span');
+    el.className = hurdleFrom === at ? 'hnum on' : 'hnum';
+    el.textContent = String(v);
+    return el;
+  };
   const b = document.createElement('b');
   b.className = sum === null ? 'hq' : 'hq got';
   b.textContent = sum === null ? '?' : String(sum);
-  box.append(b);
+  box.replaceChildren(num(f.a, 0), ' + ', num(f.b, 1), ' = ', b);
 }
 
 function hurdleDone(clean: number, jumped: number, best: boolean): void {
@@ -740,8 +765,8 @@ function hurdleDone(clean: number, jumped: number, best: boolean): void {
   } else {
     note =
       clean === jumped
-        ? `${jumped}こ ぜんぶ きれいに とべた！`
-        : `${jumped}こ とんで、コインを ${clean}まい ひろった`;
+        ? `${jumped}かい ぜんぶ きれいに とべた！`
+        : `${jumped}かい とんで、コインを ${clean}まい ひろった`;
   }
 
   finish('hurdle', clean === jumped, note, clean);
@@ -758,10 +783,47 @@ function hurdleGame(): HurdleGame {
     canvas.id = 'mini-canvas';
     canvas.setAttribute('aria-hidden', 'true');
     hurdleCanvas = canvas;
-    hurdle = new HurdleGame(canvas, $('mini-body'), {
+    // タップは画面ぜんたいで受ける。canvas だけにしていたころは指を置ける帯が
+    // せますぎて、「押したのに跳ばない」がいちばん多いつまずきだった
+    hurdle = new HurdleGame(canvas, $('screen-mini'), {
       onProgress: (at, total, f) => {
         if (f) hurdleGoal(f, null);
         if (total) renderPips(total, at);
+      },
+      /**
+       * 「どちらの かずから かぞえる？」。
+       * ここで選んだ数が頭の上に乗り、ハードルは のこりの数だけ流れてくる。
+       * 小さいほうを選んでも走れる（そのぶんハードルが増えるだけ）。
+       */
+      onPick: (f) => {
+        hurdleFrom = null;
+        hurdleGoal(f, null);
+        say('どちらの かずから かぞえる？');
+        const box = $('mini-choices');
+        box.hidden = false;
+        box.replaceChildren();
+        const btns: HTMLButtonElement[] = [];
+        ([f.a, f.b] as const).forEach((v, i) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'mchoice from';
+          b.textContent = String(v);
+          // 跳ぶタップは画面ぜんたいで受ける。式が切りかわった瞬間に
+          // 連打が続いていると、そのままボタンを踏んで勝手に選ばれてしまう。
+          // ひと呼吸だけ受けつけない
+          b.disabled = true;
+          b.addEventListener('click', () => {
+            sfx.tap();
+            hurdleFrom = i as 0 | 1;
+            hurdleGoal(f, null);
+            box.replaceChildren();
+            box.hidden = true;
+            hurdle?.pick(v);
+          });
+          btns.push(b);
+          box.appendChild(b);
+        });
+        later(() => btns.forEach((b) => { b.disabled = false; }), PICK_GUARD_MS);
       },
       onSay: say,
       onAnswer: (f, sum) => {
@@ -784,10 +846,12 @@ function startHurdle(): void {
   board.className = 'mini-body hurdle';
   board.replaceChildren(hurdleCanvas as HTMLCanvasElement);
 
-  // ボタンは使わない。前のゲームのものを残さない（隠すだけだと読み上げに残る）
+  // ボタンは「どちらから かぞえる？」のときだけ出る。
+  // 前のゲームのものを残さない（隠すだけだと読み上げに残る）
   $('mini-choices').replaceChildren();
   $('mini-choices').hidden = true;
   $('mini-hint-btn').hidden = true;
+  hurdleFrom = null;
   hideFrame();
   renderChips(HURDLE_LEVELS, hurdleLevel, (i) => {
     hurdleLevel = i;
@@ -861,6 +925,19 @@ export function bandFor(guess: number, answer: number, max: number): RulerBand {
 
 let rulerLevel = 0;
 
+/**
+ * 目もりの刻みと、数字を書く間かく。
+ *
+ * 数字は「読める大きさ」を先に決めて、入る本数のほうを後から決めている。
+ * 0〜100 で 10 ごとに数字を書くと、狭い画面では字を 0.7rem まで落とすことになり、
+ * いちばん見せたいもの（線の上の数）がいちばん読みにくくなる。
+ */
+function rulerSteps(max: number): { tick: number; label: number } {
+  if (max <= 10) return { tick: 1, label: 1 };
+  if (max <= 20) return { tick: 1, label: 5 };
+  return { tick: 10, label: 20 };
+}
+
 function startRuler(): void {
   const level = RULER_LEVELS[rulerLevel];
   const max = level.max;
@@ -876,7 +953,7 @@ function startRuler(): void {
   const wrap = document.createElement('div');
   wrap.className = 'ruler-wrap';
   const band = document.createElement('div');
-  band.className = 'ruler-band';
+  band.className = `ruler-band${max > 20 ? ' wide' : ''}`;
   const line = document.createElement('div');
   line.className = 'ruler-line';
   const ticks = document.createElement('div');
@@ -893,16 +970,25 @@ function startRuler(): void {
   const walk = document.createElement('div');
   walk.className = 'ruler-walk';
   walk.hidden = true;
-  band.append(line, ticks, fill, flag, truth, walk);
+  const walkFace = document.createElement('span');
+  walkFace.className = 'rw-face';
+  walkFace.textContent = '🐰';
+  const walkNum = document.createElement('b');
+  walkNum.textContent = '0';
+  walk.append(walkFace, walkNum);
 
-  const ends = document.createElement('div');
-  ends.className = 'ruler-ends';
-  const e0 = document.createElement('span');
+  // はしの数字。線の上に大きく置く。
+  // 以前は線の下に小さい字で並べていたが、いちばん手がかりになる 0 と はしの数が
+  // いちばん読みにくいという、さかさまなことになっていた
+  const e0 = document.createElement('div');
+  e0.className = 'ruler-end at0';
   e0.textContent = '0';
-  const e1 = document.createElement('span');
+  const e1 = document.createElement('div');
+  e1.className = 'ruler-end at1';
   e1.textContent = String(max);
-  ends.append(e0, e1);
-  wrap.append(band, ends);
+
+  band.append(line, ticks, fill, e0, e1, flag, truth, walk);
+  wrap.append(band);
   board.append(wrap);
 
   // まん中の印だけは、答える前から出す。
@@ -925,6 +1011,10 @@ function startRuler(): void {
     guess = Math.min(Math.max(v, 0), max);
     flag.hidden = false;
     flag.style.left = `${(guess / max) * 100}%`;
+    // 置きなおすたびに はたが はずむ。「いま ここに置いた」を目で分かるようにする
+    flag.classList.remove('drop');
+    void flag.offsetWidth;
+    flag.classList.add('drop');
   };
 
   band.addEventListener('pointerdown', (e) => {
@@ -936,15 +1026,22 @@ function startRuler(): void {
     ok.disabled = false;
   });
 
-  /** 答え合わせのときだけ出す目もり */
+  /** 答え合わせのときだけ出す目もり。大きい目もりには数字を書く */
   const drawTicks = (): void => {
     ticks.replaceChildren();
-    const step = max > 20 ? 10 : 1;
-    for (let v = 0; v <= max; v += step) {
+    const { tick, label } = rulerSteps(max);
+    for (let v = 0; v <= max; v += tick) {
       const i = document.createElement('i');
       i.style.left = `${(v / max) * 100}%`;
-      if (v % (max > 20 ? 50 : 5) === 0) i.className = 'big';
+      const big = v % label === 0;
+      if (big) i.className = 'big';
       ticks.appendChild(i);
+      // はしの数字は最初から出ているので、ここでは書かない（重なる）
+      if (!big || v === 0 || v === max) continue;
+      const t = document.createElement('b');
+      t.style.left = `${(v / max) * 100}%`;
+      t.textContent = String(v);
+      ticks.appendChild(t);
     }
   };
 
@@ -956,8 +1053,12 @@ function startRuler(): void {
     const hop = (): void => {
       v = Math.min(v + step, answer);
       walk.style.left = `${(v / max) * 100}%`;
-      walk.textContent = String(v);
+      walkNum.textContent = String(v);
       fill.style.width = `${(v / max) * 100}%`;
+      // 1歩ごとに ぴょんと跳ねる。数がふえる拍を、動きでも出す
+      walk.classList.remove('hop');
+      void walk.offsetWidth;
+      walk.classList.add('hop');
       if (v >= answer) {
         later(then, 650);
         return;
@@ -984,6 +1085,8 @@ function startRuler(): void {
     flag.hidden = true;
     truth.hidden = true;
     walk.hidden = true;
+    walk.classList.remove('hop');
+    band.classList.remove('hit');
     ticks.replaceChildren();
     fill.style.width = '0%';
     ok.disabled = true;
@@ -1013,7 +1116,9 @@ function startRuler(): void {
       countTo(answer, () => {
         if (band2 === 'hit') {
           sfx.correct(at);
-          say('ぴったり！');
+          say('🎉 ぴったり！');
+          // 当たったときは線ごと光らせる。数字が合っていたことを、色でも出す
+          band.classList.add('hit');
         } else if (band2 === 'near') {
           sfx.correct(0);
           say('おしい、ちかい！');

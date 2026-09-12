@@ -32,9 +32,9 @@ import {
 } from './pets';
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
-import { initShop, onShopChange, renderShop, setShopTab, startShopIdle } from './shop';
-import { MASTERED, weakFactCount, weakFacts, weakestFacts } from './questions';
-import { COIN_BOSS, COIN_DAILY, COIN_HUNT } from './rewards';
+import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
+import { MASTERED, easiestFacts, weakFactCount, weakFacts, weakestFacts } from './questions';
+import { COIN_BOSS, COIN_HUNT, dailyBonus } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
   clearSlot,
@@ -55,15 +55,8 @@ import {
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
-import { paintWeaponIcon, weaponDef } from './weapons';
-import {
-  initZukan,
-  onZukanChange,
-  openZukan,
-  zukanNewCount,
-  zukanPrizeReady,
-  zukanProgress,
-} from './zukan';
+import { weaponDef } from './weapons';
+import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
 
 type ScreenName =
   | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent';
@@ -365,41 +358,22 @@ function renderTitle(): void {
   $('over-note').hidden = !over;
 
   daily.classList.toggle('done', p.daily.done);
+  // 問題数は押したあとに選ぶ。ここには「1もんでも いい」が読める形で出す
   $('daily-state').textContent = over
     ? 'また あした'
     : p.daily.done
       ? 'きょうは クリア！'
-      : `＋${COIN_DAILY} コイン`;
+      : '1・3・5もん から えらぶ';
   const streak = $('home-streak');
   streak.hidden = p.daily.streak < 1;
   const sb = streak.querySelector('b');
   if (sb) sb.textContent = String(p.daily.streak);
 
-  const { done, total } = zukanProgress();
-  $('zukan-count').textContent = `${done} / ${total}`;
-  $('zukan-bar').style.width = `${(done / total) * 100}%`;
-
-  // ずかんは、開かないと何も起きない画面。開く理由をホームに出す。
-  // ごほうびのほうが強い合図なので、両方あるときは ごほうびを出す
-  const prize = zukanPrizeReady();
-  const fresh = zukanNewCount();
-  const zNew = $('zukan-new');
-  zNew.hidden = !(prize > 0 || fresh > 0);
-  zNew.textContent = prize > 0 ? 'ごほうび！' : `＋${fresh}まい`;
-  zNew.classList.toggle('prize', prize > 0);
-  // 🎁 は「コインで まわす／割る」入口の印なので、ずかんは 🆕 で分ける
-  $('zukan-badge').hidden = zNew.hidden;
-
+  // ずかんは、開かないと何も起きない画面。開く理由はボタンの 🆕 だけで出す。
+  // 棒グラフの行をホームに並べていたころは、遊ぶ前に読む行が増えるわりに、
+  // 子どもは伸びた棒を眺めて終わっていた（進みぐあいは ずかんの中にある）
   const pets = ownedPets().length;
-  $('pet-count').textContent = `${pets} / ${PET_COUNT}`;
-  $('pet-bar').style.width = `${(pets / PET_COUNT) * 100}%`;
-
-  // いま持っている ぶき。さいごの1問で これが出る、とホームの時点で見せておく。
-  // ここが見えていないと、フィニッシュは「たまたま出た演出」で終わってしまう
-  const wp = weaponDef(p.weapon);
-  $('weapon-name').textContent = wp.label;
-  $('weapon-note').textContent = `さいごの 1もんで ${wp.note}`;
-  paintWeaponIcon($<HTMLCanvasElement>('weapon-icon'), wp.id, 42);
+  $('zukan-badge').hidden = !(zukanPrizeReady() > 0 || zukanNewCount() > 0);
 
   // いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方）
   $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= GACHA_COST);
@@ -549,8 +523,6 @@ function goZukan(): void {
 }
 
 $('btn-zukan').addEventListener('click', goZukan);
-// ホームの進みぐあいの行そのものからも入れる。棒グラフを見て終わりにさせない
-$('zukan-mini').addEventListener('click', goZukan);
 
 $('zukan-back').addEventListener('click', () => {
   sfx.tap();
@@ -594,13 +566,6 @@ $('btn-shop').addEventListener('click', () => {
   openCollection('shop', 'home');
 });
 
-// ホームの「いまの ぶき」から、きせかえの ぶきタブへ直行する
-$('weapon-strip').addEventListener('click', () => {
-  sfx.tap();
-  setShopTab('weapon');
-  openCollection('shop', 'home');
-});
-
 $('btn-ranch').addEventListener('click', () => {
   sfx.tap();
   openCollection('ranch', 'home');
@@ -634,26 +599,90 @@ function unlockedFacts(): Fact[] {
  */
 const HUNT_MAX = 5;
 
-$('daily-card').addEventListener('click', () => {
-  unlockAudio();
-  sfx.tap();
+/**
+ * きょうの もんだい で えらべる問題数。
+ *
+ * 5問だけだったころは、気乗りしない日の逃げ場が「やらない」しかなく、
+ * そこで れんぞくが切れていた。1問なら たいてい やる。
+ * 数を増やすほどコインは増えるので、5問を選ぶ理由は残してある（dailyBonus）。
+ */
+const DAILY_COUNTS = [1, 3, 5];
+
+/**
+ * きょうの もんだい に出す式。
+ *
+ * **前半は やさしく、さいごの1問だけ いま取り組んでいるところから出す。**
+ * 以前は5問ぜんぶ「いちばん にがてな式」だったので、毎日いちばん重い5問を
+ * 出されることになり、開く理由のほうが先に折れていた。
+ * 助走で「解ける」を数回ふませてから、いまの1問に当てる形にする。
+ */
+function dailyFacts(count: number): Fact[] {
+  const pool = unlockedFacts();
+  // 「いま」いるステージの式。ボスの手前で止まっているときは そのワールド全体
+  const spot = currentSpot();
+  const w = worldById(spot.worldId);
+  const here = isBoss(w, spot.stage) ? allFacts(w) : (stepOf(w, spot.stage)?.facts ?? allFacts(w));
+  const last = weakestFacts(here.length ? here : pool, 1);
+  return [...easiestFacts(pool, count - 1, last), ...last];
+}
+
+function startDaily(count: number): void {
   refreshDaily(profile()); // 日付をまたいだまま開きっぱなしのことがある
   startRun({
     world: DAILY_WORLD,
     stage: 0,
     mode: 'daily',
-    total: 5,
+    total: count,
     boss: false,
-    label: 'きょうの 5もん',
-    facts: weakestFacts(unlockedFacts(), 5),
+    label: `きょうの ${count}もん`,
+    facts: dailyFacts(count),
+    // 並べた順に出す。さいごの1問が「いまのレベル」なのは、順番が守られて初めて成り立つ
+    ordered: true,
     saveStars: false,
   });
+}
+
+/** 「なんもん やる？」。ここで問題数を決めてから走り出す */
+function askDailyCount(): void {
+  const p = profile();
+  refreshDaily(p);
+  const row = $('daily-qty');
+  row.replaceChildren();
+  for (const n of DAILY_COUNTS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'qty-btn';
+    const big = document.createElement('b');
+    big.textContent = `${n}もん`;
+    const sub = document.createElement('span');
+    // ごほうびは1日1回きり。もらいずみの日は、枚数のかわりに その旨を出す
+    sub.textContent = p.daily.done ? 'れんしゅう' : `＋${dailyBonus(n)}`;
+    b.append(big, sub);
+    b.addEventListener('click', () => {
+      sfx.tap();
+      $('overlay-daily').hidden = true;
+      startDaily(n);
+    });
+    row.appendChild(b);
+  }
+  $('overlay-daily').hidden = false;
+}
+
+$('daily-card').addEventListener('click', () => {
+  unlockAudio();
+  sfx.tap();
+  askDailyCount();
+});
+
+$('daily-cancel').addEventListener('click', () => {
+  sfx.tap();
+  $('overlay-daily').hidden = true;
 });
 
 /**
  * にがて たいじ。
  *
- * 「きょうの 5もん」は日に1回で終わってしまうので、いつでも挑める場をもう1つ置く。
+ * 「きょうの もんだい」は日に1回で終わってしまうので、いつでも挑める場をもう1つ置く。
  * こちらは にがてと記録された式だけを相手にして、時間制限なしで倒していく。
  * 相手が1ひきもいない日は、そもそもカードが押せない（renderTitle）。
  */
@@ -680,7 +709,7 @@ $('hunt-card').addEventListener('click', () => {
 /**
  * ミニゲーム。
  *
- * 走る導線（あそぶ・きょうの5もん・にがて たいじ）とちがって、
+ * 走る導線（あそぶ・きょうの もんだい・にがて たいじ）とちがって、
  * 1日の上限に達しても開ける。ここは時間で追われない れんしゅう場で、
  * 記録（★・図鑑・習熟度）も動かさないため、上限の対象にしていない。
  */
@@ -934,7 +963,8 @@ function startRun(cfg: RunConfig): void {
   // デイリーのおまけは走り出すたびに計算しなおす。
   // 設定オブジェクトを使いまわすので、ここで決めないと、その日のうちに
   // 何度でもデイリーのボーナスがもらえてしまう。
-  if (cfg.mode === 'daily') cfg.bonusCoins = profile().daily.done ? 0 : COIN_DAILY;
+  // 枚数は 何問やるかで変える（1問でもゼロにはしない。dailyBonus を見る）
+  if (cfg.mode === 'daily') cfg.bonusCoins = profile().daily.done ? 0 : dailyBonus(cfg.total);
   // ★も同じ理由でここで読みなおす。startStage で決め打ちにすると、
   // 同じ設定を使いまわす「もういちど」が、★3 のあとも初回レートで払い続ける。
   cfg.prevStars = cfg.stage === 0 ? 0 : stageStars(cfg.world.id, cfg.stage);
@@ -1131,7 +1161,11 @@ function coinLines(r: StageResult): CoinLine[] {
   }
   if (r.gain.bonus) {
     const label =
-      r.mode === 'daily' ? 'きょうの 5もん' : r.mode === 'hunt' ? 'にがて たいじ' : 'ボス ボーナス';
+      r.mode === 'daily'
+        ? `きょうの ${r.total}もん`
+        : r.mode === 'hunt'
+          ? 'にがて たいじ'
+          : 'ボス ボーナス';
     out.push({ label, value: r.gain.bonus });
   }
   if (r.gain.lost) out.push({ label: 'おとした コイン', value: -r.gain.lost });
@@ -1151,7 +1185,7 @@ function renderResult(r: StageResult): void {
   // ワールド名はミニマップの見出しに出ているので、この行は小ステップの名まえに使う
   const step = onMap ? stepOf(w, r.stage) : null;
   $('result-stage').textContent = daily
-    ? 'きょうの 5もん'
+    ? `きょうの ${r.total}もん`
     : hunt
       ? 'にがて たいじ'
       : boss

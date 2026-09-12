@@ -2,19 +2,29 @@
  * ぴょんぴょん ハードル。ミニゲームで唯一、拍のあるもの。
  *
  * ほかの3つは「絵を見て、ボタンを押す」で、数は最後まで記号のまま出てくる。
- * ここだけは **数を回数として体験させる**。`8 + 5 = ?` の答えは伏せておき、
- * ハードルを ちょうど a+b 本ならべる。跳ぶたびに頭の上の数が増えて、
- * 最後に止まった数が そのまま答えになる。数え足し（count-on）を体でやる形。
+ * ここだけは **数を回数として体験させる**。
+ *
+ * ## 大きいほうから数える（count-on）
+ *
+ * `8 + 5 = ?` は、まず **どちらの数から かぞえるか** を子どもに選ばせる。
+ * 選んだ数が頭の上に乗り（8）、ハードルは **のこりの数だけ**（5本）流れてくる。
+ * 跳ぶたびに頭の上が 9・10・11・12・13 と増えて、止まった数が そのまま答えになる。
+ *
+ * 1から数えなおす形（ハードルを a+b 本ならべる）にしていたころは、走りは長いのに
+ * やっているのは「1から13まで数える」で、たし算になっていなかった。
+ * 小さいほう（5）を選んでも走れるが、そのぶんハードルは8本になる。
+ * 「大きいほうから数えたほうが はやい」を、口で言わずに 本数で分からせる。
  *
  * **ゆずれない一点: ミスしてもカウントは進む。**
  * つまずいてもハードルは通過し、`counted` は増える。落とすのは そのハードルの
  * コイン1枚だけ。README の「腕前ではなく計算だけで越えられる」と同じ線で、
- * 運動が苦手な子でも「跳んだ数 ＝ a+b」には必ず最後まで届く。
+ * 運動が苦手な子でも「止まった数 ＝ こたえ」には必ず最後まで届く。
  * 下の update() の、カウントを進める分岐が `air` を読んでいないことがその保証。
  *
- * 10こめは ハードルではなく「10」のアーチにしてある。色は tenframe.ts と同じ
- * 約束（きいろ＝10へわたす玉／みどり＝のこる玉）なので、さくらんぼ わけ と
- * 同じ話を、走りながらすることになる。
+ * 10こめは「10」のアーチだが、**これも跳ぶ**。くぐるだけの ごほうびの拍にして
+ * いたころは、10 をまたぐところだけ手が止まり、繰り上がりの山がいちばん
+ * 軽い場所になっていた。色は tenframe.ts と同じ約束（きいろ＝10へわたす玉／
+ * みどり＝のこる玉）なので、さくらんぼ わけ と同じ話を、走りながらすることになる。
  *
  * 記録（★・図鑑・習熟度）は一切動かさない。出るのはコインだけ。
  * それはこのファイルの外（minigame.ts）の仕事で、ここは数えて返すところまで。
@@ -35,23 +45,21 @@ export interface LaneItem {
 }
 
 /**
- * 式1つぶんの道すじ。**本数はかならず a+b 本**（ここが企画の主張そのもの）。
+ * 式1つぶんの道すじ。**えらんだ数の つぎから、答えまで**。
  *
- * 色の切れめは `cherry()` の分解とぴったり重なる。
- * 8+5 なら base=8・need=2・rest=3 で、
- *   1〜8  … base（もとの数）
+ * 8+5 で 8 をえらぶと 9〜13 の5本。**本数は えらばなかったほうの数**になる。
+ * 色の切れめは `cherry()` の分解とぴったり重なる（8+5 なら need=2・rest=3）。
  *   9     … need（10へ わたす玉。きいろ）
  *   10    … gate（10のもん。need の最後の1こが、そのままアーチになる）
  *   11〜13… rest（のこる玉。みどり）
- * になる。cherry() を呼ばずに max(a,b) だけで同じ切れめが出せるので、
- * くりあがらない式（8+2=10 など）にもそのまま使える。
+ * 答えが 10 に届かない式（3+2 など）は、話の分かれめが無いので base（青）1色。
+ * cherry() を呼ばずに出せるので、くりあがらない式にもそのまま使える。
  */
-export function laneFor(f: Fact): LaneItem[] {
-  const total = f.a + f.b;
-  const base = Math.max(f.a, f.b);
+export function laneFrom(start: number, total: number): LaneItem[] {
   const lane: LaneItem[] = [];
-  for (let n = 1; n <= total; n++) {
-    const kind: LaneKind = n === 10 ? 'gate' : n > 10 ? 'rest' : n <= base ? 'base' : 'need';
+  for (let n = start + 1; n <= total; n++) {
+    const kind: LaneKind =
+      n === 10 ? 'gate' : n > 10 ? 'rest' : total >= 10 ? 'need' : 'base';
     lane.push({ n, kind });
   }
   return lane;
@@ -74,13 +82,11 @@ export const AIRTIME = 0.68;
 
 const CADENCE_MAX = 1.35;
 const CADENCE_MIN = 0.95;
-/** エンドレスで いちばん速くなるまでの本数 */
-const ENDLESS_RAMP = 60;
 /** ゆっくり設定のときの倍率 */
 const SLOW_RATE = 1.35;
 
 /**
- * i 本めのハードルと、その次との間隔（秒）。
+ * i 本めのハードルと、その次との間隔（秒）。式モードで使う。
  *
  * **CADENCE_MIN は AIRTIME より必ず長くしてある。**
  * 詰めすぎると、前のハードルの滞空が終わる前に次が来て、原理的に跳べなくなる。
@@ -91,6 +97,34 @@ export function cadenceAt(i: number, total: number, slow: boolean): number {
   const span = Math.max(total - 1, 1);
   const k = Math.min(Math.max(i / span, 0), 1);
   const base = CADENCE_MAX + (CADENCE_MIN - CADENCE_MAX) * k;
+  return slow ? base * SLOW_RATE : base;
+}
+
+/** エンドレスで、何本ごとに1段 速くなるか（10のもんの区切りと同じ） */
+const ENDLESS_STEP = 10;
+/** 1段あたり詰める秒数 */
+const ENDLESS_TIGHTEN = 0.06;
+/**
+ * エンドレスでいちばん速いときの拍。
+ *
+ * 滞空 0.68 秒に対して 0.76 秒。着地してから つぎのハードルが届くまで 0.08 秒しか
+ * 無いので、**跳びっぱなしに近い**。先行入力（空中のタップを着地で使う）が
+ * あるので不可能ではないが、ここが「ギリギリ こえられる」の帯。
+ * AIRTIME より下げてはいけない（原理的に跳べなくなる。CI が見張っている）。
+ */
+const ENDLESS_MIN = 0.76;
+
+/**
+ * エンドレスの拍。**10本ごとに1段ずつ速くなり、100本で いちばん速くなる。**
+ *
+ * 以前は 60本かけて 0.95 秒までなめらかに詰めるだけだったので、
+ * そこから先は何本走っても同じ速さで、100本を超えたあたりから
+ * 「上手くなったから進んでいる」のか「ただ長いだけ」なのかが分からなかった。
+ * 区切りを10本に合わせてあるので、速くなる瞬間が かならず 10のもんの直後に来る。
+ */
+export function endlessCadence(i: number, slow: boolean): number {
+  const step = Math.floor(Math.max(i, 0) / ENDLESS_STEP);
+  const base = Math.max(CADENCE_MAX - step * ENDLESS_TIGHTEN, ENDLESS_MIN);
   return slow ? base * SLOW_RATE : base;
 }
 
@@ -120,7 +154,7 @@ const reduced = (): boolean =>
 export interface HurdleResult {
   /** きれいに跳べた数。コインの枚数になる */
   clean: number;
-  /** 通った数。式モードでは かならず 式の答えの合計になる */
+  /** 跳んだハードルの数。式モードでは えらばなかったほうの数の合計になる */
   jumped: number;
   /** エンドレスで、これまでの最高を更新したか */
   best: boolean;
@@ -129,6 +163,11 @@ export interface HurdleResult {
 export interface HurdleHooks {
   /** 式が変わった／進んだ。minigame.ts が #mini-goal と #mini-pips を書く */
   onProgress: (at: number, total: number, fact: Fact | null) => void;
+  /**
+   * 「どちらの かずから かぞえる？」を聞く。
+   * minigame.ts が2つのボタンを出し、押されたら pick() を呼びかえす。
+   */
+  onPick: (fact: Fact) => void;
   /** ひとこと。#mini-say へ */
   onSay: (text: string) => void;
   /** 式の答えが出そろった。`8 + 5 = 13` を見せる */
@@ -195,8 +234,12 @@ export class HurdleGame {
   private hold = 0;
   /** これまでに置いたハードルの数。拍はセッション全体で詰めていく */
   private placed = 0;
+  /** 式モードで、セッション全体の本数の見こみ（拍を詰める速さの分母） */
+  private ramp = 24;
   /** いまの式の答えを、もう見せたか */
   private revealed = false;
+  /** 「どちらから かぞえる？」の返事待ち。走りは止めずに、レーンだけ積まない */
+  private waiting = false;
 
   // --- 跳躍
   private py = 0;
@@ -217,10 +260,15 @@ export class HurdleGame {
     this.g = canvas.getContext('2d');
     this.hooks = hooks;
 
-    // canvas ではなく親（#mini-body）で受ける。「画面のどこでも」に余白も含めたい。
-    // document には付けない（← やクリア画面のボタンでも跳んでしまう）
+    // canvas ではなく画面ぜんたい（#screen-mini）で受ける。
+    // canvas だけ・盤面だけにしていたころは、指を置ける帯が画面の3割ほどしかなく、
+    // 「押したのに跳ばなかった」が いちばん多い つまずきだった。
+    // ボタンの上（← ・レベルの帯・どちらから かぞえる？）だけは避ける。
+    // document には付けない（クリア画面のボタンでも跳んでしまう）
     hitArea.addEventListener('pointerdown', (e) => {
       if (!this.running) return;
+      const t = e.target;
+      if (t instanceof Element && t.closest('button, a, input, select, textarea')) return;
       e.preventDefault();
       this.tap();
     });
@@ -261,14 +309,70 @@ export class HurdleGame {
     this.tripAt = -99;
     this.tripIdx = -1;
     this.last = 0;
+    this.waiting = false;
+    // 式モードの拍は、その回に出る本数ぜんぶを分母にして詰めていく。
+    // 「大きいほうから数える」とハードルは小さいほうの数だけになるので、
+    // 5式でも 15本くらいにしかならない。分母を固定にすると、最後まで
+    // ゆっくりのまま終わってしまう
+    // エンドレスは endlessCadence（本数そのもので決まる）なので、ここは使わない
+    this.ramp =
+      opts.mode === 'facts'
+        ? Math.max(8, opts.facts.reduce((n, f) => n + Math.min(f.a, f.b), 0))
+        : 0;
 
     this.resize();
-    this.buildNext();
-    this.hooks.onSay('タップで ぴょん！');
+    if (opts.mode === 'endless') {
+      this.buildNext();
+      this.hooks.onSay('タップで ぴょん！');
+    } else {
+      // 式モードは「どちらから かぞえる？」の返事が来てから積む
+      this.askPick();
+    }
 
     if (this.running) return;
     this.running = true;
     this.raf = requestAnimationFrame(this.frame);
+  }
+
+  /** 「どちらの かずから かぞえる？」を出す。返事は pick() で受ける */
+  private askPick(): void {
+    const o = this.opts;
+    const f = this.currentFact();
+    if (!o || o.mode !== 'facts' || !f) {
+      this.finish();
+      return;
+    }
+    this.waiting = true;
+    this.counted = 0;
+    this.tens = 0;
+    this.ones = [];
+    this.hooks.onProgress(this.at, o.facts.length, f);
+    this.hooks.onPick(f);
+  }
+
+  /**
+   * えらんだ数から走りだす。
+   *
+   * えらんだ数はそのまま頭の上に乗り、左上の10マスにも最初から並ぶ
+   * （「8 は すでに 8こ ある」を、走る前に量として見せておく）。
+   * 小さいほうをえらんでも走れる。そのぶんハードルが増えるだけで、止めはしない。
+   */
+  pick(start: number): void {
+    const o = this.opts;
+    const f = this.currentFact();
+    if (!o || o.mode !== 'facts' || !f || !this.waiting) return;
+    const total = f.a + f.b;
+    const other = total - start;
+    this.waiting = false;
+    this.counted = start;
+    this.tens = Math.floor(start / 10);
+    this.ones = Array.from({ length: start % 10 }, (): LaneKind => 'base');
+    this.pushLane(laneFrom(start, total), (i) => cadenceAt(i, this.ramp, o.slow));
+    this.hooks.onSay(
+      start >= other
+        ? `${start} から ${other}かい ぴょん！`
+        : `${start} から ${other}かい…　${other} から だと ${start}かいで すむよ`,
+    );
   }
 
   /** 何度呼んでも安全。画面を離れるどの道でも必ず通す */
@@ -286,37 +390,27 @@ export class HurdleGame {
     return o.facts[this.at] ?? null;
   }
 
-  /** つぎの式（エンドレスなら つぎの10本）をレーンに積む */
+  /** エンドレスの つぎの10本を積む（式モードは pick() が積む） */
   private buildNext(): void {
     const o = this.opts;
-    if (!o) return;
-
-    if (o.mode === 'endless') {
-      // つぎの10本を先に積んでおく。切れめを作らない
-      const from = this.placed + 1;
-      this.pushLane(endlessLane(from, 10), o.slow, ENDLESS_RAMP);
-      return;
-    }
-
-    const f = o.facts[this.at];
-    if (!f) {
-      this.finish();
-      return;
-    }
-    const items = laneFor(f);
-    // 拍は1つの式の中ではなく、セッション全体で詰めていく。
-    // 式ごとに巻きもどすと、5式ぜんぶが同じ速さで始まって張りが出ない
-    this.pushLane(items, o.slow, o.facts.length * 12);
-    this.hooks.onProgress(this.at, o.facts.length, f);
+    if (!o || o.mode !== 'endless') return;
+    // つぎの10本を先に積んでおく。切れめを作らない
+    const from = this.placed + 1;
+    this.pushLane(endlessLane(from, ENDLESS_STEP), (i) => endlessCadence(i, o.slow));
   }
 
-  private pushLane(items: LaneItem[], slow: boolean, ramp: number): void {
+  /**
+   * @param cadence 何本めと その次のあいだを何秒あけるか。
+   *   式モードは1つの式の中ではなくセッション全体で詰めていく（式ごとに巻きもどすと、
+   *   5式ぜんぶが同じ速さで始まって張りが出ない）。エンドレスは10本ごとに1段はやい。
+   */
+  private pushLane(items: LaneItem[], cadence: (i: number) => number): void {
     // 1本めは、画面を横切る時間ぶん先に置く（出てくる前に通過しない）
-    let tHit = Math.max(this.t + 1.6, this.lastHit() + cadenceAt(this.placed, ramp, slow));
+    let tHit = Math.max(this.t + 1.6, this.lastHit() + cadence(this.placed));
     for (const it of items) {
       this.lane.push({ ...it, tHit, passed: false, clean: false, broken: false });
       this.placed++;
-      tHit += cadenceAt(this.placed, ramp, slow);
+      tHit += cadence(this.placed);
       // アーチの前後は ひと呼吸おく。10のまとまりを見せる間
       if (it.kind === 'gate') tHit += GATE_HOLD;
     }
@@ -445,34 +539,34 @@ export class HurdleGame {
       if (h.passed || this.t < h.tHit) continue;
 
       // ---- ここがゆずれない一点 ----------------------------------------
-      // カウントを進めるこの3行は `this.air` を読まない。跳べたかどうかに
+      // カウントを進めるこの数行は `this.air` を読まない。跳べたかどうかに
       // かかわらず、ハードルは通過し、数は必ず進む。腕前が効くのは下の
       // コイン（clean）だけ。ここに条件を足すと、企画そのものが崩れる。
       h.passed = true;
       this.counted = h.n;
       this.pop = 0.34;
-      if (h.kind !== 'gate') this.ones.push(h.kind);
-      // ------------------------------------------------------------------
-
       if (h.kind === 'gate') {
-        // アーチは くぐるもの。絶対につまずかない、ごほうびの拍
-        h.clean = true;
-        this.clean++;
-        this.jumped++;
+        // 10 こたまった。ばらを1たばにまとめる
         this.tens++;
         this.ones = [];
-        this.hearts = HEARTS;
-        this.dropCoin(h);
-        sfx.beat();
-        continue;
+      } else {
+        this.ones.push(h.kind);
       }
+      // ------------------------------------------------------------------
 
       this.jumped++;
       if (this.air) {
         h.clean = true;
         this.clean++;
         this.dropCoin(h);
-        sfx.coin();
+        // 10のもんは くぐるのではなく跳ぶ。きれいに跳べたときだけ、
+        // ハート満タンと べつの音で「区切りを こえた」を出す
+        if (h.kind === 'gate') {
+          this.hearts = HEARTS;
+          sfx.beat();
+        } else {
+          sfx.coin();
+        }
       } else {
         h.broken = true;
         this.hurt = 0.5;
@@ -509,7 +603,9 @@ export class HurdleGame {
       return;
     }
 
-    if (left > 0) return;
+    // 返事待ち（どちらから かぞえる？）は、まだ1本も積んでいないだけ。
+    // ここで答えを見せに行くと、選ぶ前に式が終わってしまう
+    if (left > 0 || this.waiting) return;
 
     if (!this.revealed) {
       // ここで はじめて答えを見せる。子どもが自分の足で出した数が、
@@ -536,12 +632,10 @@ export class HurdleGame {
       this.finish();
       return;
     }
-    this.counted = 0;
-    this.tens = 0;
-    this.ones = [];
     this.hold = 0;
     this.revealed = false;
-    this.buildNext();
+    // つぎの式も、まず「どちらから かぞえる？」から
+    this.askPick();
   }
 
   private finish(): void {
@@ -648,7 +742,12 @@ export class HurdleGame {
     g.restore();
   }
 
-  /** 10のもん。くぐるもので、つまずかない */
+  /**
+   * 10のもん。**くぐるのではなく跳ぶ。**
+   *
+   * アーチの中に横木を1本わたしてある。ここを ただの門にしていたころは、
+   * 10 をまたぐところだけ手が止まり、繰り上がりの山がいちばん軽い場所になっていた。
+   */
   private drawGate(x: number, groundY: number, h: Hurdle): void {
     const g = this.g;
     if (!g) return;
@@ -673,6 +772,20 @@ export class HurdleGame {
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillText('10', x, groundY - hh + w / 2);
+
+    // 門の中の横木。ほかのハードルと同じ高さに置く（跳ぶものだと形で分かる）
+    const bar = 22 * s;
+    g.save();
+    g.translate(x, groundY);
+    if (h.broken) g.rotate(-0.9);
+    g.fillStyle = KIIRO;
+    g.strokeStyle = KIIRO_DARK;
+    g.lineWidth = 2 * s;
+    g.fillRect(-2 * s, -bar, 4 * s, bar);
+    g.strokeRect(-2 * s, -bar, 4 * s, bar);
+    g.fillRect(-11 * s, -bar, 22 * s, 6 * s);
+    g.strokeRect(-11 * s, -bar, 22 * s, 6 * s);
+    g.restore();
   }
 
   /** 頭の上のふきだし。増えるたびに はずむ */
@@ -681,7 +794,8 @@ export class HurdleGame {
     if (!g) return;
     const s = this.s;
     const grow = reduced() ? 1 : 1 + this.pop * 0.8;
-    const text = String(this.counted);
+    // 返事待ちのあいだは「？」。ここに入る数を、じぶんで選ぶ場所だと見せておく
+    const text = this.waiting ? '?' : String(this.counted);
 
     g.save();
     g.translate(x, Math.max(y, 26 * s));
