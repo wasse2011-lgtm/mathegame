@@ -129,8 +129,30 @@ const GAMES: MiniDef[] = [
  */
 const timers: number[] = [];
 
-function later(fn: () => void, ms: number): void {
-  timers.push(window.setTimeout(fn, ms));
+/**
+ * 返すのは タイマーの番号。**まだ動いているものを名ざしで止める**ために要る。
+ * 止められないと、1つ前の回で仕掛けた「玉を隠す」が、つぎの回の玉を消す
+ * （＝出たとたんに消えたように見える）。`cancel` を見る。
+ */
+function later(fn: () => void, ms: number): number {
+  const id = window.setTimeout(() => {
+    drop(id);
+    fn();
+  }, ms);
+  timers.push(id);
+  return id;
+}
+
+/** 動きおわった／止めたものを控えから外す。放っておくと ここが伸びつづける */
+function drop(id: number): void {
+  const i = timers.indexOf(id);
+  if (i >= 0) timers.splice(i, 1);
+}
+
+function cancel(id: number): void {
+  if (!id) return;
+  clearTimeout(id);
+  drop(id);
 }
 
 function clearTimers(): void {
@@ -430,6 +452,10 @@ function renderChips(list: Level[], at: number, pick: (i: number) => void): void
     b.disabled = !open;
     b.addEventListener('click', () => {
       sfx.tap();
+      // むずかしさを選びなおすのは、盤を作りなおすこと。
+      // 前のむずかしさで仕掛けた演出が残っていると、新しい盤の上で動く
+      // （玉が出たとたんに消える、前の選択肢が戻ってくる）
+      clearTimers();
       pick(i);
     });
     row.appendChild(b);
@@ -492,7 +518,38 @@ function startCount(): void {
     art.innerHTML = a.svg;
   };
 
+  /**
+   * 玉を隠す約束は、いつも **1つだけ**。
+   *
+   * ここを数えていないと、こうなる（ずっと出ていたバグ）。
+   * 玉が見えているうちに当てた子は、つぎの回が始まってから
+   * 「1つ前の回の 隠す約束」に追いつかれる。出たばかりの玉が
+   * 0コンマ何秒で消えて、二度と出てこない。
+   * 見せなおす前に、まえの約束を かならず取り消す。
+   */
+  let peekTimer = 0;
+
+  /** ms のあいだ見せて、そのあと隠す（隠したあとに言うことがあれば then で） */
+  const flash = (n: number, ms: number, then?: () => void): void => {
+    cancel(peekTimer);
+    paint(n, true);
+    peekTimer = later(() => {
+      peekTimer = 0;
+      paint(n, false);
+      then?.();
+    }, ms);
+  };
+
+  /** 見せたまま止める（当たったあと。つぎの回まで消さない） */
+  const hold = (n: number): void => {
+    cancel(peekTimer);
+    peekTimer = 0;
+    paint(n, true);
+  };
+
   const round = (): void => {
+    cancel(peekTimer);
+    peekTimer = 0;
     renderPips(COUNT_ROUNDS, at);
     if (at >= COUNT_ROUNDS) {
       $('mini-choices').replaceChildren();
@@ -507,17 +564,12 @@ function startCount(): void {
     const n = level.min + Math.floor(Math.random() * (level.max - level.min + 1));
     // 玉が多いほど、見せる時間を少しだけ延ばす（peekMs のコメントを見る）
     const peek = peekMs(n);
-    paint(n, true);
     say('よく 見てね…');
-    later(() => {
-      paint(n, false);
-      say('いくつ だった？');
-    }, peek);
+    flash(n, peek, () => say('いくつ だった？'));
 
     $('mini-hint-btn').onclick = () => {
       sfx.tap();
-      paint(n, true);
-      later(() => paint(n, false), peek);
+      flash(n, peek);
     };
 
     const box = $('mini-choices');
@@ -533,13 +585,12 @@ function startCount(): void {
           sfx.wrong();
           shake(b);
           // まちがえたら もう一度見せる。当てずっぽうを続けさせない
-          paint(n, true);
           say('もう いちど 見てみよう');
-          later(() => paint(n, false), peek);
+          flash(n, peek);
           return;
         }
         sfx.correct(at);
-        paint(n, true);
+        hold(n);
         say(`${n} こ！`);
         at++;
         box.replaceChildren();
