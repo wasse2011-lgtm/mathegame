@@ -1520,6 +1520,15 @@ body {
 /* 答えが入る前は点線の ? 、入ったら みどりで受ける */
 .mini-goal .hq { display: inline-block; color: var(--ink-2); border-bottom: 3px dashed var(--line); padding: 0 .18em; }
 .mini-goal .hq.got { color: var(--good-dark); border-bottom-color: transparent; animation: pop .34s ease; }
+/* 式がそろった瞬間。帯ごと受けて、いちばん覚えてほしい形を いちばん大きく出す。
+   canvas の上にも同じ式の札が出るので、上と下で同じことを2回言う形になる */
+.mini-goal.got {
+  background: #eafaf1; border-radius: var(--r-md); padding: .1rem .6rem;
+  box-shadow: 0 0 0 3px var(--good) inset; animation: goal-got .5s ease;
+}
+@keyframes goal-got {
+  0% { transform: scale(1); } 40% { transform: scale(1.09); } 100% { transform: scale(1); }
+}
 /* 数えはじめに えらんだほうの数。頭の上のふきだしと同じ数だと分かるよう印をつける */
 .mini-goal .hnum { display: inline-block; border-radius: 10px; padding: 0 .1em; }
 .mini-goal .hnum.on { background: var(--blue); color: #fff; padding: 0 .2em; }
@@ -1637,7 +1646,7 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .ruler-fill { transition: none; }
-  .ruler-true, .mini-goal .hq.got, .ruler-flag.drop, .ruler-walk.hop { animation: none; }
+  .ruler-true, .mini-goal .hq.got, .mini-goal.got, .ruler-flag.drop, .ruler-walk.hop { animation: none; }
 }
 /* 0〜100 は目もりが多い。数字がぶつからないよう、ひとまわり小さくする */
 @media (max-width: 24rem) {
@@ -1721,6 +1730,19 @@ body {
 .mini-clear-coins {
   margin: 0; display: flex; align-items: center; justify-content: center; gap: .5rem;
   font-size: 2.2rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+
+/* 跳んで出した式の ならべ直し。
+   走っているあいだ、式は1つずつ出ては消える。ここで最後にもう一度ならべないと、
+   5式ぶん跳んだのに手もとには何も残らない。数（コイン）より上には置かない。 */
+.clear-facts { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+.clear-facts[hidden] { display: none; }
+.clear-facts-head { margin: 0; font-size: .9rem; font-weight: 700; color: var(--ink-2); }
+.clear-facts-row { display: flex; flex-wrap: wrap; justify-content: center; gap: .35rem; }
+.clear-fact {
+  font-size: 1.1rem; font-weight: 700; color: var(--good-dark);
+  background: #eafaf1; border: 2px solid var(--good); border-radius: 999px;
+  padding: .15rem .6rem; font-variant-numeric: tabular-nums;
 }
 
 /* ---------------- おうちのかた ---------------- */

@@ -38,6 +38,26 @@ async function load(entry) {
   return import(pathToFileURL(file).href);
 }
 
+/**
+ * 1つの束にまとめて読む。
+ *
+ * load() はファイルごとに別の束にするので、save.ts（記録）も別々の写しになる。
+ * 「記録をこう書いたとき、どの式が選ばれるか」を見るには、記録と選ぶ側が
+ * 同じ写しを見ていないといけない。
+ */
+async function loadTogether(name, contents) {
+  const file = join(out, `${name}.mjs`);
+  await build({
+    stdin: { contents, resolveDir: root, sourcefile: `${name}.ts`, loader: 'ts' },
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    outfile: file,
+    logLevel: 'silent',
+  });
+  return import(pathToFileURL(file).href);
+}
+
 const { QuestionPicker, MASTERED, distractorPool, blankPool } = await load('questions');
 const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
@@ -389,7 +409,71 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
   }
 }
 
-console.log('\nH) 出題の例');
+console.log('\nH) ミニゲームの出題が つづけて同じにならないか');
+{
+  // ミニゲームは記録を動かさない（習熟度が変わらない）。だから「1問ずつ
+  // いちばん にがてな式を取る」と、同じ式が何回でも返ってくる。
+  // かずの ものさし で `2+7` が 4回つづけて出ていたのが これ。
+  // ここで見ているのは 2つ:
+  //   ・weakestFacts は まとめて取れば ぜんぶ ちがう式を返す
+  //     （プールはワールドをつないだだけなので `9+1` のように重複が入っている）
+  //   ・ものさしの6問は、式も 旗を立てる場所も かぶらない
+  const mini = await loadTogether(
+    'mini',
+    `export { rulerPlan } from './src/minigame';
+     export { weakestFacts } from './src/questions';
+     export { factStat } from './src/save';
+     export { WORLDS, allFacts, factKey } from './src/curriculum';`,
+  );
+  const bad = [];
+  const pool = mini.WORLDS.flatMap((w) => mini.allFacts(w));
+
+  // 重複を含むプールから 8こ取っても、同じ式は2回出てこない
+  for (let i = 0; i < 200; i++) {
+    const got = mini.weakestFacts(pool, 8).map(mini.factKey);
+    if (new Set(got).size !== got.length) {
+      bad.push(`weakestFacts が同じ式を2回返した: ${got.join(' / ')}`);
+      break;
+    }
+  }
+
+  // 実際にあった形を作る: ほとんどの式は覚えていて、2+7 だけ にがて。
+  // 直す前は、この記録で 3〜6問めが ぜんぶ 2+7 になっていた
+  const max = 10;
+  const p10 = pool.filter((f) => f.a + f.b <= max && f.a + f.b >= 3);
+  for (const f of p10) Object.assign(mini.factStat(mini.factKey(f)), { seen: 3, m: 3, miss: 0 });
+  Object.assign(mini.factStat('2+7'), { seen: 4, m: 0, miss: 4 });
+
+  for (let i = 0; i < 200; i++) {
+    const plan = mini.rulerPlan(p10, max);
+    if (plan.length !== 6) bad.push(`ものさし: ${plan.length}問しか作られていない`);
+    const keys = plan.filter((r) => r.fact).map((r) => mini.factKey(r.fact));
+    if (new Set(keys).size !== keys.length) {
+      bad.push(`ものさし: 同じ式が2回出る（${keys.join(' / ')}）`);
+      break;
+    }
+    const answers = plan.map((r) => r.answer);
+    if (new Set(answers).size !== answers.length) {
+      bad.push(`ものさし: 同じ場所に2回 旗を立てさせる（${answers.join(' / ')}）`);
+      break;
+    }
+    if (plan.slice(0, 2).some((r) => r.fact)) bad.push('ものさし: 1・2問めは 数だけのはず');
+    if (plan.slice(2).some((r) => !r.fact)) bad.push('ものさし: 3問めからは たし算のはず');
+    if (plan.some((r) => r.fact && r.answer !== r.fact.a + r.fact.b)) {
+      bad.push('ものさし: 旗を立てる先が こたえと ちがう');
+    }
+  }
+
+  if (bad.length) {
+    failed++;
+    console.log('   ' + bad.slice(0, 6).join('\n   '));
+  } else {
+    const ex = mini.rulerPlan(p10, max).map((r) => (r.fact ? `${r.fact.a}+${r.fact.b}` : r.answer));
+    console.log(`   すべて正常（ものさしの6問: ${ex.join(' / ')}）`);
+  }
+}
+
+console.log('\nI) 出題の例');
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {
     if (!st.facts.length) continue;

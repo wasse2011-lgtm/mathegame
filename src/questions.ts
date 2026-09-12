@@ -333,13 +333,28 @@ export function easiestFacts(pool: Fact[], n: number, exclude: Fact[] = []): Fac
 /**
  * デイリーチャレンジ用に「いま苦手な式」を選ぶ。
  * 一度でも出した式を習熟度の低い順に取り、足りなければ未出題から埋める。
+ *
+ * **返す式は かならず ぜんぶ ちがう式になる。**
+ * 渡されるプール（unlockedFacts）はワールドをつないだだけなので、`9+1` のように
+ * 2つのワールドに出てくる式は 2こ入っている。重複を落とさないと、5問のうち
+ * 2問が同じ式、ということが起きる。呼ぶ側は「n問ぶんの ちがう式」のつもりで
+ * 使っているので、ここで落としておく。
+ *
+ * **1回に n こ まとめて取ること。**`weakestFacts(pool, 1)` をラウンドごとに
+ * 呼ぶと、ミニゲームは記録を動かさない（習熟度が変わらない）ので、
+ * いちばん にがてな式が毎回そのまま返ってくる。
+ * かずの ものさし で `2+7` が 4回つづけて出ていたのは これが原因。
  */
 export function weakestFacts(pool: Fact[], n: number): Fact[] {
   const seen: { f: Fact; score: number }[] = [];
   const unseen: Fact[] = [];
+  const dup = new Set<string>();
 
   for (const f of pool) {
-    const s = peekFact(factKey(f));
+    const key = factKey(f);
+    if (dup.has(key)) continue;
+    dup.add(key);
+    const s = peekFact(key);
     // 少しゆらぎを入れる。完全に決まっていると、毎日おなじ5問になる
     if (s.seen > 0) seen.push({ f, score: s.m * 10 - Math.min(s.miss, 5) + Math.random() * 4 });
     else unseen.push(f);

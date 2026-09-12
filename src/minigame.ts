@@ -230,7 +230,34 @@ function payout(id: MiniId, perfect: boolean, jumped?: number): { coins: number;
 /** いま遊んでいるゲーム。「もういちど」で使う（openGame が必ず上書きする） */
 let current: MiniId = 'count';
 
-function finish(id: MiniId, perfect: boolean, note: string, jumped?: number): void {
+/**
+ * クリアの画面に「きょう とんだ しき」を並べる。
+ *
+ * 走っているあいだ、式は1つずつ出ては消えていく。最後にもう一度ならべて
+ * 見せておかないと、5式ぶん跳んだのに手もとには何も残らない。
+ * ここは記録ではなく、おぼえて帰るための ならべ直し。
+ */
+function renderClearFacts(facts: Fact[]): void {
+  const box = $('mini-clear-facts');
+  box.replaceChildren();
+  box.hidden = facts.length === 0;
+  if (!facts.length) return;
+
+  const head = document.createElement('p');
+  head.className = 'clear-facts-head';
+  head.textContent = 'とんで おぼえた しき';
+  const row = document.createElement('div');
+  row.className = 'clear-facts-row';
+  for (const f of facts) {
+    const el = document.createElement('b');
+    el.className = 'clear-fact';
+    el.textContent = `${f.a}+${f.b}=${f.a + f.b}`;
+    row.appendChild(el);
+  }
+  box.append(head, row);
+}
+
+function finish(id: MiniId, perfect: boolean, note: string, jumped?: number, recap: Fact[] = []): void {
   countPlayTime();
   const { coins, first } = payout(id, perfect, jumped);
   sfx.clear();
@@ -239,6 +266,7 @@ function finish(id: MiniId, perfect: boolean, note: string, jumped?: number): vo
   $('mini-clear-note').textContent = first
     ? note
     : `${note}（きょうの ごほうびは もらいずみ）`;
+  renderClearFacts(recap);
   $('overlay-mini').hidden = false;
 }
 
@@ -729,6 +757,8 @@ let hurdle: HurdleGame | null = null;
 let hurdleCanvas: HTMLCanvasElement | null = null;
 /** どちらの数から数えているか（0 = 左、1 = 右）。式が変わるたびに消す */
 let hurdleFrom: 0 | 1 | null = null;
+/** その回に出した式。走りおわりの画面に ならべ直す */
+let hurdleFacts: Fact[] = [];
 
 /**
  * `8 + 5 = ?` と、答えが出たあとの `8 + 5 = 13`。
@@ -745,6 +775,9 @@ function hurdleGoal(f: Fact, sum: number | null): void {
   const b = document.createElement('b');
   b.className = sum === null ? 'hq' : 'hq got';
   b.textContent = sum === null ? '?' : String(sum);
+  // 答えが入った式は、帯ごと色を変えて はずませる。
+  // 「? が 13 になった」だけだと、いちばん覚えてほしい形が いちばん小さく出る
+  box.classList.toggle('got', sum !== null);
   box.replaceChildren(num(f.a, 0), ' + ', num(f.b, 1), ' = ', b);
 }
 
@@ -769,7 +802,8 @@ function hurdleDone(clean: number, jumped: number, best: boolean): void {
         : `${jumped}かい とんで、コインを ${clean}まい ひろった`;
   }
 
-  finish('hurdle', clean === jumped, note, clean);
+  // 式モードだけ、跳んだ式を ならべ直す（エンドレスに式は無い）
+  finish('hurdle', clean === jumped, note, clean, lv.endless ? [] : hurdleFacts);
 }
 
 /**
@@ -851,7 +885,9 @@ function startHurdle(): void {
   $('mini-choices').replaceChildren();
   $('mini-choices').hidden = true;
   $('mini-hint-btn').hidden = true;
+  $('mini-goal').classList.remove('got');
   hurdleFrom = null;
+  hurdleFacts = [];
   hideFrame();
   renderChips(HURDLE_LEVELS, hurdleLevel, (i) => {
     hurdleLevel = i;
@@ -888,6 +924,7 @@ function startHurdle(): void {
     renderMiniList();
     return;
   }
+  hurdleFacts = facts;
   renderPips(facts.length, 0);
   hurdleGoal(facts[0], null);
   begin(() => game.start({ mode: 'facts', facts, slow, look }));
@@ -907,8 +944,66 @@ const RULER_LEVELS: RulerLevel[] = [
 ];
 
 const RULER_ROUNDS = 6;
+/** 何ラウンドめから たし算になるか（ここまでは 数だけ） */
+const RULER_FACT_FROM = 2;
 
 export type RulerBand = 'hit' | 'near' | 'far';
+
+export interface RulerRound {
+  /** たし算のラウンドなら その式。数だけのラウンドは null */
+  fact: Fact | null;
+  /** 旗を立てる先。式のラウンドでは a + b */
+  answer: number;
+}
+
+/**
+ * その回に出す 6問を、はじめに ぜんぶ決める。
+ *
+ * **1問ずつ選んではいけない。** ミニゲームは記録を動かさない（習熟度が変わらない）ので、
+ * `weakestFacts(pool, 1)` をラウンドごとに呼ぶと、いちばん にがてな式が毎回そのまま
+ * 返ってくる。`2 + 7` が 4回つづけて出ていたのは これで、旗を置く場所まで同じだった。
+ * まとめて n こ取れば、weakestFacts が にがてな順に ちがう式を返す。
+ *
+ * 数だけのラウンドも、式のラウンドと同じ数を引かないようにしてある。
+ * 同じ場所に2回旗を立てさせるのは、6問のうち1問を捨てているのと同じ。
+ */
+export function rulerPlan(pool: Fact[], max: number, rounds = RULER_ROUNDS): RulerRound[] {
+  const want = Math.max(rounds - RULER_FACT_FROM, 0);
+  // こたえが同じ式（4+5 と 2+7）は、旗を立てる場所まで同じになる。
+  // にがてな順は崩さずに、多めに取ってから こたえの ちがうものを前から拾う
+  const picked = weakestFacts(pool, want * 4);
+  const sums = new Set<number>();
+  const facts: Fact[] = [];
+  for (const f of picked) {
+    if (facts.length >= want) break;
+    const sum = f.a + f.b;
+    if (sums.has(sum)) continue;
+    sums.add(sum);
+    facts.push(f);
+  }
+  // こたえの数が足りないほど狭いプールなら、かぶってでも問題数のほうを取る
+  for (const f of picked) {
+    if (facts.length >= want) break;
+    if (!facts.includes(f)) facts.push(f);
+  }
+  // 式で埋まる数は先に取っておく。数だけのラウンドが そこを避けられるようにする
+  const used = new Set<number>(facts.map((f) => f.a + f.b));
+  const plan: RulerRound[] = [];
+
+  for (let i = 0; i < rounds; i++) {
+    const fact = i >= RULER_FACT_FROM ? (facts[i - RULER_FACT_FROM] ?? null) : null;
+    if (fact) {
+      plan.push({ fact, answer: fact.a + fact.b });
+      continue;
+    }
+    // 空きが無くなることはまず無いが、max が小さいときのために回数で切る
+    let answer = 1 + Math.floor(Math.random() * max);
+    for (let k = 0; k < 40 && used.has(answer); k++) answer = 1 + Math.floor(Math.random() * max);
+    used.add(answer);
+    plan.push({ fact: null, answer });
+  }
+  return plan;
+}
 
 /**
  * 置いた旗の近さ。
@@ -945,6 +1040,10 @@ function startRuler(): void {
   let misses = 0;
   let guess = -1;
   let locked = false;
+
+  // 6問は はじめに ぜんぶ決める。ラウンドごとに選ぶと同じ式ばかりになる（rulerPlan）
+  const pool = env.facts().filter((f) => f.a + f.b <= max && f.a + f.b >= Math.max(3, max * 0.15));
+  const plan = rulerPlan(pool, max);
 
   const board = $('mini-body');
   board.className = 'mini-body ruler';
@@ -1092,11 +1191,8 @@ function startRuler(): void {
     ok.disabled = true;
 
     // 3ラウンドめからは たし算。7 のあたりに旗を立ててから 5つぶん動かす、
-    // という数直線の数え足しになる
-    const useFact = at >= 2;
-    const pool = env.facts().filter((f) => f.a + f.b <= max && f.a + f.b >= Math.max(3, max * 0.15));
-    const fact = useFact && pool.length ? weakestFacts(pool, 1)[0] : null;
-    const answer = fact ? fact.a + fact.b : 1 + Math.floor(Math.random() * max);
+    // という数直線の数え足しになる（どの式を出すかは rulerPlan が決めてある）
+    const { fact, answer } = plan[at];
 
     $('mini-goal').textContent = fact ? `${fact.a} + ${fact.b} は どこ？` : `${answer} は どこ？`;
     say('せんを タップして、はたを たてよう');
@@ -1215,6 +1311,8 @@ function openGame(id: MiniId): void {
   $('mini-list').hidden = true;
   $('mini-play').hidden = false;
   $('overlay-mini').hidden = true;
+  // ハードルの「こたえが入った」印は、式の帯を使いまわす他のゲームに持ちこさない
+  $('mini-goal').classList.remove('got');
   // 裸の else にすると、知らない id が黙って1つのゲームに流れる。
   // switch なら、id を増やしたときに tsc が漏れを教えてくれる
   switch (id) {
