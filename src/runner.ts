@@ -47,7 +47,7 @@ import {
 } from './curriculum';
 import { drawPet, paintPetIcon } from './petart';
 import { activePet, petPower, voiceOf, type PetDef } from './pets';
-import { QuestionPicker, isWeakFact, recordAnswer, type Question } from './questions';
+import { QuestionPicker, isWeakFact, recordAnswer, solvedParts, type Question } from './questions';
 import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
   COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, lumpRate, scaled, type CoinGain,
@@ -204,7 +204,28 @@ interface FloatText {
 }
 
 const CLEAR_HOLD = 0.8;
-const REVEAL_HOLD = 1.25;
+
+/**
+ * まちがえたあとに正解したときの間。完成した式を見てから次へ行く。
+ * 一度まちがえた式こそ、ここが おぼえどころになる。
+ */
+const CLEAR_HOLD_TAUGHT = 1.2;
+
+/**
+ * 時間切れのあと、答えを見せておく上限（秒）。正解を押せばここを待たずに進む。
+ *
+ * 1.25秒だったころは、式が完成した次の瞬間には もう次の問題が出ていた。
+ * hurdle.ts の REVEAL_HOLD が 1.2秒から 2.4秒になったのと同じ話で、
+ * 「おぼえて帰る場所」を画面に置いておく時間が要る。
+ */
+const REVEAL_HOLD = 2.2;
+
+/** 答えが出た瞬間の指が、そのまま「つぎへ」を踏み抜かないようにする（秒） */
+const REVEAL_ARM = 0.35;
+
+/** 答えを教えたあと、押す間として最低これだけは残す（秒） */
+const TEACH_GRACE = 1.6;
+
 const T_APEX = 0.32;
 
 /** 最後の1問で、障害物を何倍にするか */
@@ -1007,6 +1028,8 @@ export class Runner {
     this.isWeak = this.revenge || this.hunt || isWeakFact(this.q.fact);
     this.updateTags();
 
+    // 前の問題で完成させた式（と そのゆれ）を持ちこさない
+    this.elQuestion.classList.remove('solved', 'shake');
     this.elQuestion.textContent = this.q.text;
 
     this.elAnswers.replaceChildren();
@@ -1119,6 +1142,20 @@ export class Runner {
 
   private answer(i: number): void {
     const q = this.q;
+
+    // 答えを見せているあいだ。正解をもう一度 押したら、そこで次へ進む。
+    // 見ているだけより、自分の指でさわったほうが残る。押さなければ
+    // REVEAL_HOLD で自動的に進むので、進行が止まることはない
+    if (this.phase === 'reveal') {
+      if (this.paused || !q || q.choices[i] !== q.answer) return;
+      // よろけた勢いの指で飛ばさない（'ask' の qElapsed < 0.3 と同じ番人）
+      if (REVEAL_HOLD - this.hold < REVEAL_ARM) return;
+      sfx.tap();
+      this.hold = 0;
+      this.advance();
+      return;
+    }
+
     if (this.phase !== 'ask' || !q || this.paused) return;
     // 前の問題の勢いで連打した指が、出たばかりのボタンを踏まないようにする。
     // 止めているあいだは qElapsed が進まないので、この番人は外す。
@@ -1143,7 +1180,9 @@ export class Runner {
     if (value === q.answer) {
       const firstTry = !this.wrongThisQ;
       btn.classList.add('correct');
-      this.buttons.forEach((b) => { b.disabled = true; });
+      // 'again'（教えたあとの はずみ）は、押された時点で役目が終わる。
+      // 残すと、跳んでいるあいだ 押せないボタンだけが動きつづける
+      this.buttons.forEach((b) => { b.disabled = true; b.classList.remove('again'); });
 
       if (firstTry) {
         const key = factKey(q.fact);
@@ -1177,6 +1216,8 @@ export class Runner {
         this.callOut();
       } else {
         sfx.correct(0);
+        // まちがえたあとの正解。ここが おぼえどころなので、式を完成させて見せる
+        this.showSolved(q);
       }
       this.markPip(firstTry);
       stopDrone();
@@ -1212,7 +1253,8 @@ export class Runner {
         const dist = Math.max(target.x - this.playerX, 10 * this.s);
         target.v = Math.min(dist / T_APEX, 4200);
         this.setPhase('clear');
-        this.hold = CLEAR_HOLD;
+        // 一度まちがえた式は、完成した形を見る間をすこし長く取る
+        this.hold = firstTry ? CLEAR_HOLD : CLEAR_HOLD_TAUGHT;
       }
       this.updateHud(true);
     } else {
@@ -1238,6 +1280,13 @@ export class Runner {
       this.elQuestion.classList.add('shake');
       sfx.wrong();
       this.updateHud(false);
+
+      // 残りが正解ひとつになったら、そこで教える。
+      // 3択なら2回目、4択なら3回目のまちがい。ここから先は消去法で必ず当たるので、
+      // 当てさせても「おぼえた」にはならない
+      if (this.buttons.filter((b) => b.disabled).length === this.buttons.length - 1) {
+        this.teachAnswer(q);
+      }
     }
   }
 
@@ -1256,6 +1305,42 @@ export class Runner {
     this.misses++;
     this.picker.markWrong(q.fact);
     this.missed.set(factKey(q.fact), q.fact);
+  }
+
+  /**
+   * 式の「?」を こたえで埋める。「7 + 5 = ?」→「7 + 5 = 12」。
+   *
+   * まちがえたあと、緑に光るボタンだけでは「式」と「こたえ」が頭の中で
+   * つながらない。完成した式を画面に一度は出して、そこを おぼえて帰ってもらう。
+   * #question は aria-live なので、読み上げもここで入れ替わる。
+   */
+  private showSolved(q: Question): void {
+    const { head, ans, tail } = solvedParts(q);
+    const b = document.createElement('b');
+    b.className = 'ans';
+    b.textContent = ans;
+    this.elQuestion.classList.remove('shake');
+    this.elQuestion.replaceChildren(head, b, tail);
+    this.elQuestion.classList.add('solved');
+  }
+
+  /**
+   * 選択肢が 正解ひとつ だけになったところで、答えを教える。
+   *
+   * ここから先の1タップは、式を読まなくても必ず当たる。当てさせても何も残らない。
+   * ただし問題そのものは終わらせない。読んでから、自分の指で正解を押して跳ぶ。
+   * 次へ送ってしまうと「跳べなかった1問」になり、いまより罰が重くなる
+   * （いまの誤答はコインを落とさない。落とすのは時間切れだけ）。
+   */
+  private teachAnswer(q: Question): void {
+    this.showSolved(q);
+    this.buttons[q.choices.indexOf(q.answer)]?.classList.add('again');
+    // 教えたのに時間切れ、では意味が無い。押す間だけは必ず残す。
+    // にがて たいじ の敵は止まっている（v = 0）ので、ここでは触らない
+    if (!this.hunt && this.ob.v > 0) {
+      const dist = this.ob.x - (this.playerX - 4 * this.s);
+      if (dist > 0 && dist / this.ob.v < TEACH_GRACE) this.ob.v = dist / TEACH_GRACE;
+    }
   }
 
   /** れんぞくが節目に届いたら、帯を出して音を鳴らす */
@@ -1332,12 +1417,19 @@ export class Runner {
     this.shake = 0.3;
     sfx.stumble();
 
+    // 正解のボタンだけは押せるまま残す。式を読んで、その数を自分でさわってから進む。
+    // 押さなくても REVEAL_HOLD で進むので、手が止まっても待たされない
     const idx = q.choices.indexOf(q.answer);
     this.buttons.forEach((b, i) => {
-      b.disabled = true;
-      if (i === idx) b.classList.add('correct');
-      else b.classList.add('spent');
+      if (i === idx) {
+        b.classList.add('correct', 'again');
+        b.setAttribute('aria-label', `こたえ ${q.answer}。もういちど おしてね`);
+      } else {
+        b.disabled = true;
+        b.classList.add('spent');
+      }
     });
+    this.showSolved(q);
 
     this.setPhase('reveal');
     this.hold = REVEAL_HOLD;
@@ -1615,6 +1707,8 @@ export class Runner {
       if (i === idx) b.classList.add('correct');
       else if (!b.classList.contains('wrong')) b.classList.add('spent');
     });
+    // 負けたまま答えが分からない、をここでも作らない
+    this.showSolved(q);
 
     this.setPhase('dead');
     this.hold = 2.2;

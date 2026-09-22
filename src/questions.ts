@@ -18,6 +18,27 @@ export interface Question {
   blank: boolean;
 }
 
+/**
+ * 出す式と、こたえを入れた式を同じ場所で組む。
+ * 別々に書くと、片方の書式だけ直したときに黙ってずれる。
+ */
+function forms(a: number, b: number, sum: number, blank: boolean): {
+  text: string; head: string; ans: string; tail: string;
+} {
+  return blank
+    ? { text: `${a} + ? = ${sum}`, head: `${a} + `, ans: String(b), tail: ` = ${sum}` }
+    : { text: `${a} + ${b} = ?`, head: `${a} + ${b} = `, ans: String(sum), tail: '' };
+}
+
+/**
+ * 「7 + 5 = ?」を「7 + 5 = 12」にするための3つ。
+ * こたえのところだけ色を変えて出したいので、文字列ひとつではなく分けて返す。
+ */
+export function solvedParts(q: Question): { head: string; ans: string; tail: string } {
+  const { head, ans, tail } = forms(q.fact.a, q.fact.b, q.fact.a + q.fact.b, q.blank);
+  return { head, ans, tail };
+}
+
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -190,7 +211,7 @@ export class QuestionPicker {
     // 「10 の合成」は答えが必ず 10 なので、ふつうに出すと式を読まなくても当たる。
     // たす数のほうを空欄にして、分解そのものを問う。
     const answer = this.blank ? fact.b : sum;
-    const text = this.blank ? `${fact.a} + ? = ${sum}` : `${fact.a} + ${fact.b} = ?`;
+    const { text } = forms(fact.a, fact.b, sum, this.blank);
     const pool = this.blank
       ? blankPool(fact.a, fact.b, sum)
       : distractorPool(fact.a, fact.b, sum);

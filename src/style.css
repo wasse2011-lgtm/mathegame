@@ -996,6 +996,12 @@ body {
 .question.shake { animation: q-shake .3s; }
 @keyframes q-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
+/* まちがえたあと、「?」をこたえで埋めた式。ここが おぼえて帰る場所になる。
+   2けたに変わるぶん式が1文字のびるので、完成形だけ すこし細い clamp にする */
+.question.solved { font-size: clamp(2rem, 9.6vw, 3.7rem); }
+.question .ans { color: var(--good-dark); }
+.question.solved .ans { display: inline-block; animation: pop .34s ease; }
+
 /* さくらんぼ分解のヒント */
 /* 絵を上、ことばを下の2段にする。
    横1列に並べると、スマホの幅では 10マスが数ミリまで潰れ、
@@ -1281,12 +1287,18 @@ body {
 .answer.spent { opacity: .35; }
 .answer[disabled] { cursor: default; }
 @keyframes a-shake { 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
+/* 「これを もういちど おして」。答えを教えたあと、押すさきを指しておく */
+.answer.correct.again { animation: a-again 1.1s ease-in-out infinite; }
+@keyframes a-again { 50% { transform: translateY(-5px); } }
 @media (prefers-reduced-motion: reduce) {
-  .answer.wrong, .question.shake, .hud-combo.pop, .coin-badge.pop { animation: none; }
+  .answer.wrong, .question.shake, .hud-combo.pop, .coin-badge.pop,
+  .question.solved .ans, .answer.correct.again { animation: none; }
 }
 
 /* 夜・ボスの空は暗い。式とHUDを白抜きにしないと読めない */
 .screen-play.dark .question { color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.28); }
+/* 夜とボスの空では、--good-dark の緑は沈んで読めない。明るいほうの緑にする */
+.screen-play.dark .question .ans { color: #7ce0a8; }
 .screen-play.dark .hud-stage { color: rgba(255,255,255,.9); }
 .screen-play.dark .coin-badge { color: #fff; }
 .screen-play.dark .hud-combo { color: #ffd76b; }
