@@ -790,8 +790,7 @@ body {
 
 /* --- その せかいの みち --- */
 /* 地図の板。せかいごとの地面の色（main.ts が --land-* を入れる）を敷いて、
-   その上に 曲がりくねった道（svg.road）と マス・飾りを置く。
-   となりの せかいへ すべるとき、はみ出した板を切るので overflow: hidden */
+   その上に 曲がりくねった道（svg.road）と マス・飾りを置く */
 .stage-view {
   flex: 1; min-height: 0; display: flex; flex-direction: column;
   position: relative; overflow: hidden;
@@ -799,28 +798,33 @@ body {
   box-shadow: 0 12px 26px -20px rgba(20,40,60,.7), inset 0 0 0 3px rgba(255,255,255,.6);
 }
 .stage-view[hidden] { display: none; }
-/* 地面は スクロールする中身といっしょに動かす（local）。道の上と下で色が変わるので、
-   奥へ進んでいる感じが出る。写し（.ghost）にも そのまま付いてくるよう、ここに書く */
+/* 地面は 道（.stage-path）が じぶんで持つ。となりの せかいへ うつるときは、2つの せかいの道を
+   この箱の中に たてに並べて送るので（main.ts の slideToWorld）、せかいごとに色を持たせておく。
+   道が箱より短いときに見える下の余白は、地面の下の色でうめる */
 .path-scroll {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
-  padding: .9rem 0 .8rem;
-  background:
-    radial-gradient(circle, var(--land-dot, rgba(255,255,255,.3)) 2.5px, transparent 3px) 0 0 / 34px 34px local,
-    linear-gradient(180deg, var(--land-1, #d4f1c2), var(--land-2, #9fd98a)) local;
+  background: var(--land-2, #9fd98a);
 }
-/* となりの せかいへ すべるときの、いまの道の写し。上に重ねて外へ送りだす */
-.path-scroll.ghost { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+/* うつっている途中は さわれない（指で止めると、写しを外すときに位置がずれる） */
+.path-scroll.moving { pointer-events: none; }
 .stage-path {
   position: relative;
   display: flex; flex-direction: column; align-items: center; gap: .8rem;
-  padding: .2rem 0 .6rem;
+  padding: 1.1rem 0 1.4rem;
+  background:
+    radial-gradient(circle, var(--land-dot, rgba(255,255,255,.3)) 2.5px, transparent 3px) 0 0 / 34px 34px,
+    linear-gradient(180deg, var(--land-1, #d4f1c2), var(--land-2, #9fd98a));
 }
+/* となりの せかいへ うつるときの、いまの道の写し。新しい道の上（下）に じかに並ぶ */
+.stage-path.ghost { pointer-events: none; }
 /* 道。マスの中心どうしを main.ts の drawRoad が曲線でつなぐ。
    ふち → 道 → 「行った区間」の せかいの色の線 ／「まだの区間」の点線、の順に重ねる */
 .stage-path svg.road { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
 .road path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .road-edge { stroke: var(--road-edge, #c69a62); stroke-width: 48; }
 .road-bed { stroke: var(--road, #efd4a4); stroke-width: 38; }
+/* はしへ伸ばす区間。丸いはしだと、つなぎ目で となりの せかいの道に半円がはみ出す */
+.road .lead { stroke-linecap: butt; }
 .road-walked { stroke: var(--wc, var(--amber)); stroke-width: 9; opacity: .9; }
 .road-rest { stroke: var(--road-dash, #c69a62); stroke-width: 6; stroke-dasharray: 1 14; opacity: .85; }
 .node-row {
@@ -862,7 +866,7 @@ body {
   color: var(--ink-2); background: rgba(255,255,255,.85);
   border: 2px solid rgba(255,255,255,.95); border-radius: 999px;
 }
-.world-hop span { font-size: 1.2rem; line-height: 1; }
+.world-hop span { font-size: 1.2rem; line-height: 1; transform: rotate(90deg); } /* まえの せかいは上。‹ を上に向ける */
 .world-hop:active { transform: translateY(calc(-50% + 2px)); }
 .path-goal { position: relative; z-index: 1; }
 .stage-node {
@@ -946,8 +950,8 @@ body {
 .pg-text { display: flex; flex-direction: column; flex: 1; min-width: 0; text-align: left; }
 .pg-text b { font-size: .85rem; color: var(--ink-2); }
 .pg-text span { font-size: 1rem; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* つぎの せかいが開いているときは、押せるボタンにする。押すと よこに すべって移る。
-   点線（まだ行けない）と見分けがつくよう、実線・つぎの せかいの色・右むきの ›  */
+/* つぎの せかいが開いているときは、押せるボタンにする。押すと 道をたどって下へ うつる。
+   点線（まだ行けない）と見分けがつくよう、実線・つぎの せかいの色・下むきの ›  */
 .path-goal.go {
   font-family: inherit; cursor: pointer;
   border: 3px solid var(--wc, var(--amber)); border-bottom-width: 6px;
@@ -960,9 +964,11 @@ body {
   flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
   display: grid; place-items: center;
   background: var(--wc, var(--amber)); color: #fff; font-size: 1.6rem; font-weight: 700; line-height: 1;
+  /* 道は下へ続くので、› を下に向ける */
+  transform: rotate(90deg);
   animation: pg-nudge 1.4s ease-in-out infinite;
 }
-@keyframes pg-nudge { 50% { transform: translateX(4px); } }
+@keyframes pg-nudge { 0%, 100% { transform: rotate(90deg); } 50% { transform: rotate(90deg) translateX(4px); } }
 @media (prefers-reduced-motion: reduce) { .pg-go { animation: none; } }
 
 /* ---------------- プレイ ---------------- */
@@ -1068,21 +1074,46 @@ body {
 @keyframes q-shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 
 /* まちがえたあと、「?」をこたえで埋めた式。ここが おぼえて帰る場所になる。
-   2けたに変わるぶん式が1文字のびるので、完成形だけ すこし細い clamp にする */
-.question.solved { font-size: clamp(2rem, 9.6vw, 3.7rem); }
+   2けたに変わるぶん式が1文字のびるうえ、札のふちと余白もつくので、完成形だけ細い clamp にする */
+.question.solved { font-size: clamp(1.9rem, 8.6vw, 3.4rem); }
+/* 札は canvas より手前に置く。横持ちでは式の行が札より低く（42px に 47px）、はずむぶんも
+   はみ出す。うしろの canvas（上のほうは空）に少しかかっても、札が切れるよりいい */
+.question.solved { position: relative; z-index: 2; }
 .question .ans { color: var(--good-dark); }
-/* こたえは みどりの囲みに入れて、2回 光らせる。色だけだと、うすい緑の数字が
-   1つ出ただけに見えて、まちがえた子の目が そこで止まらなかった */
-.question.solved .ans {
-  display: inline-block; padding: 0 .16em; margin: 0 .04em; border-radius: .28em;
-  background: #dff5e9; box-shadow: inset 0 0 0 3px var(--good);
-  text-shadow: none;
-  animation: ans-pop .5s cubic-bezier(.2, 1.6, .4, 1), ans-glow .7s ease-in-out .5s 2;
+/* 強調は この式1つだけにする。もとの式そのものが 白い札に変わる。
+   以前は同じ式を canvas の空にも札で出していて、2つ並んで目が割れていた。
+   白地なので、夜やボスの暗い空でも 色を変えずに読める */
+.question.solved > span {
+  display: inline-block; position: relative;
+  color: var(--ink); text-shadow: none;
+  background: #fff; border: 4px solid var(--good); border-radius: 22px;
+  padding: .1em .38em .14em;
+  box-shadow: 0 12px 24px -14px rgba(20,40,60,.6);
+  animation: card-pop .4s cubic-bezier(.2, 1.5, .4, 1);
 }
+@keyframes card-pop { from { transform: scale(.8); } to { transform: scale(1); } }
+/* こたえは みどりの囲みに入れて、はずませてから2回 光らせる */
+.question.solved .ans {
+  display: inline-block; position: relative; padding: 0 .16em; margin: 0 .04em; border-radius: .28em;
+  font-size: 1.2em; line-height: 1.05; vertical-align: -.04em;
+  background: #dff5e9; box-shadow: inset 0 0 0 3px var(--good);
+  animation: ans-pop .5s cubic-bezier(.2, 1.6, .4, 1) .12s both, ans-glow .7s ease-in-out .62s 2;
+}
+/* 教えたあとに正解を押した。こたえだけ もう一度はずむ（名前を変えると動きが最初からになる） */
+.question.solved .ans.bump { animation: ans-bump .5s cubic-bezier(.2, 1.6, .4, 1); }
+/* こたえの すみで光る ✨。目を こたえに引きよせる */
+.question.solved .ans::before, .question.solved .ans::after {
+  content: '✨'; position: absolute; font-size: .42em; line-height: 1; pointer-events: none;
+  animation: ans-twinkle 1s ease-in-out infinite;
+}
+.question.solved .ans::before { top: -.35em; right: -.45em; }
+.question.solved .ans::after { bottom: -.25em; left: -.5em; animation-delay: .5s; }
 @keyframes ans-pop { from { transform: scale(.5); } 60% { transform: scale(1.3); } to { transform: scale(1); } }
+@keyframes ans-bump { from { transform: scale(.6); } 60% { transform: scale(1.3); } to { transform: scale(1); } }
 @keyframes ans-glow {
   50% { box-shadow: inset 0 0 0 3px var(--good), 0 0 0 7px rgba(53,178,115,.28); transform: scale(1.08); }
 }
+@keyframes ans-twinkle { 50% { opacity: .25; transform: scale(.7); } }
 
 /* さくらんぼ分解のヒント */
 /* 絵を上、ことばを下の2段にする。
@@ -1374,14 +1405,12 @@ body {
 @keyframes a-again { 50% { transform: translateY(-5px); } }
 @media (prefers-reduced-motion: reduce) {
   .answer.wrong, .question.shake, .hud-combo.pop, .coin-badge.pop,
-  .question.solved .ans, .answer.correct.again { animation: none; }
+  .question.solved .ans, .answer.correct.again, .question.solved > span,
+  .question.solved .ans.bump, .question.solved .ans::before, .question.solved .ans::after { animation: none; }
 }
 
 /* 夜・ボスの空は暗い。式とHUDを白抜きにしないと読めない */
 .screen-play.dark .question { color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.28); }
-/* 夜とボスの空では、--good-dark の緑は沈んで読めない。明るいほうの緑にする */
-.screen-play.dark .question .ans { color: #7ce0a8; }
-.screen-play.dark .question.solved .ans { background: rgba(20,60,40,.55); box-shadow: inset 0 0 0 3px #7ce0a8; }
 .screen-play.dark .hud-stage { color: rgba(255,255,255,.9); }
 .screen-play.dark .coin-badge { color: #fff; }
 .screen-play.dark .hud-combo { color: #ffd76b; }
@@ -1407,6 +1436,8 @@ body {
   /* .question.solved（クラス2つ）が上の1行より強いので、ここでも書く。
      書かないと、完成した式だけ縦持ちの大きさ（3.7rem）に戻り、下が canvas に隠れる */
   .question.solved { font-size: clamp(1.5rem, 6.6vh, 2.1rem); }
+  .question.solved > span { padding: 0 .32em; border-width: 3px; border-radius: 16px; }
+  .question.solved .ans { font-size: 1.1em; }
   .answer { min-height: 52px; font-size: clamp(1.3rem, 6vh, 2rem); border-bottom-width: 5px; }
   .answers { gap: .4rem; padding-top: .3rem; }
   .world-wrap { min-height: 84px; }
