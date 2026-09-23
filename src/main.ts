@@ -1004,6 +1004,9 @@ function starRow(got: number): string {
 }
 
 function renderMap(): void {
+  // となりの せかいへ うつっている途中に ← や せかいを押されたら、うつるのを先に終わらせる
+  // （写しが残ったまま 別の道を描くと、写しを外したときに位置がずれる）
+  endSlide?.();
   $('map-coins').textContent = String(profile().coins);
   if (mapView === 'worlds') renderWorldList();
   else renderStagePath();
@@ -1123,9 +1126,18 @@ function drawRoad(): void {
   if (box.width < 2) return;
   const pts = Array.from(path.querySelectorAll<HTMLElement>('[data-road]')).map((el) => {
     const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top, walked: el.dataset.road === '1' };
+    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top, walked: el.dataset.road === '1', lead: false };
   });
+  if (!pts.length) return;
+  // となりの せかいへ続く道。上のはしから スタートへ、「つぎの せかい」から下のはしへ、
+  // まっすぐ伸ばす。せかいを たてに つないだとき、つなぎ目で道が1本につながる（slideToWorld）
+  if (path.dataset.leadIn) pts.unshift({ x: pts[0].x, y: 0, walked: true, lead: true });
+  if (path.dataset.leadOut) {
+    const last = pts[pts.length - 1];
+    pts.push({ x: last.x, y: box.height, walked: path.dataset.leadOut === '1', lead: true });
+  }
   let all = '';
+  let lead = '';
   let walked = '';
   let rest = '';
   for (let i = 1; i < pts.length; i++) {
@@ -1133,16 +1145,19 @@ function drawRoad(): void {
     const b = pts[i];
     const my = (a.y + b.y) / 2;
     const seg = `M${a.x.toFixed(1)} ${a.y.toFixed(1)}C${a.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
-    all += seg;
+    if (a.lead || b.lead) lead += seg;
+    else all += seg;
     if (b.walked) walked += seg;
     else rest += seg;
   }
   svg.setAttribute('viewBox', `0 0 ${box.width.toFixed(0)} ${box.height.toFixed(0)}`);
   svg.setAttribute('width', box.width.toFixed(0));
   svg.setAttribute('height', box.height.toFixed(0));
+  // はしへ伸ばす区間（lead）だけ、線のはしを丸めない。丸いと つなぎ目で となりの せかいの道に
+  // 半円がはみ出して、道が1本に見えない
   svg.innerHTML =
-    `<path class="road-edge" d="${all}"/>` +
-    `<path class="road-bed" d="${all}"/>` +
+    `<path class="road-edge" d="${all}"/><path class="road-edge lead" d="${lead}"/>` +
+    `<path class="road-bed" d="${all}"/><path class="road-bed lead" d="${lead}"/>` +
     `<path class="road-walked" d="${walked}"/>` +
     `<path class="road-rest" d="${rest}"/>`;
 }
@@ -1155,10 +1170,10 @@ if (typeof ResizeObserver === 'function') new ResizeObserver(() => drawRoad()).o
  * 前のマス目グリッドだと「あと何面あるのか」「いまどこか」が読み取れなかった。
  *
  * @param focus 開いたときに どこを見せるか。
- *              'now' は「いま ここ」（無ければ いちばん上）、'end' は いちばん下
- *              （まえの せかいへ戻ったときは、つながっている下のはしを見せる）
+ *              'now' は「いま ここ」（無ければ いちばん上）、'end' は いちばん下、
+ *              'keep' は動かさない（となりの せかいへ つなぐときは slideToWorld が動かす）
  */
-function renderStagePath(focus: 'now' | 'end' = 'now'): void {
+function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
   const w = worldById(mapWorld);
   $('world-view').hidden = true;
   $('stage-view').hidden = false;
@@ -1274,7 +1289,7 @@ function renderStagePath(focus: 'now' | 'end' = 'now'): void {
   }
 
   // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる。
-  // もう開いていれば ボタンにして、押すと つぎの せかいの みちへ よこに すべって移る
+  // もう開いていれば ボタンにして、押すと 道をたどって たてに つぎの せかいの みちへ うつる
   // （いちど「せかい ぜんぶ」へ戻ってから選びなおす、を しなくていい）
   const nw = WORLDS.find((x) => x.id === w.id + 1);
   const bossDone = stageStars(w.id, bossStage(w)) > 0;
@@ -1306,24 +1321,19 @@ function renderStagePath(focus: 'now' | 'end' = 'now'): void {
   }
   goal.dataset.road = bossDone ? '1' : '0';
   path.appendChild(goal);
+  // 上と下のはしまで道を伸ばすか（drawRoad）。となりの せかいがある向きだけ伸ばす
+  if (pw) path.dataset.leadIn = '1';
+  else delete path.dataset.leadIn;
+  if (nw) path.dataset.leadOut = bossDone ? '1' : '0';
+  else delete path.dataset.leadOut;
 
   // 面が増えると「いま ここ」が画面の外にいることがある。開いた時点で見えるところへ寄せる。
   // scrollIntoView は使わない（画面ぜんたいまで動かすことがある）。道の箱だけを動かす
   requestAnimationFrame(() => {
     drawRoad();
+    if (focus === 'keep') return;
     const scroller = path.parentElement as HTMLElement;
-    if (focus === 'end') {
-      scroller.scrollTop = scroller.scrollHeight;
-      return;
-    }
-    const now = path.querySelector<HTMLElement>('.stage-node.now');
-    if (!now) {
-      scroller.scrollTop = 0;
-      return;
-    }
-    const sr = scroller.getBoundingClientRect();
-    const nr = now.getBoundingClientRect();
-    scroller.scrollTop += nr.top + nr.height / 2 - (sr.top + sr.height / 2);
+    scroller.scrollTop = focus === 'end' ? scroller.scrollHeight : focusTop(path, scroller);
   });
 
   const bossNeed = bossRequirement(w) - normalStars(w);
@@ -1334,64 +1344,99 @@ function renderStagePath(focus: 'now' | 'end' = 'now'): void {
       : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}　ボスに いどめる！`;
 }
 
-/** となりの せかいへ すべっているあいだ。連打で2枚目の写しを重ねない */
-let sliding = false;
+/**
+ * 道の箱（scroller）を どこまで送れば「いま ここ」が まんなかに来るか。
+ * 「いま ここ」が無い（ぜんぶクリア・まだ開いていない）ときは いちばん上。
+ */
+function focusTop(path: HTMLElement, scroller: HTMLElement): number {
+  const now = path.querySelector<HTMLElement>('.stage-node.now');
+  if (!now) return 0;
+  const pr = path.getBoundingClientRect();
+  const nr = now.getBoundingClientRect();
+  const y = nr.top - pr.top + nr.height / 2 - scroller.clientHeight / 2;
+  return Math.max(0, Math.min(y, path.offsetHeight - scroller.clientHeight));
+}
+
+/** となりの せかいへ うつっている途中なら、そこで終わらせる関数。うつっていなければ null */
+let endSlide: (() => void) | null = null;
 
 /**
- * となりの せかいの みちへ、よこに すべって移る。
+ * となりの せかいの みちへ、道をたどって たてに うつる。
  *
- * いまの道を写しとった板（ghost）を上に重ね、それを外へ送りだしながら、
- * 新しい道を反対がわから入れる。2枚が同時に動くので、せかいどうしが
- * 1枚の地図で つながっているように見える。
+ * 地図は上から下へ進む（スタート → 1 → … → ボス → つぎの せかい）。だから
+ * つぎの せかいは「いまの道の下」に、まえの せかいは「上」につなげて置き、
+ * 箱ごと なめらかに送る。道は せかいの はしまで伸ばしてあるので（drawRoad の lead）、
+ * つなぎ目で1本につながったまま、地面の色だけが変わっていく。
+ * 横に すべらせていたころは、道が画面の外で切れて「つながっている」が見えなかった。
  *
- * @param dir 1 = つぎの せかい（左へ送る）、-1 = まえの せかい（右へ送る）
+ * しくみ: いまの道を写しとった板（ghost）を、新しい道の上（または下）に じかに並べ、
+ * 押した瞬間と同じ景色になる位置へ scrollTop を合わせてから、目的の位置まで送る。
+ * 着いたら写しを外し、同じ景色のまま scrollTop を付けかえる（画面は動かない）。
+ *
+ * @param dir 1 = つぎの せかい（下へ進む）、-1 = まえの せかい（上へ戻る）
  */
 function slideToWorld(id: number, dir: 1 | -1): void {
-  const view = $('stage-view');
-  const scroller = view.querySelector<HTMLElement>('.path-scroll');
-  if (!scroller || sliding) return;
-  // まえの せかいへ戻るときは、つながっている下のはし（ボスと「つぎの せかいへ」）を見せる
+  const path = $('stage-path');
+  const scroller = path.parentElement as HTMLElement;
+  if (endSlide) return;
+  // まえの せかいへ戻ったときは、つながっている下のはし（ボスと「つぎの せかいへ」）を見せる
   const focus = dir > 0 ? 'now' : 'end';
   const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (still || typeof scroller.animate !== 'function') {
+  if (still) {
     mapWorld = id;
     renderStagePath(focus);
     return;
   }
 
-  const ghost = scroller.cloneNode(true) as HTMLElement;
+  const ghost = path.cloneNode(true) as HTMLElement;
+  ghost.removeAttribute('id');
+  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
   ghost.classList.add('ghost');
   ghost.setAttribute('aria-hidden', 'true');
   ghost.inert = true;
-  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
-  // 色は view と画面から受けついでいる。新しい せかいの色に変わる前に、写しへ じかに書いておく
-  const cs = getComputedStyle(view);
+  // 色は画面から受けついでいる。新しい せかいの色に変わる前に、写しへ じかに書いておく
+  const cs = getComputedStyle(path);
   for (const v of ['--land-1', '--land-2', '--land-dot', '--road', '--road-edge', '--road-dash', '--wc']) {
     ghost.style.setProperty(v, cs.getPropertyValue(v));
   }
-  view.appendChild(ghost);
-  ghost.scrollTop = scroller.scrollTop;
+  const oldTop = scroller.scrollTop;
 
-  sliding = true;
   mapWorld = id;
-  renderStagePath(focus);
-  const ms = 440;
-  const easing = 'cubic-bezier(.33, .9, .3, 1)';
-  ghost.animate(
-    [{ transform: 'translateX(0)' }, { transform: `translateX(${-dir * 100}%)` }],
-    { duration: ms, easing, fill: 'forwards' },
-  );
-  const inAnim = scroller.animate(
-    [{ transform: `translateX(${dir * 100}%)` }, { transform: 'translateX(0)' }],
-    { duration: ms, easing },
-  );
-  const done = () => {
+  renderStagePath('keep');
+  if (dir > 0) scroller.insertBefore(ghost, path);
+  else scroller.appendChild(ghost);
+  drawRoad();
+
+  const gh = ghost.offsetHeight;
+  const ph = path.offsetHeight;
+  // 押した瞬間と同じ景色。つぎへ: 写しが上にある／まえへ: 写しが下にある
+  const from = dir > 0 ? oldTop : ph + oldTop;
+  const to = dir > 0 ? gh + focusTop(path, scroller) : Math.max(0, ph - scroller.clientHeight);
+  scroller.scrollTop = from;
+  scroller.classList.add('moving');
+
+  // 道のりが長いほど ゆっくり。短すぎると「つながっている」が目で追えない
+  const ms = Math.min(1800, Math.max(1000, Math.abs(to - from) * 1.2));
+  const t0 = performance.now();
+  let raf = 0;
+  const finish = () => {
+    cancelAnimationFrame(raf);
+    endSlide = null;
+    scroller.classList.remove('moving');
     ghost.remove();
-    sliding = false;
+    // 上の写しを外すと中身が gh ぶん上がるので、そのぶん scrollTop を戻して景色を止めたままにする
+    scroller.scrollTop = dir > 0 ? to - gh : to;
     drawRoad();
   };
-  inAnim.onfinish = done;
-  inAnim.oncancel = done;
+  endSlide = finish;
+  const step = (now: number) => {
+    const k = Math.min(1, (now - t0) / ms);
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    scroller.scrollTop = from + (to - from) * e;
+    if (k < 1) raf = requestAnimationFrame(step);
+    else finish();
+  };
+  raf = requestAnimationFrame(step);
 }
 
 $('map-back').addEventListener('click', () => {
