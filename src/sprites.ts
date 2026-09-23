@@ -613,6 +613,67 @@ function drawAccBack(g: CanvasRenderingContext2D, acc: string, x: number, y: num
       }
       break;
     }
+    case 'acc-randoseru': {
+      // リュックより ひとまわり大きく、ふたと 金具で ランドセルだと分かる形にする。
+      // かたの ベルトは drawAccFront のほうで からだの上に描く
+      const bx = x - s * 0.3;
+      const by = y + s * 0.22;
+      g.fillStyle = '#d8443a';
+      roundRect(g, bx, by, s * 0.46, s * 0.6, s * 0.12);
+      g.fill();
+      g.fillStyle = '#b3322a';
+      roundRect(g, bx, by, s * 0.46, s * 0.34, s * 0.12);
+      g.fill();
+      g.fillStyle = '#ffd75e';
+      roundRect(g, bx + s * 0.08, by + s * 0.3, s * 0.1, s * 0.09, s * 0.03);
+      g.fill();
+      break;
+    }
+    case 'acc-guitar': {
+      // せなかに ななめに しょった ギター。さおは 左うえへ のばす
+      g.save();
+      g.translate(x - s * 0.08, y + s * 0.66);
+      g.rotate(-0.55);
+      g.fillStyle = '#8a5a2b';
+      roundRect(g, -s * 0.04, -s * 0.78, s * 0.08, s * 0.6, s * 0.03);
+      g.fill();
+      roundRect(g, -s * 0.07, -s * 0.88, s * 0.14, s * 0.14, s * 0.04);
+      g.fill();
+      g.fillStyle = '#e0913a';
+      g.beginPath();
+      g.arc(0, s * 0.06, s * 0.21, 0, Math.PI * 2);
+      g.arc(0, -s * 0.18, s * 0.15, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#5b3a1e';
+      g.beginPath();
+      g.arc(0, -s * 0.04, s * 0.065, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+      break;
+    }
+    case 'acc-butterfly': {
+      // ちょうの はね。うえの はねは大きく、したは小さく。ゆっくり はばたく
+      const flap = Math.sin(t * 6) * 0.2;
+      for (const dir of [-1, 1]) {
+        g.save();
+        g.translate(x + s * 0.5 + dir * s * 0.3, y + s * 0.5);
+        g.rotate(dir * (0.25 + flap));
+        g.fillStyle = '#ff9ec4';
+        g.beginPath();
+        g.ellipse(dir * s * 0.26, -s * 0.24, s * 0.28, s * 0.2, dir * -0.6, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#b79ae0';
+        g.beginPath();
+        g.ellipse(dir * s * 0.2, s * 0.1, s * 0.17, s * 0.14, dir * 0.5, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.arc(dir * s * 0.3, -s * 0.27, s * 0.07, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      }
+      break;
+    }
     default:
       break;
   }
@@ -787,6 +848,142 @@ function drawAccFront(g: CanvasRenderingContext2D, acc: string, x: number, y: nu
         g.fillStyle = i % 2 ? '#f7a8c4' : '#fff0a8';
         g.beginPath();
         g.arc(lx + Math.cos(a) * s * 0.44, ly + Math.sin(a) * s * 0.17, s * 0.065, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
+    case 'acc-randoseru':
+    case 'acc-guitar': {
+      // せなかの しょいものの かたベルト。これが無いと、うしろに浮いている箱に見える
+      g.save();
+      roundRect(g, x, y, s, s, s * 0.3);
+      g.clip();
+      g.strokeStyle = acc === 'acc-randoseru' ? '#b3322a' : '#6b4424';
+      g.lineWidth = s * 0.09;
+      g.lineCap = 'round';
+      g.beginPath();
+      if (acc === 'acc-randoseru') {
+        g.moveTo(x + s * 0.12, y + s * 0.62);
+        g.quadraticCurveTo(x + s * 0.2, y + s * 0.8, x + s * 0.08, y + s * 0.98);
+      } else {
+        g.moveTo(x - s * 0.02, y + s * 0.64);
+        g.lineTo(x + s * 0.44, y + s * 1.02);
+      }
+      g.stroke();
+      g.restore();
+      break;
+    }
+    case 'acc-sunglass': {
+      const ey = y + s * 0.42;
+      g.fillStyle = '#2b3440';
+      roundRect(g, x + s * 0.15, ey - s * 0.12, s * 0.31, s * 0.22, s * 0.09);
+      g.fill();
+      roundRect(g, x + s * 0.54, ey - s * 0.12, s * 0.31, s * 0.22, s * 0.09);
+      g.fill();
+      g.fillRect(x + s * 0.44, ey - s * 0.08, s * 0.12, s * 0.045);
+      g.fillStyle = 'rgba(255,255,255,.55)';
+      for (const lx of [0.2, 0.59]) {
+        g.beginPath();
+        g.moveTo(x + s * lx, ey - s * 0.02);
+        g.lineTo(x + s * (lx + 0.07), ey - s * 0.09);
+        g.lineTo(x + s * (lx + 0.12), ey - s * 0.09);
+        g.lineTo(x + s * (lx + 0.05), ey - s * 0.02);
+        g.closePath();
+        g.fill();
+      }
+      break;
+    }
+    case 'acc-hige': {
+      // くるんと はねた おひげ。くち（y + 0.58 からの弧）の すぐ上に置く
+      const mx = x + s * 0.5;
+      const my = y + s * 0.55;
+      g.fillStyle = '#4a3426';
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(mx, my - s * 0.02);
+        g.quadraticCurveTo(mx + dir * s * 0.12, my - s * 0.09, mx + dir * s * 0.24, my - s * 0.02);
+        g.quadraticCurveTo(mx + dir * s * 0.3, my + s * 0.01, mx + dir * s * 0.31, my - s * 0.07);
+        g.quadraticCurveTo(mx + dir * s * 0.36, my + s * 0.08, mx + dir * s * 0.2, my + s * 0.06);
+        g.quadraticCurveTo(mx + dir * s * 0.08, my + s * 0.06, mx, my + s * 0.03);
+        g.closePath();
+        g.fill();
+      }
+      break;
+    }
+    case 'acc-belt': {
+      // チャンピオンの ベルト。からだの丸みからはみ出さないよう clip する
+      g.save();
+      roundRect(g, x, y, s, s, s * 0.3);
+      g.clip();
+      g.fillStyle = '#c39a1c';
+      g.fillRect(x, y + s * 0.8, s, s * 0.13);
+      g.fillStyle = '#f2cd5c';
+      g.fillRect(x, y + s * 0.815, s, s * 0.1);
+      g.restore();
+      const bx = x + s * 0.5;
+      const by = y + s * 0.865;
+      g.fillStyle = '#ffe07a';
+      g.strokeStyle = '#c39a1c';
+      g.lineWidth = Math.max(1.4, s * 0.03);
+      g.beginPath();
+      g.ellipse(bx, by, s * 0.18, s * 0.13, 0, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#e4675c';
+      star(g, bx, by, s * 0.08);
+      g.fill();
+      break;
+    }
+    case 'acc-nafuda': {
+      // ようちえんの チューリップの なふだ。むねの左に つける
+      // ほっぺ（y + 0.6）に かからない高さまで下げる
+      const nx = x + s * 0.3;
+      const ny = y + s * 0.88;
+      const r = s * 0.16;
+      g.fillStyle = '#ff8fb1';
+      g.beginPath();
+      g.moveTo(nx - r, ny - r * 0.1);
+      g.lineTo(nx - r, ny - r * 1.1);
+      g.lineTo(nx - r * 0.34, ny - r * 0.5);
+      g.lineTo(nx, ny - r * 1.2);
+      g.lineTo(nx + r * 0.34, ny - r * 0.5);
+      g.lineTo(nx + r, ny - r * 1.1);
+      g.lineTo(nx + r, ny - r * 0.1);
+      g.arc(nx, ny - r * 0.1, r, 0, Math.PI);
+      g.closePath();
+      g.fill();
+      // なまえを書く 白い札。だ円や線を入れると 顔に見えてしまうので、四角だけにする
+      g.fillStyle = '#fff';
+      roundRect(g, nx - r * 0.6, ny - r * 0.32, r * 1.2, r * 0.6, r * 0.14);
+      g.fill();
+      break;
+    }
+    case 'acc-kira': {
+      // まわりで またたく ほし。止まった絵（きせかえのマス）でも 全部見える大きさを残す。
+      // あたまの真上は ぼうしに隠れるので、ななめ上に置く
+      const spots = [
+        [-0.18, 0.08, 0],
+        [1.2, 0.16, 1.7],
+        [-0.26, 0.7, 3.1],
+        [1.0, -0.3, 4.4],
+      ] as const;
+      for (const [dx, dy, ph] of spots) {
+        const k = 0.6 + (Math.sin(t * 5 + ph) + 1) * 0.2;
+        const px = x + s * dx;
+        const py = y + s * dy;
+        const r = s * 0.13 * k;
+        g.fillStyle = '#ffc93c';
+        g.beginPath();
+        g.moveTo(px, py - r);
+        g.quadraticCurveTo(px, py, px + r, py);
+        g.quadraticCurveTo(px, py, px, py + r);
+        g.quadraticCurveTo(px, py, px - r, py);
+        g.quadraticCurveTo(px, py, px, py - r);
+        g.closePath();
+        g.fill();
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.arc(px, py, r * 0.22, 0, Math.PI * 2);
         g.fill();
       }
       break;

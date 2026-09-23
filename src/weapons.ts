@@ -19,21 +19,22 @@
 
 /** とどめの型。ぶきの見た目そのものより、この5つで手ざわりが変わる */
 export type WeaponStyle =
-  /** ためて 撃つ（銃・ゆみや・ロケットパンチ・シャボン） */
+  /** ためて 撃つ（銃・ゆみや・ロケットパンチ・シャボン・しゅりけん） */
   | 'shot'
-  /** 踏みこんで 斬る（けん） */
+  /** 踏みこんで 斬る（けん・ドリル） */
   | 'slash'
-  /** 投げて もどってくる（ブーメラン） */
+  /** 投げて もどってくる（ブーメラン・ヨーヨー） */
   | 'throw'
-  /** 上から たたく（ハンマー） */
+  /** 上から たたく（ハンマー・ピコピコハンマー） */
   | 'smash'
-  /** 空から ふらせる（つえ・ステッキ・ロッド） */
+  /** 空から ふらせる（つえ・ステッキ・ロッド・タクト） */
   | 'rain';
 
 /** ぶきの形。1本につき1つ。持っている絵と、飛んでいく絵の両方に使う */
 export type WeaponMotif =
   | 'fist' | 'beam' | 'arrow' | 'bubble' | 'blade' | 'boomerang' | 'hammer'
-  | 'star' | 'heart' | 'bolt';
+  | 'star' | 'heart' | 'bolt'
+  | 'shuriken' | 'drill' | 'yoyo' | 'pico' | 'snow' | 'note';
 
 export interface WeaponDef {
   id: string;
@@ -70,6 +71,14 @@ export const WEAPONS: WeaponDef[] = [
   { id: 'wp-wand', label: 'まほうの つえ', note: 'ほしが ふってくる', style: 'rain', motif: 'star', color: '#b79ae0', glow: '#ffe9a8', hold: -0.4 },
   { id: 'wp-heart', label: 'ハートステッキ', note: 'ハートが はじける', style: 'rain', motif: 'heart', color: '#ff8fb1', glow: '#ffe1ec', hold: -0.4 },
   { id: 'wp-thunder', label: 'かみなりロッド', note: 'かみなりが おちる', style: 'rain', motif: 'bolt', color: '#ffd75e', glow: '#fff8d0', hold: -0.4 },
+  // 型は いまの5つのまま、形（motif）で ちがいを出す。
+  // 型を増やすと runner の うごき（ふみこみ・ため）まで作りなおしになる
+  { id: 'wp-shuriken', label: 'しゅりけん', note: 'くるくる まわって ささる', style: 'shot', motif: 'shuriken', color: '#5b6b86', glow: '#dfe8f5', hold: 0 },
+  { id: 'wp-drill', label: 'ドリル', note: 'まわって つきやぶる', style: 'slash', motif: 'drill', color: '#f2a23a', glow: '#fff0c8', hold: 0 },
+  { id: 'wp-yoyo', label: 'ヨーヨー', note: 'のびて もどってくる', style: 'throw', motif: 'yoyo', color: '#e4675c', glow: '#ffe0dc', hold: 0 },
+  { id: 'wp-pico', label: 'ピコピコハンマー', note: 'ピコッと たたく', style: 'smash', motif: 'pico', color: '#ff6f6f', glow: '#fff3a8', hold: -0.55 },
+  { id: 'wp-ice', label: 'こおりの つえ', note: 'ゆきの けっしょうが ふる', style: 'rain', motif: 'snow', color: '#7fd0f5', glow: '#e8faff', hold: -0.4 },
+  { id: 'wp-note', label: 'おんぷの タクト', note: 'おんぷが ふってくる', style: 'rain', motif: 'note', color: '#ff9d3c', glow: '#fff1c8', hold: -0.4 },
 ];
 
 /** 最初から持っている1本。セーブに何も入っていないときの既定 */
@@ -124,6 +133,34 @@ function boltPath(g: CanvasRenderingContext2D, cx: number, cy: number, r: number
   g.closePath();
 }
 
+/** とがった先が n 本の星形。しゅりけん（4本）と ゆきの けっしょう（6本）に使う */
+function spikePath(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, n: number, inner: number, rot: number): void {
+  g.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const a = (Math.PI / n) * i - Math.PI / 2 + rot;
+    const rad = i % 2 ? r * inner : r;
+    const px = cx + Math.cos(a) * rad;
+    const py = cy + Math.sin(a) * rad;
+    if (i === 0) g.moveTo(px, py);
+    else g.lineTo(px, py);
+  }
+  g.closePath();
+}
+
+/** 八分おんぷ。たま・ぼう・はた を1つの道にして、塗り1回で描けるようにする */
+function notePath(g: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  const hx = cx - r * 0.2;
+  const hy = cy + r * 0.52;
+  g.beginPath();
+  g.ellipse(hx, hy, r * 0.42, r * 0.31, -0.4, 0, Math.PI * 2);
+  g.moveTo(hx + r * 0.26, hy);
+  g.lineTo(hx + r * 0.26, cy - r);
+  g.quadraticCurveTo(hx + r * 0.62, cy - r * 0.62, hx + r * 0.98, cy - r * 0.34);
+  g.quadraticCurveTo(hx + r * 0.62, cy - r * 0.46, hx + r * 0.44, cy - r * 0.5);
+  g.lineTo(hx + r * 0.44, hy);
+  g.closePath();
+}
+
 /** ぶきの絵ひとつぶん。飛んでいく玉にも、手に持つ絵にも、同じものを使う */
 function motifPath(g: CanvasRenderingContext2D, motif: WeaponMotif, cx: number, cy: number, r: number, rot: number): void {
   switch (motif) {
@@ -133,11 +170,43 @@ function motifPath(g: CanvasRenderingContext2D, motif: WeaponMotif, cx: number, 
     case 'bolt':
       boltPath(g, cx, cy, r);
       break;
+    case 'shuriken':
+      spikePath(g, cx, cy, r, 4, 0.34, rot);
+      break;
+    case 'snow':
+      spikePath(g, cx, cy, r, 6, 0.46, rot);
+      break;
+    case 'note':
+      notePath(g, cx, cy, r);
+      break;
     case 'star':
     default:
       starPath(g, cx, cy, r, rot);
       break;
   }
+}
+
+/** ヨーヨーの本体。手に持つ絵（ひもつき）と、のびていく絵（ひもは別に引く）で共通 */
+function yoyoDisc(g: CanvasRenderingContext2D, def: WeaponDef, cx: number, cy: number, r: number, t: number): void {
+  g.fillStyle = def.color;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = def.glow;
+  g.beginPath();
+  g.arc(cx, cy, r * 0.62, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = def.color;
+  for (let i = 0; i < 3; i++) {
+    const a = t * 4 + (i * Math.PI * 2) / 3;
+    g.beginPath();
+    g.arc(cx + Math.cos(a) * r * 0.36, cy + Math.sin(a) * r * 0.36, r * 0.13, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.fillStyle = '#ffffff';
+  g.beginPath();
+  g.arc(cx, cy, r * 0.14, 0, Math.PI * 2);
+  g.fill();
 }
 
 // ------------------------------------------------------------------ 持っている絵
@@ -328,7 +397,108 @@ export function drawWeaponShape(
       break;
     }
 
-    // つえ・ステッキ・ロッド。棒の先に 星／ハート／いなずま が付く
+    case 'shuriken': {
+      // 4まいの刃。持っているあいだも ゆっくり回して「まわるもの」だと見せる
+      g.rotate(t * 1.5);
+      g.fillStyle = def.color;
+      motifPath(g, 'shuriken', 0, 0, L * 0.46, 0);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.4)';
+      motifPath(g, 'shuriken', -L * 0.03, -L * 0.03, L * 0.28, 0);
+      g.fill();
+      g.fillStyle = def.glow;
+      g.beginPath();
+      g.arc(0, 0, L * 0.09, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#2b3440';
+      g.beginPath();
+      g.arc(0, 0, L * 0.04, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
+
+    case 'drill': {
+      // にぎり → つば → 先のとがった円すい。すじが流れて、回っているように見せる
+      g.fillStyle = '#5a6a78';
+      rr(g, -L * 0.48, -L * 0.1, L * 0.24, L * 0.2, L * 0.06);
+      g.fill();
+      g.fillStyle = '#9aa7b4';
+      rr(g, -L * 0.27, -L * 0.22, L * 0.13, L * 0.44, L * 0.05);
+      g.fill();
+      const cone = (): void => {
+        g.beginPath();
+        g.moveTo(-L * 0.16, -L * 0.21);
+        g.lineTo(L * 0.5, 0);
+        g.lineTo(-L * 0.16, L * 0.21);
+        g.closePath();
+      };
+      g.fillStyle = def.color;
+      cone();
+      g.fill();
+      g.save();
+      cone();
+      g.clip();
+      g.strokeStyle = 'rgba(255,255,255,.6)';
+      g.lineWidth = Math.max(1, L * 0.05);
+      const ph = (t * 2.5) % 1;
+      for (let i = -1; i < 6; i++) {
+        const x0 = -L * 0.16 + (i + ph) * L * 0.13;
+        g.beginPath();
+        g.moveTo(x0, L * 0.24);
+        g.lineTo(x0 + L * 0.12, -L * 0.24);
+        g.stroke();
+      }
+      g.restore();
+      break;
+    }
+
+    case 'yoyo': {
+      // 指にかけた ひもと、まるい本体。もようが回る
+      const cx2 = L * 0.1;
+      const cy2 = L * 0.12;
+      const r = L * 0.3;
+      g.strokeStyle = 'rgba(56,68,80,.7)';
+      g.lineWidth = Math.max(1, L * 0.03);
+      g.beginPath();
+      g.moveTo(-L * 0.36, -L * 0.36);
+      g.lineTo(cx2, cy2);
+      g.stroke();
+      yoyoDisc(g, def, cx2, cy2, r, t);
+      break;
+    }
+
+    case 'pico': {
+      // おもちゃの ハンマー。まんなかは じゃばら、両はしは きいろの ふた
+      g.strokeStyle = '#ffd75e';
+      g.lineWidth = Math.max(2, L * 0.12);
+      g.beginPath();
+      g.moveTo(0, L * 0.5);
+      g.lineTo(0, -L * 0.16);
+      g.stroke();
+      g.fillStyle = def.color;
+      rr(g, -L * 0.28, -L * 0.44, L * 0.56, L * 0.3, L * 0.06);
+      g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.16)';
+      g.lineWidth = Math.max(1, L * 0.03);
+      for (let i = 1; i < 5; i++) {
+        const x = -L * 0.28 + (L * 0.56 * i) / 5;
+        g.beginPath();
+        g.moveTo(x, -L * 0.42);
+        g.lineTo(x, -L * 0.16);
+        g.stroke();
+      }
+      g.fillStyle = '#ffd75e';
+      rr(g, -L * 0.42, -L * 0.47, L * 0.16, L * 0.36, L * 0.07);
+      g.fill();
+      rr(g, L * 0.26, -L * 0.47, L * 0.16, L * 0.36, L * 0.07);
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,.55)';
+      rr(g, -L * 0.2, -L * 0.4, L * 0.16, L * 0.08, L * 0.04);
+      g.fill();
+      break;
+    }
+
+    // つえ・ステッキ・ロッド・タクト。棒の先に 星／ハート／いなずま／けっしょう／おんぷ が付く
     default: {
       // 棒は白い紙の上（きせかえのマス）でも見えるところまで濃くする
       g.strokeStyle = '#9fb0bd';
@@ -697,6 +867,9 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
           g.moveTo(-2 * s, 0);
           g.lineTo(-24 * s, 0);
           g.stroke();
+        } else if (def.motif === 'shuriken') {
+          // むきは そろえず、くるくる回しながら まっすぐ とばす
+          drawWeaponShape(g, tipX, tipY, 40 * s, def.id, 0, v.t * 20);
         } else {
           // ロケットパンチ
           drawWeaponShape(g, tipX, tipY, 44 * s, def.id, v.t, Math.atan2(dy, dx));
@@ -712,6 +885,21 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
       if (fade <= 0) return;
       g.save();
       g.globalAlpha = fade;
+      if (def.motif === 'drill') {
+        // ドリルは 斬らずに まっすぐ つく。弧ではなく よこ一直線の すじを引く
+        const tip = v.fromX + dx * Math.max(fly, 0.2);
+        g.strokeStyle = def.glow;
+        g.lineCap = 'round';
+        for (const [off, w] of [[-9, 2.5], [0, 5], [9, 2.5]] as const) {
+          g.lineWidth = w * s;
+          g.beginPath();
+          g.moveTo(v.fromX, v.toY + off * s);
+          g.lineTo(tip, v.toY + off * s);
+          g.stroke();
+        }
+        g.restore();
+        break;
+      }
       g.strokeStyle = def.color;
       g.lineWidth = 8 * s;
       g.lineCap = 'round';
@@ -730,11 +918,26 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
       // 行きは 山なり、帰りは 手もとへ。当たったあとも まわりつづける
       const back = Math.max(0, Math.min(1, after / 0.6));
       const p = after > 0 ? 1 - back : fly;
-      const arc = Math.sin(p * Math.PI) * 46 * s;
-      const x = v.fromX + dx * p;
-      const y = v.fromY + dy * p - arc;
+      const x0 = v.fromX + dx * p;
+      const y0 = v.fromY + dy * p;
       g.save();
       g.globalAlpha = after > 0 ? Math.max(0, 1 - back) : 1;
+      if (def.motif === 'yoyo') {
+        // ヨーヨーは ひもで つながったまま まっすぐ のびて、まっすぐ もどる。
+        // 手もとから のびる ひもが見えると「なげたのではなく のばした」と分かる
+        g.strokeStyle = 'rgba(255,255,255,.9)';
+        g.lineWidth = 2 * s;
+        g.beginPath();
+        g.moveTo(v.fromX, v.fromY);
+        g.lineTo(x0, y0);
+        g.stroke();
+        yoyoDisc(g, def, x0, y0, 13 * s, v.t * 3);
+        g.restore();
+        break;
+      }
+      const arc = Math.sin(p * Math.PI) * 46 * s;
+      const x = x0;
+      const y = y0 - arc;
       g.strokeStyle = def.glow;
       g.lineWidth = 3 * s;
       for (let i = 1; i <= 4; i++) {
@@ -852,7 +1055,25 @@ function drawImpact(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
   g.save();
   g.globalAlpha = fade;
 
-  if (def.style === 'slash') {
+  if (def.motif === 'drill') {
+    // うずまき。つきやぶった あとが まわりながら広がる
+    g.strokeStyle = '#fff';
+    g.lineWidth = 6 * s * (1 - k * 0.5);
+    g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i <= 36; i++) {
+      const a = i * 0.42 + v.t * 7;
+      const d = (3 + i * 1.3) * s * (0.6 + k * 0.9);
+      const px = v.toX + Math.cos(a) * d;
+      const py = v.toY + Math.sin(a) * d;
+      if (i === 0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.stroke();
+    g.strokeStyle = def.color;
+    g.lineWidth = 2.6 * s * (1 - k * 0.5);
+    g.stroke();
+  } else if (def.style === 'slash') {
     // ばってん の 斬りあと
     g.strokeStyle = '#fff';
     g.lineWidth = 9 * s * (1 - k * 0.5);
@@ -877,7 +1098,7 @@ function drawImpact(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
     const r = (18 + k * 44) * s;
     g.globalAlpha = fade * 0.85;
     g.fillStyle = def.glow;
-    if (def.motif === 'heart' || def.motif === 'bolt' || def.motif === 'star' || def.style === 'rain') {
+    if (def.motif === 'heart' || def.motif === 'bolt' || def.motif === 'star' || def.motif === 'shuriken' || def.style === 'rain') {
       motifPath(g, def.motif, v.toX, v.toY, r, v.t * 2);
       g.fill();
     } else {

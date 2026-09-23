@@ -46,7 +46,7 @@ export const KIND_LABEL: Record<ItemKind, string> = {
 export const GACHA_COST = 90;
 
 export const ITEMS: Item[] = [
-  // ---- キャラ 12 ----
+  // ---- キャラ 16 ----
   { id: 'cat', kind: 'skin', label: 'ねこ', free: true },
   { id: 'dog', kind: 'skin', label: 'いぬ', free: true },
   { id: 'robo', kind: 'skin', label: 'ロボ', free: true },
@@ -67,7 +67,7 @@ export const ITEMS: Item[] = [
   { id: 'magi', kind: 'skin', label: 'まほうたんてい' },
   { id: 'yousei', kind: 'skin', label: 'ようせい' },
 
-  // ---- ぼうし 12 ----
+  // ---- ぼうし 22 ----
   { id: 'hat-cap', kind: 'hat', label: 'キャップ' },
   { id: 'hat-ribbon', kind: 'hat', label: 'リボン' },
   { id: 'hat-leaf', kind: 'hat', label: 'はっぱ' },
@@ -91,7 +91,9 @@ export const ITEMS: Item[] = [
   { id: 'hat-tiara', kind: 'hat', label: 'ティアラ' },
   { id: 'hat-goggle', kind: 'hat', label: 'ゴーグル' },
 
-  // ---- アクセ 12 ----
+  // ---- アクセ 24 ----
+  // せなかに つけるもの（drawAccBack）と からだの上に つけるもの（drawAccFront）がある。
+  // ランドセル・ギター は両方に描く（せなかの本体と、からだの上の かたベルト）
   { id: 'acc-scarf', kind: 'acc', label: 'マフラー' },
   { id: 'acc-cape', kind: 'acc', label: 'マント' },
   { id: 'acc-wings', kind: 'acc', label: 'つばさ' },
@@ -108,6 +110,14 @@ export const ITEMS: Item[] = [
   { id: 'acc-line', kind: 'acc', label: 'ヒーローライン' },
   { id: 'acc-lens', kind: 'acc', label: 'むしめがね' },
   { id: 'acc-frill', kind: 'acc', label: 'フリルえり' },
+  { id: 'acc-randoseru', kind: 'acc', label: 'ランドセル' },
+  { id: 'acc-guitar', kind: 'acc', label: 'ギター' },
+  { id: 'acc-butterfly', kind: 'acc', label: 'ちょうの はね' },
+  { id: 'acc-sunglass', kind: 'acc', label: 'サングラス' },
+  { id: 'acc-hige', kind: 'acc', label: 'おひげ' },
+  { id: 'acc-belt', kind: 'acc', label: 'きんの ベルト' },
+  { id: 'acc-nafuda', kind: 'acc', label: 'なふだ' },
+  { id: 'acc-kira', kind: 'acc', label: 'きらきら' },
 
   // ---- ぶき ----
   // 中身は weapons.ts。ここに名前を書き写すと、フィニッシュの絵と

@@ -342,7 +342,7 @@ export const sfx = {
 
   /**
    * なかまの鳴き声。さわったときに返す。
-   * ペットは 30ぴき いるので、1ぴきずつ音を作らず「からだの形」で分ける。
+   * ペットは 40ぴき いるので、1ぴきずつ音を作らず「からだの形」で分ける。
    */
   voice(kind: 'bird' | 'bug' | 'beast' | 'blob' | 'ghost' | 'small'): void {
     switch (kind) {
