@@ -43,7 +43,7 @@ export const RARITIES: RarityDef[] = [
 ];
 
 /**
- * 鳴き声の種類。30ぴきぶん個別に音を作ると管理しきれないので、
+ * 鳴き声の種類。1ぴきずつ個別に音を作ると管理しきれないので、
  * からだの形でまとめる（鳥はさえずり、けものは低くうなる…）。
  */
 export function voiceOf(art: PetArt): 'bird' | 'bug' | 'beast' | 'blob' | 'ghost' | 'small' {
@@ -52,8 +52,10 @@ export function voiceOf(art: PetArt): 'bird' | 'bug' | 'beast' | 'blob' | 'ghost
     case 'bug':
     case 'worm': return 'bug';
     case 'beast': return 'beast';
+    // 水の子は ぷくぷく（スライムと同じ声）
     case 'blob':
-    case 'jelly': return 'blob';
+    case 'jelly':
+    case 'fish': return 'blob';
     case 'ghost': return 'ghost';
     default: return 'small';
   }
@@ -67,13 +69,26 @@ export function rarityDef(r: Rarity): RarityDef {
 export interface PetArt {
   body: string;
   shade: string;
-  shape: 'blob' | 'round' | 'egg' | 'bug' | 'worm' | 'bird' | 'ghost' | 'jelly' | 'snail' | 'beast';
-  ear?: 'cat' | 'round' | 'floppy' | 'antenna' | 'horn' | 'crest' | 'mane';
+  shape:
+    | 'blob' | 'round' | 'egg' | 'bug' | 'worm' | 'bird' | 'ghost' | 'jelly' | 'snail' | 'beast'
+    /** よこ長で おびれがある（きんぎょ・くじら） */
+    | 'fish'
+    /** 5本の うでの ほしがた（ひとで・ほしのこ） */
+    | 'star';
+  ear?: 'cat' | 'round' | 'floppy' | 'antenna' | 'horn' | 'crest' | 'mane' | 'long';
   wing?: 'bug' | 'butterfly' | 'bird' | 'big' | 'fire';
   tail?: 'short' | 'long' | 'fluffy' | 'fire' | 'glow';
   beak?: 'small' | 'duck';
-  /** 水玉・しま模様の色 */
+  /** 水玉模様の色 */
   spots?: string;
+  /** よこじまの色（むしの せなか） */
+  stripe?: string;
+  /** 目のまわりの黒い もよう（ぱんだ） */
+  patch?: boolean;
+  /** あたまの上の しおふき（くじら） */
+  spout?: boolean;
+  /** からだの うしろの ふんわりした光の色 */
+  aura?: string;
   /** おなかの白い部分 */
   belly?: boolean;
   spike?: boolean;
@@ -97,12 +112,13 @@ export interface PetDef {
 }
 
 /**
- * 30 ぴき。ふつう 12・レア 9・スーパーレア 5・でんせつ 4。
+ * 40 ぴき。ふつう 16・レア 12・スーパーレア 7・でんせつ 5。
  * 数を増やすときは、レア度ごとの比率を大きく崩さないこと
  * （でんせつが増えるほど、ふつうのたまごの当たりが薄まる）。
+ * 30 → 40 のときは 4:3:2:1 で足して、比率（およそ 40:30:17:13）を保った。
  */
 export const PETS: PetDef[] = [
-  // ---- ふつう (12) ----
+  // ---- ふつう (16) ----
   {
     id: 'hiyoko', name: 'ひよこ', rarity: 'n', note: 'たまごから いちばん よく でてくる',
     art: { shape: 'bird', body: '#ffd94a', shade: '#e8b81f', beak: 'small', face: 'dot' },
@@ -151,8 +167,24 @@ export const PETS: PetDef[] = [
     id: 'kobato', name: 'こばと', rarity: 'n', note: 'こまかい パンくずが すき',
     art: { shape: 'bird', body: '#cfd8e0', shade: '#a5b2bd', beak: 'small', wing: 'bird', fly: true, face: 'dot' },
   },
+  {
+    id: 'mitsubachi', name: 'みつばち', rarity: 'n', note: 'はなの みつを わけてくれる',
+    art: { shape: 'bug', body: '#ffd23f', shade: '#d9a514', stripe: '#3d3a44', wing: 'bug', ear: 'antenna', fly: true, face: 'dot' },
+  },
+  {
+    id: 'kingyo', name: 'きんぎょ', rarity: 'n', note: 'くうきの なかを すいすい およぐ',
+    art: { shape: 'fish', body: '#ff7b4a', shade: '#e0552a', fly: true, face: 'big' },
+  },
+  {
+    id: 'suzume', name: 'すずめ', rarity: 'n', note: 'ちゅんちゅん うたって ついてくる',
+    art: { shape: 'bird', body: '#b98a5e', shade: '#8a6440', beak: 'small', belly: true, face: 'dot' },
+  },
+  {
+    id: 'hitode', name: 'ひとで', rarity: 'n', note: 'うみから あそびに きた',
+    art: { shape: 'star', body: '#ff9e7a', shade: '#e07752', spots: '#ffe0cc', face: 'dot' },
+  },
 
-  // ---- レア (9) ----
+  // ---- レア (12) ----
   {
     id: 'kabuto', name: 'カブトムシ', rarity: 'r', note: 'りっぱな つのが じまん',
     art: { shape: 'bug', body: '#6b4a2f', shade: '#452e1c', horn: true, wing: 'bug', legs: 6, face: 'dot' },
@@ -189,8 +221,20 @@ export const PETS: PetDef[] = [
     id: 'hotaru', name: 'ほたる', rarity: 'r', note: 'くらい ところで おしりが ひかる',
     art: { shape: 'bug', body: '#4a5a3c', shade: '#31402a', tail: 'glow', ear: 'antenna', wing: 'bug', fly: true, face: 'dot' },
   },
+  {
+    id: 'kousagi', name: 'こうさぎ', rarity: 'r', note: 'ながい みみで なんでも きこえる',
+    art: { shape: 'round', body: '#f7f3ec', shade: '#f0b7bd', ear: 'long', tail: 'short', face: 'dot' },
+  },
+  {
+    id: 'penguin', name: 'ぺんぎんのこ', rarity: 'r', note: 'よちよち あるいて ついてくる',
+    art: { shape: 'egg', body: '#546a80', shade: '#3b4d5e', belly: true, beak: 'small', face: 'dot' },
+  },
+  {
+    id: 'tako', name: 'たこ', rarity: 'r', note: '8ほんの あしで おうえんする',
+    art: { shape: 'jelly', body: '#f0786a', shade: '#cf5446', spots: '#ffc9c0', face: 'dot' },
+  },
 
-  // ---- スーパーレア (5) ----
+  // ---- スーパーレア (7) ----
   {
     id: 'kogitsune', name: 'こぎつね', rarity: 'sr', note: 'しっぽで かぜを おこす',
     art: { shape: 'round', body: '#f0954a', shade: '#d1732c', ear: 'cat', tail: 'fluffy', belly: true, face: 'dot' },
@@ -211,8 +255,16 @@ export const PETS: PetDef[] = [
     id: 'obake', name: 'おばけ', rarity: 'sr', note: 'こわくない。さみしがりや',
     art: { shape: 'ghost', body: '#f2f4f8', shade: '#d3d9e2', fly: true, face: 'big' },
   },
+  {
+    id: 'kopanda', name: 'こぱんだ', rarity: 'sr', note: 'ささを もぐもぐ たべている',
+    art: { shape: 'round', body: '#f7f4ee', shade: '#39404a', ear: 'round', patch: true, face: 'dot' },
+  },
+  {
+    id: 'hoshinoko', name: 'ほしのこ', rarity: 'sr', note: 'よぞらから おちてきた ほしの こども',
+    art: { shape: 'star', body: '#ffe45e', shade: '#e8b81f', aura: 'rgba(255,236,140,.75)', fly: true, face: 'big' },
+  },
 
-  // ---- でんせつ (4) ----
+  // ---- でんせつ (5) ----
   {
     id: 'dragon', name: 'ドラゴン', rarity: 'ur', note: 'そらを とび、せなかに のせてくれる',
     art: { shape: 'beast', body: '#4fb3a3', shade: '#2f8a7c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot' },
@@ -228,6 +280,10 @@ export const PETS: PetDef[] = [
   {
     id: 'phoenix', name: 'フェニックス', rarity: 'ur', note: 'ほのおの はねを ひろげて とぶ',
     art: { shape: 'bird', body: '#f5893c', shade: '#d5591f', wing: 'fire', tail: 'fire', beak: 'small', ear: 'crest', fly: true, face: 'dot' },
+  },
+  {
+    id: 'sorakujira', name: 'そらくじら', rarity: 'ur', note: 'せなかに のせて そらを およぐ',
+    art: { shape: 'fish', body: '#6fa8dc', shade: '#4a86bd', belly: true, spout: true, fly: true, face: 'dot' },
   },
 ];
 
@@ -348,7 +404,7 @@ export interface PetRoll {
  * たまごを割る。コインが足りなければ null。
  *
  * 引いたレア度の中に まだ持っていない子がいれば、必ずその中から出す。
- * （毎回まったくの一様だと、30ぴきの後半でほとんど重複になり、
+ * （毎回まったくの一様だと、集めた数が増えるほど ほとんど重複になり、
  *   コインを入れても図鑑が進まなくなる）
  * 全部そろっているレア度を引いたときは重複になり、なかよし度が上がる。
  */

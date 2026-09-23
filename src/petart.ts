@@ -1,7 +1,7 @@
 /**
  * ペットの絵。キャラと同じく画像を持たず、すべて Canvas で描く。
  *
- * 30ぴきぶんの絵をひとつずつ手で描くと保守できないので、
+ * 40ぴきぶんの絵をひとつずつ手で描くと保守できないので、
  * 「からだの形」＋「はね・しっぽ・つの…」の組み合わせで作る。
  * かたち別に頭の位置だけ返し、顔は共通の routine が描く。
  */
@@ -46,7 +46,21 @@ function drawFace(g: CanvasRenderingContext2D, h: Head, art: PetArt, t: number):
   const dx = h.r * 0.42;
   const ey = h.y - h.r * 0.06;
 
-  if (kind === 'big') {
+  if (art.patch) {
+    // ぱんだの 目のまわり。黒い上に黒い目は見えないので、白目を敷いてから描く
+    g.fillStyle = art.shade;
+    for (const dir of [-1, 1]) {
+      g.beginPath();
+      g.ellipse(h.x + dir * dx, ey + h.r * 0.04, h.r * 0.25, h.r * 0.3, dir * -0.35, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.fillStyle = '#fff';
+    circle(g, h.x - dx, ey, h.r * 0.13);
+    circle(g, h.x + dx, ey, h.r * 0.13);
+    g.fillStyle = INK;
+    circle(g, h.x - dx, ey + h.r * 0.02, h.r * 0.08 * blink);
+    circle(g, h.x + dx, ey + h.r * 0.02, h.r * 0.08 * blink);
+  } else if (kind === 'big') {
     g.fillStyle = '#fff';
     circle(g, h.x - dx, ey, h.r * 0.32);
     circle(g, h.x + dx, ey, h.r * 0.32);
@@ -239,6 +253,19 @@ function drawEar(g: CanvasRenderingContext2D, art: PetArt, h: Head, s: number, s
       g.closePath();
       g.fill();
       break;
+    case 'long':
+      // うさぎの ながい みみ。そとは からだの色、なかは shade（もも色）
+      for (const dir of [-1, 1]) {
+        g.save();
+        g.translate(h.x + dir * h.r * 0.4, h.y - h.r * 0.72);
+        g.rotate(dir * 0.16);
+        g.fillStyle = body;
+        ellipse(g, 0, -h.r * 0.6, h.r * 0.24, h.r * 0.64);
+        g.fillStyle = shade;
+        ellipse(g, 0, -h.r * 0.56, h.r * 0.12, h.r * 0.44);
+        g.restore();
+      }
+      break;
     default:
       break;
   }
@@ -363,6 +390,11 @@ function drawBody(
       const rx = s * 0.3;
       const ry = s * 0.4;
       ellipse(g, cx, footY - ry, rx, ry);
+      if (art.belly) {
+        // おなかは 目より下まで。顔にかかると、白い中に目が浮いて見える
+        g.fillStyle = silhouette ? SHADOW.body : '#fdfaf3';
+        ellipse(g, cx, footY - ry * 0.6, rx * 0.66, ry * 0.52);
+      }
       return { x: cx, y: footY - ry * 1.2, r: rx * 0.9 };
     }
     case 'bird': {
@@ -399,6 +431,17 @@ function drawBody(
         circle(g, cx - rx * 0.42, cy - ry * 0.2, rx * 0.14);
         circle(g, cx + rx * 0.36, cy + ry * 0.16, rx * 0.13);
         circle(g, cx + rx * 0.1, cy - ry * 0.5, rx * 0.11);
+      }
+      if (art.stripe) {
+        // よこじま。からだの だ円から はみ出さないよう clip する
+        g.save();
+        g.beginPath();
+        g.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        g.clip();
+        g.fillStyle = silhouette ? SHADOW.shade : art.stripe;
+        g.fillRect(cx - rx, cy - ry * 0.42, rx * 2, ry * 0.3);
+        g.fillRect(cx - rx, cy + ry * 0.22, rx * 2, ry * 0.3);
+        g.restore();
       }
       // せなかの すじ
       g.strokeStyle = shade;
@@ -448,6 +491,13 @@ function drawBody(
       g.quadraticCurveTo(cx + w, cy - w * 1.7, cx + w, cy);
       g.closePath();
       g.fill();
+      if (art.spots) {
+        // たこの あたまの ぽつぽつ。顔（まんなか）には かけない
+        g.fillStyle = silhouette ? SHADOW.shade : art.spots;
+        circle(g, cx - w * 0.66, cy - w * 1.0, w * 0.1);
+        circle(g, cx + w * 0.64, cy - w * 0.96, w * 0.11);
+        circle(g, cx - w * 0.2, cy - w * 1.42, w * 0.09);
+      }
       g.strokeStyle = shade;
       g.lineWidth = Math.max(1.2, s * 0.04);
       g.lineCap = 'round';
@@ -488,6 +538,74 @@ function drawBody(
       }
       g.stroke();
       return { x: cx + s * 0.24, y: cy - r * 0.5, r: r * 0.62 };
+    }
+    case 'fish': {
+      // さかな・くじら。よこ長の からだ、うしろ（左）に おびれ、まえ（右）に顔。
+      // くじら（しおふき）は ひとまわり大きく描く。同じ大きさだと きんぎょと見分けにくい
+      const big = art.spout ? 1.25 : 1;
+      const rx = s * 0.34 * big;
+      const ry = s * 0.24 * big;
+      const cy = footY - s * 0.3 * big;
+      const sw = Math.sin(t * 6) * s * 0.04;
+      g.fillStyle = shade;
+      g.beginPath();
+      g.moveTo(cx - rx * 0.75, cy);
+      g.lineTo(cx - rx * 1.32, cy - ry * 0.95 + sw);
+      g.quadraticCurveTo(cx - rx * 1.08, cy + sw * 0.5, cx - rx * 1.32, cy + ry * 0.95 + sw);
+      g.closePath();
+      g.fill();
+      // せびれ
+      g.beginPath();
+      g.moveTo(cx - rx * 0.35, cy - ry * 0.8);
+      g.quadraticCurveTo(cx - rx * 0.1, cy - ry * 1.55, cx + rx * 0.25, cy - ry * 0.88);
+      g.closePath();
+      g.fill();
+      g.fillStyle = body;
+      ellipse(g, cx, cy, rx, ry);
+      if (art.belly) {
+        g.fillStyle = silhouette ? SHADOW.body : 'rgba(255,255,255,.7)';
+        ellipse(g, cx + rx * 0.05, cy + ry * 0.5, rx * 0.72, ry * 0.36);
+      }
+      if (art.spout && !silhouette) {
+        // しおふき。ぽこぽこ のぼって消える
+        const k = (t * 1.1) % 1;
+        const sx = cx + rx * 0.1;
+        const sy = cy - ry * 0.95;
+        g.fillStyle = `rgba(170,220,255,${(0.95 - k * 0.6).toFixed(2)})`;
+        for (const dir of [-1, 0, 1]) {
+          circle(g, sx + dir * s * 0.13 * k, sy - s * (0.08 + k * 0.22) + Math.abs(dir) * s * 0.05 * k, s * (0.06 - k * 0.02));
+        }
+      }
+      return { x: cx + rx * 0.42, y: cy - ry * 0.08, r: ry * 0.78 };
+    }
+    case 'star': {
+      // 5本の うで。とがった先は太い線で なぞって丸める（つつくと いたそうに見えないように）
+      const r = s * 0.4;
+      const cy = footY - r * 0.92;
+      const wob = Math.sin(t * 3) * 0.06;
+      g.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = (Math.PI / 5) * i - Math.PI / 2 + wob;
+        const rad = i % 2 ? r * 0.55 : r;
+        const px = cx + Math.cos(a) * rad;
+        const py = cy + Math.sin(a) * rad;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.closePath();
+      g.fill();
+      g.strokeStyle = body;
+      g.lineWidth = s * 0.09;
+      g.lineJoin = 'round';
+      g.stroke();
+      if (art.spots) {
+        g.fillStyle = silhouette ? SHADOW.shade : art.spots;
+        for (let i = 0; i < 5; i++) {
+          const a = (Math.PI * 2 * i) / 5 - Math.PI / 2 + wob;
+          circle(g, cx + Math.cos(a) * r * 0.74, cy + Math.sin(a) * r * 0.74, s * 0.035);
+        }
+      }
+      return { x: cx, y: cy + r * 0.06, r: r * 0.5 };
     }
     case 'beast':
     default: {
@@ -543,6 +661,17 @@ export function drawPet(
   const y = footY - bob;
 
   g.save();
+
+  // ふんわりした光は いちばん奥。からだの輪郭の外まで にじませる
+  if (art.aura && !sil) {
+    const ay = y - s * 0.36;
+    const r = s * (0.58 + Math.sin(t * 4) * 0.04);
+    const grad = g.createRadialGradient(cx, ay, 0, cx, ay, r);
+    grad.addColorStop(0, art.aura);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    circle(g, cx, ay, r);
+  }
 
   // はねは からだの うしろ
   drawWing(g, art, cx, y - s * 0.34, s, t, sil);
