@@ -26,6 +26,7 @@ import { initParent, makeGate, renderParent } from './parent';
 import {
   PET_COUNT,
   PET_EGG_COST,
+  PET_EGG_SHINY_COST,
   activePet,
   ownedPets,
   type PetDef,
@@ -54,7 +55,7 @@ import {
   usedSlots,
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
-import { skyCss, themeFor, timeIdFor, type TimeId } from './theme';
+import { mapLook, skyCss, themeFor, timeIdFor, type TimeId } from './theme';
 import { nextTrivia, type Trivia } from './trivia';
 import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
@@ -452,31 +453,41 @@ interface EggState {
   label: string;
   /** 見出しに入れる短いことば。「あと 37 コインで ガチャ」の最後の1語 */
   short: string;
-  /** 絵。ペットは たまご、きせかえは ガチャ */
+  /** 絵。ペットは たまご（キラたまごまで届いていれば ✨）、きせかえは ガチャ */
   emoji: string;
   /** 届かないとき、目標までの残り。届いているときは 0 */
   need: number;
   cost: number;
+  /**
+   * ペットのたまごで、キラたまご（PET_EGG_SHINY_COST）まで届いている。
+   * 「たまごが われる」だけだと、どちらの たまごなのかが ぼくじょうへ行くまで分からない。
+   * キラたまごは レアが出やすいので、届いているなら それを先に言う
+   */
+  shiny: boolean;
 }
 
-function eggState(): EggState {
-  const coins = profile().coins;
-  const petsLeft = ownedPets().length < PET_COUNT;
-  const itemsLeft = lockedItems().length > 0;
-
+/**
+ * コインの行き先を ぜんぶ並べる（ペット → きせかえ の順）。
+ * ぜんぶ集めおわった行き先は入れない。
+ *
+ * @param coins 数える枚数。リザルトは「走る前の枚数」からも描くので、引数で受ける
+ */
+function spendGoals(coins: number): EggState[] {
   const goals: EggState[] = [];
-  if (petsLeft) {
+  if (ownedPets().length < PET_COUNT) {
+    const shiny = coins >= PET_EGG_SHINY_COST;
     goals.push({
       where: 'ranch',
       ready: coins >= PET_EGG_COST,
-      label: 'ペットの たまご',
+      label: shiny ? 'キラたまご' : 'ペットの たまご',
       short: 'たまご',
-      emoji: '🥚',
+      emoji: shiny ? '✨' : '🥚',
       need: Math.max(0, PET_EGG_COST - coins),
       cost: PET_EGG_COST,
+      shiny,
     });
   }
-  if (itemsLeft) {
+  if (lockedItems().length > 0) {
     goals.push({
       where: 'shop',
       ready: coins >= GACHA_COST,
@@ -485,19 +496,15 @@ function eggState(): EggState {
       emoji: '🎁',
       need: Math.max(0, GACHA_COST - coins),
       cost: GACHA_COST,
+      shiny: false,
     });
   }
-  // ぜんぶ集めたら、行き先は牧場（連れて歩く子を選びなおせる）
-  if (!goals.length) {
-    return {
-      where: 'ranch', ready: false, label: 'ぜんぶ そろった！', short: 'たまご', emoji: '🥚',
-      need: 0, cost: 0,
-    };
-  }
-  // 割れるものがあればそれを、なければ いちばん近い目標を見せる
-  const ready = goals.filter((g) => g.ready);
-  if (ready.length) return ready[0];
-  return goals.reduce((a, b) => (b.need < a.need ? b : a));
+  return goals;
+}
+
+/** 割れる／まわせるものの動作。ペットは「われる」、きせかえは「まわせる」 */
+function spendVerb(g: EggState): string {
+  return g.where === 'shop' ? 'まわせる' : 'われる';
 }
 
 // ------------------------------------------------------------------ ホーム
@@ -1063,15 +1070,107 @@ function renderWorldList(): void {
     : `せかいを タップすると、なかの みちが みえるよ`;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** 飾りの置き場所を散らすための、決まった並びの乱数（0〜1）。開くたびに位置が変わらないようにする */
+function spread(n: number): number {
+  const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * 道のわきの飾り（木・花・ビル・ヤシ…）。マスとは反対の側に置く。
+ * 同じ側に置くとマスや「いま ここ」の札とかさなって、押すところが読めなくなる。
+ */
+function decoFor(w: World, i: number, k: number, far = false): HTMLElement {
+  const look = mapLook(w.id);
+  const d = document.createElement('span');
+  d.className = `path-deco${far ? ' far' : ''}`;
+  d.setAttribute('aria-hidden', 'true');
+  d.textContent = look.deco[(i + (far ? 3 : 0)) % look.deco.length];
+  const r = spread(w.id * 31 + i + (far ? 97 : 0));
+  // マスが右にふれていれば左、左なら右。まんなかのときは交互
+  const away = k > 0.15 ? 'left' : k < -0.15 ? 'right' : i % 2 ? 'left' : 'right';
+  if (far) {
+    // 広い画面だけ出す2つめ（.far）。マスと同じがわの、さらに外のはしに置く。
+    // 行ごと k * 20% ずれるので、そのぶんを足して画面の外へ出ないようにする
+    const side = away === 'left' ? 'right' : 'left';
+    d.style.setProperty(side, `${3 + Math.abs(k) * 20 + r * 5}%`);
+  } else {
+    d.style.setProperty(away, `${4 + r * 12}%`);
+  }
+  d.style.setProperty('--dy', `${Math.round((spread(i + (far ? 23 : 5)) - 0.5) * 36)}px`);
+  d.style.setProperty('--ds', (0.85 + spread(i + 11) * 0.5).toFixed(2));
+  d.style.setProperty('--dr', `${Math.round((r - 0.5) * 16)}deg`);
+  return d;
+}
+
+/**
+ * 道を描く。マスを並べおわってから、マスの中心どうしを なめらかな曲線でつなぐ。
+ *
+ * 形を先に決めてマスを置くのではなく、置いたマスの位置を測ってから線を引く。
+ * マスは CSS で左右にふっているので、画面のはばが変わっても道がマスからずれない
+ * （向きを変えたときは ResizeObserver から呼びなおす）。
+ *
+ * 行ったことのある区間（そのマスが開いている）は せかいの色の線、まだの区間は白い点線。
+ * 「どこまで来たか」が、道そのものの色で分かる。
+ */
+function drawRoad(): void {
+  const path = $('stage-path');
+  const svg = path.querySelector<SVGSVGElement>('svg.road');
+  if (!svg || screens.map.hidden || $('stage-view').hidden) return;
+  const box = path.getBoundingClientRect();
+  if (box.width < 2) return;
+  const pts = Array.from(path.querySelectorAll<HTMLElement>('[data-road]')).map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top, walked: el.dataset.road === '1' };
+  });
+  let all = '';
+  let walked = '';
+  let rest = '';
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const my = (a.y + b.y) / 2;
+    const seg = `M${a.x.toFixed(1)} ${a.y.toFixed(1)}C${a.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+    all += seg;
+    if (b.walked) walked += seg;
+    else rest += seg;
+  }
+  svg.setAttribute('viewBox', `0 0 ${box.width.toFixed(0)} ${box.height.toFixed(0)}`);
+  svg.setAttribute('width', box.width.toFixed(0));
+  svg.setAttribute('height', box.height.toFixed(0));
+  svg.innerHTML =
+    `<path class="road-edge" d="${all}"/>` +
+    `<path class="road-bed" d="${all}"/>` +
+    `<path class="road-walked" d="${walked}"/>` +
+    `<path class="road-rest" d="${rest}"/>`;
+}
+
+// 向きを変えた・はばが変わったときに、道をマスに合わせなおす
+if (typeof ResizeObserver === 'function') new ResizeObserver(() => drawRoad()).observe($('stage-path'));
+
 /**
  * ステージの道。ぐねぐねした一本道に、ステージが順番に並ぶ。
  * 前のマス目グリッドだと「あと何面あるのか」「いまどこか」が読み取れなかった。
+ *
+ * @param focus 開いたときに どこを見せるか。
+ *              'now' は「いま ここ」（無ければ いちばん上）、'end' は いちばん下
+ *              （まえの せかいへ戻ったときは、つながっている下のはしを見せる）
  */
-function renderStagePath(): void {
+function renderStagePath(focus: 'now' | 'end' = 'now'): void {
   const w = worldById(mapWorld);
   $('world-view').hidden = true;
   $('stage-view').hidden = false;
   screens.map.style.setProperty('--wc', w.color);
+  const look = mapLook(w.id);
+  const view = $('stage-view');
+  view.style.setProperty('--land-1', look.land[0]);
+  view.style.setProperty('--land-2', look.land[1]);
+  view.style.setProperty('--land-dot', look.dot);
+  view.style.setProperty('--road', look.road);
+  view.style.setProperty('--road-edge', look.roadEdge);
+  view.style.setProperty('--road-dash', look.dash);
 
   const next = nextStageIn(w);
 
@@ -1085,15 +1184,43 @@ function renderStagePath(): void {
   const path = $('stage-path');
   path.replaceChildren();
 
+  // 道は いちばん うしろ。マスと飾りを置いてから drawRoad で線を引く
+  const road = document.createElementNS(SVG_NS, 'svg');
+  road.classList.add('road');
+  road.setAttribute('aria-hidden', 'true');
+  path.appendChild(road);
+
+  // スタート。道の はじまりを はっきりさせる（いきなり 1 のマスから始まると、
+  // どちらが はじめで どちらが おわりか 読めない）。まえの せかいが あれば、そこへ戻れる
+  const pw = WORLDS.find((x) => x.id === w.id - 1);
+  const start = document.createElement('div');
+  start.className = 'path-start';
+  start.dataset.road = '1';
+  start.innerHTML = '<span class="ps-flag" aria-hidden="true">🚩</span><b>スタート</b>';
+  if (pw) {
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'world-hop prev';
+    back.setAttribute('aria-label', `まえの せかい ${pw.id}. ${pw.name}`);
+    back.innerHTML = `<span aria-hidden="true">‹</span>${pw.emoji} ${pw.id}`;
+    back.addEventListener('click', () => {
+      sfx.tap();
+      slideToWorld(pw.id, -1);
+    });
+    start.appendChild(back);
+  }
+  path.appendChild(start);
+
   for (let stage = 1; stage <= bossStage(w); stage++) {
     const boss = isBoss(w, stage);
     const open = stageUnlocked(w, stage);
     const got = stageStars(w.id, stage);
 
     const row = document.createElement('div');
-    row.className = 'node-row';
+    row.className = `node-row${boss ? ' boss-row' : ''}`;
     // 一本道をぐねぐねさせる。sin にしておくと、面数が変わっても形が破綻しない
-    row.style.setProperty('--k', String(Math.sin(stage * 0.9).toFixed(3)));
+    const k = Math.sin(stage * 0.9);
+    row.style.setProperty('--k', k.toFixed(3));
 
     const b = document.createElement('button');
     b.type = 'button';
@@ -1104,6 +1231,8 @@ function renderStagePath(): void {
       `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
       `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
     b.disabled = !open || overDailyLimit();
+    // 道の線は、開いているマスまでを「行ったことのある道」にする
+    b.dataset.road = open ? '1' : '0';
     // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる。
     // 名前はマスの中に入れる。外にぶら下げると、隣のマスの「いま ここ」札とぶつかる
     b.innerHTML =
@@ -1122,6 +1251,8 @@ function renderStagePath(): void {
       sfx.tap();
       startStage(w, stage);
     });
+    // ボスのマスには 飾りを置かない（かわりに 奥に あやしい光を出す: .boss-row）
+    if (!boss) row.append(decoFor(w, stage, k), decoFor(w, stage, k, true));
     row.appendChild(b);
 
     // ふだ（「ボス」「いま ここ」）はマスの中に絶対配置する。
@@ -1142,24 +1273,57 @@ function renderStagePath(): void {
     path.appendChild(row);
   }
 
-  // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる
+  // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる。
+  // もう開いていれば ボタンにして、押すと つぎの せかいの みちへ よこに すべって移る
+  // （いちど「せかい ぜんぶ」へ戻ってから選びなおす、を しなくていい）
   const nw = WORLDS.find((x) => x.id === w.id + 1);
-  const goal = document.createElement('div');
-  goal.className = 'path-goal';
-  if (nw) {
-    const open = worldUnlocked(nw.id);
-    goal.style.setProperty('--wc', nw.color);
-    goal.innerHTML = `<span class="pg-emoji">${open ? nw.emoji : '🔒'}</span>` +
-      `<span class="pg-text"><b>つぎの せかい</b><span>${open ? `${nw.id}. ${nw.name}` : 'ボスを たおすと ひらく'}</span></span>`;
+  const bossDone = stageStars(w.id, bossStage(w)) > 0;
+  let goal: HTMLElement;
+  if (nw && worldUnlocked(nw.id)) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'path-goal go';
+    btn.style.setProperty('--wc', nw.color);
+    btn.innerHTML = `<span class="pg-emoji" aria-hidden="true">${nw.emoji}</span>` +
+      `<span class="pg-text"><b>つぎの せかいへ</b><span>${nw.id}. ${nw.name}</span></span>` +
+      '<span class="pg-go" aria-hidden="true">›</span>';
+    btn.addEventListener('click', () => {
+      sfx.tap();
+      slideToWorld(nw.id, 1);
+    });
+    goal = btn;
   } else {
-    goal.innerHTML = `<span class="pg-emoji">🏁</span>` +
-      `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
+    goal = document.createElement('div');
+    goal.className = 'path-goal';
+    if (nw) {
+      goal.style.setProperty('--wc', nw.color);
+      goal.innerHTML = `<span class="pg-emoji">🔒</span>` +
+        `<span class="pg-text"><b>つぎの せかい</b><span>ボスを たおすと ひらく</span></span>`;
+    } else {
+      goal.innerHTML = `<span class="pg-emoji">🏁</span>` +
+        `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
+    }
   }
+  goal.dataset.road = bossDone ? '1' : '0';
   path.appendChild(goal);
 
-  // 面が増えると「いま ここ」が画面の外にいることがある。開いた時点で見えるところへ寄せる
+  // 面が増えると「いま ここ」が画面の外にいることがある。開いた時点で見えるところへ寄せる。
+  // scrollIntoView は使わない（画面ぜんたいまで動かすことがある）。道の箱だけを動かす
   requestAnimationFrame(() => {
-    path.querySelector('.stage-node.now')?.scrollIntoView({ block: 'center' });
+    drawRoad();
+    const scroller = path.parentElement as HTMLElement;
+    if (focus === 'end') {
+      scroller.scrollTop = scroller.scrollHeight;
+      return;
+    }
+    const now = path.querySelector<HTMLElement>('.stage-node.now');
+    if (!now) {
+      scroller.scrollTop = 0;
+      return;
+    }
+    const sr = scroller.getBoundingClientRect();
+    const nr = now.getBoundingClientRect();
+    scroller.scrollTop += nr.top + nr.height / 2 - (sr.top + sr.height / 2);
   });
 
   const bossNeed = bossRequirement(w) - normalStars(w);
@@ -1168,6 +1332,66 @@ function renderStagePath(): void {
     : bossNeed > 0
       ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w)}）`
       : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}　ボスに いどめる！`;
+}
+
+/** となりの せかいへ すべっているあいだ。連打で2枚目の写しを重ねない */
+let sliding = false;
+
+/**
+ * となりの せかいの みちへ、よこに すべって移る。
+ *
+ * いまの道を写しとった板（ghost）を上に重ね、それを外へ送りだしながら、
+ * 新しい道を反対がわから入れる。2枚が同時に動くので、せかいどうしが
+ * 1枚の地図で つながっているように見える。
+ *
+ * @param dir 1 = つぎの せかい（左へ送る）、-1 = まえの せかい（右へ送る）
+ */
+function slideToWorld(id: number, dir: 1 | -1): void {
+  const view = $('stage-view');
+  const scroller = view.querySelector<HTMLElement>('.path-scroll');
+  if (!scroller || sliding) return;
+  // まえの せかいへ戻るときは、つながっている下のはし（ボスと「つぎの せかいへ」）を見せる
+  const focus = dir > 0 ? 'now' : 'end';
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still || typeof scroller.animate !== 'function') {
+    mapWorld = id;
+    renderStagePath(focus);
+    return;
+  }
+
+  const ghost = scroller.cloneNode(true) as HTMLElement;
+  ghost.classList.add('ghost');
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.inert = true;
+  ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+  // 色は view と画面から受けついでいる。新しい せかいの色に変わる前に、写しへ じかに書いておく
+  const cs = getComputedStyle(view);
+  for (const v of ['--land-1', '--land-2', '--land-dot', '--road', '--road-edge', '--road-dash', '--wc']) {
+    ghost.style.setProperty(v, cs.getPropertyValue(v));
+  }
+  view.appendChild(ghost);
+  ghost.scrollTop = scroller.scrollTop;
+
+  sliding = true;
+  mapWorld = id;
+  renderStagePath(focus);
+  const ms = 440;
+  const easing = 'cubic-bezier(.33, .9, .3, 1)';
+  ghost.animate(
+    [{ transform: 'translateX(0)' }, { transform: `translateX(${-dir * 100}%)` }],
+    { duration: ms, easing, fill: 'forwards' },
+  );
+  const inAnim = scroller.animate(
+    [{ transform: `translateX(${dir * 100}%)` }, { transform: 'translateX(0)' }],
+    { duration: ms, easing },
+  );
+  const done = () => {
+    ghost.remove();
+    sliding = false;
+    drawRoad();
+  };
+  inAnim.onfinish = done;
+  inAnim.oncancel = done;
 }
 
 $('map-back').addEventListener('click', () => {
@@ -1589,29 +1813,66 @@ function nextLabel(): string {
  * @param coins 表示に使う所持コイン。省略すると いまの所持数
  */
 function renderResultEgg(coins = profile().coins): void {
-  const egg = eggState();
+  const goals = spendGoals(coins);
+  const ready = goals.filter((g) => g.ready);
   const btn = $<HTMLButtonElement>('result-egg');
+  const row = $('result-spend');
   const bar = $('result-egg-bar');
   const fill = bar.firstElementChild as HTMLElement;
-  const need = Math.max(0, egg.cost - coins);
-  const ready = egg.cost > 0 && need === 0;
 
-  btn.classList.toggle('ready', ready);
+  // 両方できるときは、小さく横に2つ並べる。1枚だけ出していたころは
+  // ペットのほうしか出ず、ガチャも まわせるのに そこから行けなかった
+  const both = ready.length >= 2;
+  row.hidden = !both;
+  btn.hidden = both;
+  if (both) {
+    row.replaceChildren(
+      ...ready.map((g) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `spend-btn ready${g.shiny ? ' shiny' : ''}`;
+        b.innerHTML =
+          `<span class="egg-emoji" aria-hidden="true">${g.emoji}</span>` +
+          `<span class="spend-text"><b>${g.where === 'shop' ? 'ガチャ' : g.shiny ? 'キラたまご' : 'たまご'}</b>` +
+          `<span>${spendVerb(g)}！</span></span>`;
+        b.setAttribute('aria-label', `${g.label}が ${spendVerb(g)}`);
+        b.addEventListener('click', () => {
+          sfx.tap();
+          openCollection(g.where, 'result');
+        });
+        return b;
+      }),
+    );
+    return;
+  }
+
+  // 1つだけ出すとき。割れる／まわせるものがあれば それを、無ければ いちばん近い目標
+  const egg = ready[0] ?? (goals.length ? goals.reduce((a, b) => (b.need < a.need ? b : a)) : null);
+  btn.dataset.where = egg?.where ?? 'ranch';
+  btn.classList.toggle('ready', Boolean(egg?.ready));
+  btn.classList.toggle('shiny', Boolean(egg?.ready && egg.shiny));
   const emoji = btn.querySelector('.egg-emoji');
-  if (emoji) emoji.textContent = egg.emoji;
-  if (egg.cost === 0) {
+  if (emoji) emoji.textContent = egg?.emoji ?? '🥚';
+  if (!egg) {
+    // ぜんぶ集めたら、行き先は牧場（連れて歩く子を選びなおせる）
     $('result-egg-label').textContent = 'ぼくじょうで あそぶ';
     $('result-egg-sub').textContent = 'ぜんぶ そろった！';
     bar.hidden = true;
-  } else if (ready) {
+  } else if (egg.ready) {
     // ペットは「われる」、きせかえは「まわせる」。行きさきの動作をそのまま言う
-    $('result-egg-label').textContent =
-      egg.where === 'shop' ? `${egg.label}が まわせる！` : `${egg.label}が われる！`;
-    $('result-egg-sub').textContent = `もっている コイン ${coins}`;
+    $('result-egg-label').textContent = `${egg.label}が ${spendVerb(egg)}！`;
+    // どちらの たまごかを下の行でも言う。ふつうの たまごなら、キラたまごまでの残りを出して
+    // 「もう1ステージ走れば キラたまご」を目標にできるようにする
+    $('result-egg-sub').textContent =
+      egg.where === 'shop'
+        ? `もっている コイン ${coins}`
+        : egg.shiny
+          ? `ふつうの たまごも われる・コイン ${coins}`
+          : `キラたまごまで あと ${PET_EGG_SHINY_COST - coins}`;
     bar.hidden = true;
   } else {
     // 見出しを1行に収める。何のたまご／ガチャかは下の行で言う
-    $('result-egg-label').textContent = `あと ${need} コインで ${egg.short}`;
+    $('result-egg-label').textContent = `あと ${egg.need} コインで ${egg.short}`;
     $('result-egg-sub').textContent = `${egg.label}　${coins} / ${egg.cost}`;
     bar.hidden = false;
     fill.style.width = `${Math.min(100, (coins / egg.cost) * 100)}%`;
@@ -1620,7 +1881,7 @@ function renderResultEgg(coins = profile().coins): void {
 
 $('result-egg').addEventListener('click', () => {
   sfx.tap();
-  openCollection(eggState().where, 'result');
+  openCollection($('result-egg').dataset.where === 'shop' ? 'shop' : 'ranch', 'result');
 });
 
 $('result-retry').addEventListener('click', () => {

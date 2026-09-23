@@ -789,33 +789,81 @@ body {
 @media (prefers-reduced-motion: reduce) { .wc-flag.now { animation: none; } }
 
 /* --- その せかいの みち --- */
-.stage-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* 地図の板。せかいごとの地面の色（main.ts が --land-* を入れる）を敷いて、
+   その上に 曲がりくねった道（svg.road）と マス・飾りを置く。
+   となりの せかいへ すべるとき、はみ出した板を切るので overflow: hidden */
+.stage-view {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  position: relative; overflow: hidden;
+  border-radius: var(--r-lg);
+  box-shadow: 0 12px 26px -20px rgba(20,40,60,.7), inset 0 0 0 3px rgba(255,255,255,.6);
+}
 .stage-view[hidden] { display: none; }
-.path-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: .8rem 0 .4rem; }
+/* 地面は スクロールする中身といっしょに動かす（local）。道の上と下で色が変わるので、
+   奥へ進んでいる感じが出る。写し（.ghost）にも そのまま付いてくるよう、ここに書く */
+.path-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  padding: .9rem 0 .8rem;
+  background:
+    radial-gradient(circle, var(--land-dot, rgba(255,255,255,.3)) 2.5px, transparent 3px) 0 0 / 34px 34px local,
+    linear-gradient(180deg, var(--land-1, #d4f1c2), var(--land-2, #9fd98a)) local;
+}
+/* となりの せかいへ すべるときの、いまの道の写し。上に重ねて外へ送りだす */
+.path-scroll.ghost { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 .stage-path {
   position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: .7rem;
+  display: flex; flex-direction: column; align-items: center; gap: .8rem;
   padding: .2rem 0 .6rem;
 }
-/* まんなかを通る一本道。ステージはこの上に左右へ ふれながら並ぶので、
-   細い線ではなく「道はば」を持たせて、ふれた先でも必ず重なるようにする */
-.stage-path::before, .stage-path::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; z-index: 0;
-  transform: translateX(-50%); pointer-events: none;
-}
-.stage-path::before {
-  width: 52px; border-radius: 26px;
-  background: var(--wc, #c2ccd4); opacity: .2;
-}
-.stage-path::after {
-  width: 8px; border-radius: 4px;
-  background: repeating-linear-gradient(to bottom, rgba(255,255,255,.9) 0 16px, transparent 16px 34px);
-}
+/* 道。マスの中心どうしを main.ts の drawRoad が曲線でつなぐ。
+   ふち → 道 → 「行った区間」の せかいの色の線 ／「まだの区間」の点線、の順に重ねる */
+.stage-path svg.road { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
+.road path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.road-edge { stroke: var(--road-edge, #c69a62); stroke-width: 48; }
+.road-bed { stroke: var(--road, #efd4a4); stroke-width: 38; }
+.road-walked { stroke: var(--wc, var(--amber)); stroke-width: 9; opacity: .9; }
+.road-rest { stroke: var(--road-dash, #c69a62); stroke-width: 6; stroke-dasharray: 1 14; opacity: .85; }
 .node-row {
   position: relative; z-index: 1;
   width: 100%; display: flex; justify-content: center;
   transform: translateX(calc(var(--k, 0) * 20%));
 }
+/* 道のわきの飾り。マスとは反対がわに置く（main.ts の decoFor）。押せない */
+.path-deco {
+  position: absolute; top: 50%; z-index: 0; pointer-events: none;
+  font-size: 2rem; line-height: 1;
+  transform: translateY(calc(-50% + var(--dy, 0px))) rotate(var(--dr, 0deg)) scale(var(--ds, 1));
+  filter: drop-shadow(0 4px 2px rgba(20,40,60,.22));
+}
+/* 2つめの飾りは 広い画面（横持ち・タブレット）だけ。スマホの縦では マスのすぐ横に来て うるさい */
+.path-deco.far { display: none; }
+@media (min-width: 560px) { .path-deco.far { display: block; } }
+/* ボスの すみか。マスのうしろに あやしい光を ひろげる */
+.boss-row::before {
+  content: ''; position: absolute; left: 50%; top: 50%; z-index: -1;
+  width: 190px; height: 170px; transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(110,30,90,.42), rgba(200,81,96,.18) 60%, transparent);
+}
+/* スタートの札。道の はじまり。まえの せかいがあれば、となりに戻るボタンが付く */
+.path-start {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: .35rem;
+  background: var(--paper); border: 3px solid var(--road-edge, var(--line)); border-radius: 999px;
+  padding: .3rem .8rem .3rem .55rem; font-size: .9rem;
+  box-shadow: 0 6px 12px -10px rgba(20,40,60,.7);
+}
+.ps-flag { font-size: 1.2rem; line-height: 1; }
+.world-hop {
+  position: absolute; right: calc(100% + .6rem); top: 50%; transform: translateY(-50%);
+  font-family: inherit; font-weight: 700; font-size: .8rem; white-space: nowrap; cursor: pointer;
+  display: flex; align-items: center; gap: .25rem;
+  min-height: 40px; padding: 0 .7rem;
+  color: var(--ink-2); background: rgba(255,255,255,.85);
+  border: 2px solid rgba(255,255,255,.95); border-radius: 999px;
+}
+.world-hop span { font-size: 1.2rem; line-height: 1; }
+.world-hop:active { transform: translateY(calc(-50% + 2px)); }
 .path-goal { position: relative; z-index: 1; }
 .stage-node {
   position: relative; width: 92px; height: 98px; border-radius: 28px;
@@ -840,7 +888,12 @@ body {
 .stage-node .when { position: absolute; top: 5px; right: 8px; font-size: 1rem; line-height: 1; }
 .stage-node.locked .when, .stage-node[disabled] .when { opacity: .45; }
 .stage-node .st .off { opacity: .25; }
-.stage-node.cleared { background: var(--wc, var(--amber)); color: #fff; }
+/* 白いふちで 地面から切りはなす。せかいの色と地面の色が近い（のはらの みどり）と、
+   クリアしたマスが地面にとけて、どこがマスなのか読めない */
+.stage-node.cleared {
+  background: var(--wc, var(--amber)); color: #fff;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.85), 0 8px 16px -12px rgba(20,40,60,.7);
+}
 .stage-node.cleared .st { color: #fff3cf; }
 .stage-node.cleared .st .off { opacity: .45; }
 .stage-node.boss { width: 104px; height: 104px; border-radius: 34px; }
@@ -890,9 +943,27 @@ body {
   border-radius: var(--r-md); padding: .6rem .9rem; max-width: 21rem; width: 92%;
 }
 .pg-emoji { font-size: 1.8rem; }
-.pg-text { display: flex; flex-direction: column; }
+.pg-text { display: flex; flex-direction: column; flex: 1; min-width: 0; text-align: left; }
 .pg-text b { font-size: .85rem; color: var(--ink-2); }
-.pg-text span { font-size: 1rem; font-weight: 700; color: var(--ink); }
+.pg-text span { font-size: 1rem; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* つぎの せかいが開いているときは、押せるボタンにする。押すと よこに すべって移る。
+   点線（まだ行けない）と見分けがつくよう、実線・つぎの せかいの色・右むきの ›  */
+.path-goal.go {
+  font-family: inherit; cursor: pointer;
+  border: 3px solid var(--wc, var(--amber)); border-bottom-width: 6px;
+  background: linear-gradient(180deg, #fff, color-mix(in srgb, var(--wc, var(--amber)) 14%, #fff));
+  box-shadow: 0 10px 18px -12px rgba(20,40,60,.7);
+}
+.path-goal.go:active { transform: translateY(3px); border-bottom-width: 3px; }
+.path-goal.go .pg-text b { color: var(--wc, var(--ink-2)); }
+.pg-go {
+  flex: 0 0 auto; width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--wc, var(--amber)); color: #fff; font-size: 1.6rem; font-weight: 700; line-height: 1;
+  animation: pg-nudge 1.4s ease-in-out infinite;
+}
+@keyframes pg-nudge { 50% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .pg-go { animation: none; } }
 
 /* ---------------- プレイ ---------------- */
 .screen-play {
@@ -1000,7 +1071,18 @@ body {
    2けたに変わるぶん式が1文字のびるので、完成形だけ すこし細い clamp にする */
 .question.solved { font-size: clamp(2rem, 9.6vw, 3.7rem); }
 .question .ans { color: var(--good-dark); }
-.question.solved .ans { display: inline-block; animation: pop .34s ease; }
+/* こたえは みどりの囲みに入れて、2回 光らせる。色だけだと、うすい緑の数字が
+   1つ出ただけに見えて、まちがえた子の目が そこで止まらなかった */
+.question.solved .ans {
+  display: inline-block; padding: 0 .16em; margin: 0 .04em; border-radius: .28em;
+  background: #dff5e9; box-shadow: inset 0 0 0 3px var(--good);
+  text-shadow: none;
+  animation: ans-pop .5s cubic-bezier(.2, 1.6, .4, 1), ans-glow .7s ease-in-out .5s 2;
+}
+@keyframes ans-pop { from { transform: scale(.5); } 60% { transform: scale(1.3); } to { transform: scale(1); } }
+@keyframes ans-glow {
+  50% { box-shadow: inset 0 0 0 3px var(--good), 0 0 0 7px rgba(53,178,115,.28); transform: scale(1.08); }
+}
 
 /* さくらんぼ分解のヒント */
 /* 絵を上、ことばを下の2段にする。
@@ -1299,6 +1381,7 @@ body {
 .screen-play.dark .question { color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.28); }
 /* 夜とボスの空では、--good-dark の緑は沈んで読めない。明るいほうの緑にする */
 .screen-play.dark .question .ans { color: #7ce0a8; }
+.screen-play.dark .question.solved .ans { background: rgba(20,60,40,.55); box-shadow: inset 0 0 0 3px #7ce0a8; }
 .screen-play.dark .hud-stage { color: rgba(255,255,255,.9); }
 .screen-play.dark .coin-badge { color: #fff; }
 .screen-play.dark .hud-combo { color: #ffd76b; }
@@ -1321,6 +1404,9 @@ body {
    （唯一の操作対象である答えボタンを画面の外に出さないほうが先） */
 @media (max-height: 480px) {
   .question { font-size: clamp(1.6rem, 7vh, 2.2rem); margin: .1rem 0; }
+  /* .question.solved（クラス2つ）が上の1行より強いので、ここでも書く。
+     書かないと、完成した式だけ縦持ちの大きさ（3.7rem）に戻り、下が canvas に隠れる */
+  .question.solved { font-size: clamp(1.5rem, 6.6vh, 2.1rem); }
   .answer { min-height: 52px; font-size: clamp(1.3rem, 6vh, 2rem); border-bottom-width: 5px; }
   .answers { gap: .4rem; padding-top: .3rem; }
   .world-wrap { min-height: 84px; }
@@ -1477,6 +1563,28 @@ body {
 .egg-cta .bar { width: 100%; height: 8px; }
 .egg-cta .bar[hidden] { display: none; }
 .egg-cta-go { font-size: 1.5rem; color: var(--ink-2); line-height: 1; }
+.egg-cta[hidden] { display: none; }
+/* キラたまごまで届いているとき。ぼくじょうの キラたまごの ボタン（.egg-btn.shiny）と同じ むらさき */
+.egg-cta.ready.shiny, .spend-btn.shiny {
+  border-color: #c88ae0; background: linear-gradient(180deg, #fff, #faf1ff);
+}
+
+/* たまごも ガチャも できるとき。1枚のカードのかわりに、小さく横に2つ並べる */
+.spend-row { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; width: 100%; }
+.spend-row[hidden] { display: none; }
+.spend-btn {
+  display: flex; align-items: center; justify-content: center; gap: .45rem; min-width: 0;
+  font-family: inherit; text-align: left; cursor: pointer;
+  background: #fff8e6; border: 3px solid var(--amber); border-bottom-width: 5px;
+  border-radius: var(--r-md); padding: .4rem .5rem; min-height: 58px;
+}
+.spend-btn:active { transform: translateY(3px); border-bottom-width: 2px; }
+.spend-btn .egg-emoji { font-size: 1.6rem; animation: egg-wiggle 1.6s ease-in-out infinite; }
+.spend-btn + .spend-btn .egg-emoji { animation-delay: .8s; }
+.spend-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.spend-text b { font-size: .95rem; color: var(--ink); white-space: nowrap; }
+.spend-text span { font-size: .76rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .spend-btn .egg-emoji { animation: none; } }
 
 /* ホームの「きせかえ」「ペット」に付く、たまごが割れる合図 */
 .title-sub .btn-ghost { position: relative; }
