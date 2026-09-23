@@ -54,7 +54,7 @@ import {
 } from './rewards';
 import { addPlayTime, profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
-import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
+import { currentLook, drawChar, drawObstacle, roundRect, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
 import {
@@ -225,6 +225,15 @@ const REVEAL_ARM = 0.35;
 
 /** 答えを教えたあと、押す間として最低これだけは残す（秒） */
 const TEACH_GRACE = 1.6;
+
+/** こたえの札が開ききるまで（秒） */
+const CARD_IN = 0.22;
+
+/** こたえの札が消えはじめる、場面の残り時間（秒）。次の問題が出る直前に すっと引く */
+const CARD_OUT = 0.25;
+
+const reduced = (): boolean =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const T_APEX = 0.32;
 
@@ -446,6 +455,12 @@ export class Runner {
   private pxOff = 0;
   private rings: Ring[] = [];
   private cheer = { text: '', life: 0 };
+  /**
+   * まちがえたあとに空へ出す、こたえ入りの式の札（「7 + 5 = 12」）。null は出していない。
+   * t は出てからの秒数、pop は こたえが最後に はずんでからの秒数。
+   * どちらも見せるための時間なので、止めているあいだも進める（tickEffects）
+   */
+  private card: { head: string; ans: string; tail: string; t: number; pop: number } | null = null;
 
   // 画面寸法（CSS ピクセル）
   private W = 320;
@@ -558,6 +573,7 @@ export class Runner {
     this.pxOff = 0;
     this.rings = [];
     this.cheer = { text: '', life: 0 };
+    this.card = null;
 
     // つれているペットの力は、走り出すたびに読みなおす
     this.pet = activePet();
@@ -1015,6 +1031,7 @@ export class Runner {
     this.cut = -1;
     this.obDead = false;
     this.pxOff = 0;
+    this.card = null;
     this.setPhase('ask');
     this.qElapsed = 0;
     this.hideHint();
@@ -1216,8 +1233,9 @@ export class Runner {
         this.callOut();
       } else {
         sfx.correct(0);
-        // まちがえたあとの正解。ここが おぼえどころなので、式を完成させて見せる
-        this.showSolved(q);
+        // まちがえたあとの正解。ここが おぼえどころなので、式を完成させて見せる。
+        // さいごの1問だけは 空の札を出さない（このあと フィニッシュで、とどめの画面に字を置かない）
+        this.showSolved(q, !this.isLastBlow());
       }
       this.markPip(firstTry);
       stopDrone();
@@ -1314,14 +1332,30 @@ export class Runner {
    * つながらない。完成した式を画面に一度は出して、そこを おぼえて帰ってもらう。
    * #question は aria-live なので、読み上げもここで入れ替わる。
    */
-  private showSolved(q: Question): void {
+  private showSolved(q: Question, withCard = true): void {
     const { head, ans, tail } = solvedParts(q);
     const b = document.createElement('b');
     b.className = 'ans';
     b.textContent = ans;
+    // 1つの span に包む。#question は display: grid なので、じかに並べると
+    // 「7 + 5 =」と「12」が別々の行（グリッドの別のマス）に割れて、式に見えなかった
+    const line = document.createElement('span');
+    line.append(head, b, tail);
     this.elQuestion.classList.remove('shake');
-    this.elQuestion.replaceChildren(head, b, tail);
+    this.elQuestion.replaceChildren(line);
     this.elQuestion.classList.add('solved');
+    if (!withCard) return;
+
+    // 同じ式を、キャラが跳んでいる空にも大きく出す（drawCard）。
+    // 画面の上の式は、跳んでいるキャラを見ている子の目には入らなかった。
+    // 待ち時間は1秒も足さない。いつもの跳ぶ間（CLEAR_HOLD_TAUGHT）のうちに見せきる。
+    // 教えたあとに正解を押したときは、同じ札のまま こたえだけ もう一度はずませる
+    if (this.card && this.card.ans === ans) {
+      this.card.pop = 0;
+      return;
+    }
+    this.card = { head, ans, tail, t: 0, pop: 0 };
+    sfx.solved();
   }
 
   /**
@@ -1334,7 +1368,9 @@ export class Runner {
    */
   private teachAnswer(q: Question): void {
     this.showSolved(q);
-    this.buttons[q.choices.indexOf(q.answer)]?.classList.add('again');
+    // 札と同じ みどりにして、「札の こたえ」と「押すボタン」を色で結ぶ。
+    // 'again' だけだと、はずむ指定（.answer.correct.again）に掛からず止まっていた
+    this.buttons[q.choices.indexOf(q.answer)]?.classList.add('correct', 'again');
     // 教えたのに時間切れ、では意味が無い。押す間だけは必ず残す。
     // にがて たいじ の敵は止まっている（v = 0）ので、ここでは触らない
     if (!this.hunt && this.ob.v > 0) {
@@ -1780,6 +1816,8 @@ export class Runner {
   }
 
   private advance(): void {
+    // 札は その1問のもの。リベンジの しめくくり（wrap）の帯と重ねない
+    this.card = null;
     if (this.revenge) {
       this.revengeIndex++;
       if (this.revengeIndex >= this.revengeQ.length) this.endRevenge();
@@ -1981,6 +2019,10 @@ export class Runner {
     if (this.flash > 0) this.flash -= dt;
     if (this.banner > 0) this.banner -= dt;
     if (this.cheer.life > 0) this.cheer.life -= dt;
+    if (this.card) {
+      this.card.t += dt;
+      this.card.pop += dt;
+    }
     if (this.cut >= 0) {
       this.cut += dt;
       if (this.cut > FIN_CUT_TOTAL) this.cut = -1;
@@ -2183,6 +2225,9 @@ export class Runner {
     this.drawFlyingCoins();
     this.drawFloats();
     if (this.cheer.life > 0) this.drawCheer();
+    // フィニッシュのあいだは出さない。とどめの画面には字を1つも残さない約束
+    // （式は画面の上に完成したまま出ている）
+    if (this.card && this.phase !== 'finish') this.drawCard();
 
     if (this.flash > 0) {
       g.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`;
@@ -2371,6 +2416,143 @@ export class Runner {
     g.strokeText(this.cheer.text, x, y);
     g.fillStyle = '#e07b1f';
     g.fillText(this.cheer.text, x, y);
+    g.restore();
+  }
+
+  /**
+   * こたえの札。まちがえたあと、キャラが跳んでいる空に「7 + 5 = 12」を大きく出す。
+   *
+   * 置き場所はキャラの右どなりの空。キャラの真上だと、跳んだ頭が札にかぶる
+   * （横持ちは canvas が低く、頂点の頭が上のはし近くまで来る）。
+   * 左はしをキャラより右に取り、入りきらない幅は字を縮めて収める。
+   * こたえは ひとまわり大きく、みどりの囲みに入れて、出たところで はずませる。
+   */
+  private drawCard(): void {
+    const c = this.card;
+    if (!c) return;
+    const g = this.g;
+    const { W, H, s } = this;
+    const still = reduced();
+
+    // 入り（ぽんと開く）と、次の問題が出る直前の引き
+    const k = still ? 1 : Math.min(1, c.t / CARD_IN);
+    const fade = this.phase !== 'ask' && this.hold > 0 ? Math.min(1, this.hold / CARD_OUT) : 1;
+    const alpha = Math.min(1, k * 2) * fade;
+    if (alpha <= 0.01) return;
+    const grow = 0.7 + 0.3 * k + Math.sin(Math.PI * k) * 0.08;
+
+    const font = (px: number): string => `700 ${px}px "Hiragino Maru Gothic ProN", sans-serif`;
+    const left = this.playerX + 26 * s;
+    const right = W - 6 * s;
+    // 右に場所が取れない（せまい画面）ときだけ、はばいっぱいに置く
+    const roomy = right - left >= 150;
+    const x0 = roomy ? left : 6 * s;
+    const avail = right - x0;
+
+    // 字の大きさ。はばに合わせて縮める（大きいほど読めるが、はみ出すと切れる）
+    let f = Math.min(26 * s, H * 0.2);
+    const measure = (px: number) => {
+      g.font = font(px);
+      const head = g.measureText(c.head).width;
+      const tail = g.measureText(c.tail).width;
+      g.font = font(px * 1.3);
+      const ans = g.measureText(c.ans).width;
+      return { head, tail, ans, pad: px * 0.22, side: px * 0.55 };
+    };
+    let m = measure(f);
+    const widthOf = (x: typeof m) => x.head + x.ans + x.pad * 2 + x.tail + x.side * 2;
+    if (widthOf(m) > avail) {
+      f *= avail / widthOf(m);
+      m = measure(f);
+    }
+    const cw = widthOf(m);
+    const ch = f * 2.25;
+    const cx = x0 + Math.max(0, avail - cw) * 0.35 + cw / 2;
+    const cy = Math.max(8 * s, H * 0.05) + ch / 2;
+
+    g.save();
+    g.globalAlpha = alpha;
+    g.translate(cx, cy);
+    g.scale(grow, grow);
+
+    // 札。白地にみどりのふち。夜やボスの暗い空でも、白地なので読める
+    g.shadowColor = 'rgba(20,40,60,.28)';
+    g.shadowBlur = 10 * s;
+    g.shadowOffsetY = 3 * s;
+    g.fillStyle = '#ffffff';
+    roundRect(g, -cw / 2, -ch / 2, cw, ch, 14 * s);
+    g.fill();
+    g.shadowColor = 'transparent';
+    g.lineWidth = 3.5 * s;
+    g.strokeStyle = '#35b273';
+    g.stroke();
+
+    // うえに ひとこと
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = font(f * 0.42);
+    g.fillStyle = '#26895a';
+    g.fillText('こたえ', 0, -ch / 2 + f * 0.42);
+
+    // 式。こたえだけ ひとまわり大きく、みどりの囲みに入れる
+    const ty = f * 0.3;
+    let x = -cw / 2 + m.side;
+    g.textAlign = 'left';
+    g.font = font(f);
+    g.fillStyle = '#26313d';
+    g.fillText(c.head, x, ty);
+    x += m.head;
+
+    // はずみ: 出た瞬間（と、教えたあとに押した瞬間）に大きく、そのあとは ゆっくり息をする
+    const popK = still ? 1 : Math.min(1, c.pop / 0.42);
+    const bounce = still ? 1 : 1 + Math.sin(Math.PI * popK) * 0.32 + (popK >= 1 ? Math.sin(c.t * 5) * 0.04 : 0);
+    const aw = m.ans + m.pad * 2;
+    const ah = f * 1.45;
+    g.save();
+    g.translate(x + aw / 2, ty);
+    g.scale(bounce, bounce);
+    g.fillStyle = '#dff5e9';
+    roundRect(g, -aw / 2, -ah / 2, aw, ah, 10 * s);
+    g.fill();
+    g.lineWidth = 3 * s;
+    g.strokeStyle = '#35b273';
+    g.stroke();
+    g.textAlign = 'center';
+    g.font = font(f * 1.3);
+    g.fillStyle = '#26895a';
+    g.fillText(c.ans, 0, f * 0.04);
+    g.restore();
+
+    // こたえの まわりで光る つぶ。目を こたえに引きよせる
+    if (!still) {
+      const ax = x + aw / 2;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + c.t * 1.6;
+        const tw = 0.5 + 0.5 * Math.sin(c.t * 7 + i * 1.7);
+        const r = (1.6 + tw * 2.2) * s;
+        const px = ax + Math.cos(a) * (aw * 0.62 + 4 * s);
+        const py = ty + Math.sin(a) * (ah * 0.62 + 2 * s);
+        g.fillStyle = `rgba(255,197,61,${0.45 + tw * 0.55})`;
+        g.beginPath();
+        g.moveTo(px, py - r * 2);
+        g.lineTo(px + r * 0.6, py - r * 0.6);
+        g.lineTo(px + r * 2, py);
+        g.lineTo(px + r * 0.6, py + r * 0.6);
+        g.lineTo(px, py + r * 2);
+        g.lineTo(px - r * 0.6, py + r * 0.6);
+        g.lineTo(px - r * 2, py);
+        g.lineTo(px - r * 0.6, py - r * 0.6);
+        g.closePath();
+        g.fill();
+      }
+    }
+    x += aw;
+
+    g.textAlign = 'left';
+    g.font = font(f);
+    g.fillStyle = '#26313d';
+    if (c.tail) g.fillText(c.tail, x, ty);
+
     g.restore();
   }
 

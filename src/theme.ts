@@ -217,6 +217,41 @@ export function themeFor(worldId: number, stage: number, boss: boolean, time?: T
   };
 }
 
+/**
+ * マップの「みち」の見た目。走る景色（LANDS）と同じ土地に見えるように、色と飾りをそろえる。
+ *
+ * LANDS の色をそのまま使わないのは、走る画面では遠景に回る色（地面と道）が、
+ * マップでは主役の2色になるから。まちの灰色の地面に灰色の道、すなはまに すなの道では
+ * 道が地面にとけて見えない。ここだけ、地面と道の明るさを はっきり分けてある。
+ */
+export interface MapLook {
+  /** 地面（上 → 下のグラデーション） */
+  land: [string, string];
+  /** 地面の もよう（水玉）の色 */
+  dot: string;
+  road: string;
+  roadEdge: string;
+  /** まだ行っていない区間の点線。明るい道には濃い点、暗い道（まちの車道）には白い点 */
+  dash: string;
+  /** 道のわきに置く飾り。上から順に くりかえして使う */
+  deco: string[];
+}
+
+const MAP_LOOKS: Record<number, MapLook> = {
+  1: { land: ['#d4f1c2', '#9fd98a'], dot: 'rgba(255,255,255,.35)', road: '#efd4a4', roadEdge: '#c69a62', dash: '#c69a62', deco: ['🌳', '🌼', '🌷', '🐞', '🌿', '🌳', '🍀'] },
+  2: { land: ['#dcf5d2', '#a8e19a'], dot: 'rgba(255,255,255,.38)', road: '#f5e0b4', roadEdge: '#cfa96b', dash: '#cfa96b', deco: ['🌸', '🦋', '🍃', '🌷', '🌿', '🌼', '🪁'] },
+  3: { land: ['#e6dcfa', '#b8a6e8'], dot: 'rgba(255,255,255,.3)', road: '#f6e7cf', roadEdge: '#a987cf', dash: '#a987cf', deco: ['🍄', '✨', '🔮', '🍄', '🌙', '🚪', '🦉'] },
+  4: { land: ['#e4ecf3', '#bfcddb'], dot: 'rgba(255,255,255,.4)', road: '#7f8c99', roadEdge: '#5b6773', dash: '#ffffff', deco: ['🏠', '🏢', '🚦', '🌳', '🚌', '🏪', '🚲'] },
+  5: { land: ['#f7fbff', '#d5e5f4'], dot: 'rgba(170,200,230,.35)', road: '#d9c3a3', roadEdge: '#a88c68', dash: '#a88c68', deco: ['🌲', '⛄', '❄️', '🏔️', '🌲', '🦊', '❄️'] },
+  6: { land: ['#fdf1cf', '#f0d79e'], dot: 'rgba(255,255,255,.45)', road: '#c89a66', roadEdge: '#9a6c3c', dash: '#fff4dc', deco: ['🌴', '🐚', '🦀', '🌊', '⛱️', '🐬', '⭐'] },
+  7: { land: ['#b3c4cf', '#7f95a5'], dot: 'rgba(255,255,255,.18)', road: '#e2dccf', roadEdge: '#a49a88', dash: '#a49a88', deco: ['⚡', '🌧️', '🪨', '🌊', '🌀', '🏮', '🪨'] },
+  8: { land: ['#eef4ff', '#c9dcff'], dot: 'rgba(255,255,255,.7)', road: '#ffffff', roadEdge: '#b5c9ee', dash: '#9fb6e6', deco: ['☁️', '⭐', '🌈', '🎈', '🕊️', '☁️', '🌟'] },
+};
+
+export function mapLook(worldId: number): MapLook {
+  return MAP_LOOKS[worldId] ?? MAP_LOOKS[1];
+}
+
 /** プレイ画面（canvas の外側）に敷く背景。canvas の空とつながるようにする */
 export function skyCss(theme: Theme): string {
   return `linear-gradient(180deg, ${theme.sky[0]}, ${theme.sky[1]})`;
