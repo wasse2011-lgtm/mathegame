@@ -348,7 +348,7 @@ export class Runner {
   private petTired = false;
   /** 0 = いる、0〜1 = 去っていく途中、1 = いなくなった */
   private petExit = 0;
-  /** ワールドのコイン倍率だけ（「はじめて」のごほうびに使う） */
+  /** ワールド × むずかしさ の コイン倍率（周回の割引は入れない。「はじめて」のごほうびに使う） */
   private worldRate = 1;
   /** 地面の流れる速さの倍率（ベリーハードで はやくなる） */
   private speedK = 1;

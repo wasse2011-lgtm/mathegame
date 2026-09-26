@@ -515,7 +515,7 @@ export const TIERS: Record<Tier, TierDef> = {
   // ヒントは 1ステージ10問に 3回。ペットなしでも「ここぞ」で使える数は残す。
   // ボスは ふつうの いちばん最後のボス（FINAL_BOSS_HINTS）と同じ 2回
   1: {
-    id: 1, name: 'ハード', icon: '🔥', color: '#e2583e', rule: 'ヒント 3かい・とちゅうで とめられない',
+    id: 1, name: 'ハード', icon: '🔥', color: '#e2583e', rule: 'ヒント 3かい（ボス 2）・とちゅうで とめられない',
     coinRate: 1.25, timeRate: 1, hints: 3, bossHints: 2, pause: false, petHelp: true, bossPrefix: 'つよい ',
   },
   // ヒントなし・ペットの力なし・持ち時間は 3/4。ここは「じぶんの ちから」だけで走るところ
