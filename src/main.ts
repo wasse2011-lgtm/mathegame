@@ -20,7 +20,7 @@ import {
   type World,
 } from './curriculum';
 import { GACHA_COST, lockedItems } from './items';
-import { minuteWord } from './limit';
+import { GRACE_SEC, minuteWord } from './limit';
 import { initMini, miniLeftToday, miniPlaying, renderMiniList, stopMini } from './minigame';
 import { renderMiniMap } from './minimap';
 import { initGate, initParent, openGate, renderParent } from './parent';
@@ -32,10 +32,11 @@ import {
   ownedPets,
   type PetDef,
 } from './pets';
-import { refreshPlayClock, startPlayClock } from './playclock';
+import { mountTimerButton, refreshPlayClock, ringClocks, startPlayClock } from './playclock';
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
+import { initTimer, openTimerSheet } from './timer';
 import { MASTERED, easiestFacts, weakFactCount, weakFacts, weakestFacts } from './questions';
 import { COIN_BOSS, COIN_HUNT, dailyBonus } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
@@ -43,7 +44,6 @@ import {
   clearSlot,
   flushSave,
   isEmptySlot,
-  overDailyLimit,
   persist,
   profile,
   refreshDaily,
@@ -51,9 +51,11 @@ import {
   resetAll,
   save,
   selectSlot,
+  sessionOver,
   slots,
   stageStars,
   storageWorks,
+  timeUp,
   usedSlots,
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
@@ -105,7 +107,7 @@ const LOCKED_WHEN_OVER: ReadonlySet<ScreenName> = new Set<ScreenName>([
 ]);
 
 function show(name: ScreenName): void {
-  if (LOCKED_WHEN_OVER.has(name) && overDailyLimit()) name = 'rest';
+  if (LOCKED_WHEN_OVER.has(name) && timeUp()) name = 'rest';
   if (name === 'rest') renderRest();
   // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
   if (current === 'result' && name !== 'result') stopResultAnim();
@@ -387,15 +389,38 @@ function goHome(): void {
 
 // ------------------------------------------------------------------ きょうは ここまで
 
-/** 「きょうは ここまで」の画面。show('rest') のたびに作りなおす */
+/** 0 になった ボタンの ことば。タイマーなら「おしまい」、1日の時間なら「きょうは おしまい」 */
+function endLabel(): string {
+  return sessionOver() ? 'おしまい' : 'きょうは おしまい';
+}
+
+/**
+ * 「きょうは ここまで」の画面。show('rest') のたびに作りなおす。
+ *
+ * タイマーで おわったときは「じかんに なったよ」。夕方の空に 目ざまし時計が鳴り、
+ * 「おうちの ひとに わたしてね」で終わる（1日の時間とちがい、あしたの話はしない）。
+ */
 function renderRest(): void {
   const p = profile();
-  paintSkinIcon($<HTMLCanvasElement>('rest-char'), currentLook(), 120);
-  $('rest-who').textContent = p.name ? `${p.name}、たくさん あそんだね。` : 'たくさん あそんだね。';
+  const session = sessionOver();
+  screens.rest.dataset.reason = session ? 'session' : 'daily';
+  paintSkinIcon($<HTMLCanvasElement>('rest-char'), currentLook(), session ? 96 : 120);
+  $('rest-head').textContent = session ? 'じかんに なったよ！' : 'きょうは ここまで！';
+  $('rest-who').textContent = session
+    ? p.name ? `${p.name}、たのしかったね。` : 'たのしかったね。'
+    : p.name ? `${p.name}、たくさん あそんだね。` : 'たくさん あそんだね。';
+  $('rest-bye').textContent = session ? 'また あそぼうね！' : 'また あした あそぼう！';
   const min = save.settings.dailyLimitMin;
-  $('rest-next').textContent = min ? `あしたは また ${min}${minuteWord(min)} あそべるよ` : '';
-  // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない
-  $('rest-slots').hidden = usedSlots() < 2;
+  $('rest-next').textContent = session
+    ? 'おうちの ひとに わたしてね'
+    : min ? `あしたは また ${min}${minuteWord(min)} あそべるよ` : '';
+  // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない。
+  // タイマーは端末に1つなので、きろくを かえても遊べない（出さない）
+  $('rest-slots').hidden = session || usedSlots() < 2;
+  // 目ざまし時計は タイマーのときだけ。出すたびに鳴らしなおす
+  const clock = screens.rest.querySelector<HTMLElement>('.rest-clock');
+  clock?.classList.remove('ringing');
+  if (clock && session) requestAnimationFrame(() => clock.classList.add('ringing'));
 }
 
 $('rest-slots').addEventListener('click', () => {
@@ -405,7 +430,10 @@ $('rest-slots').addEventListener('click', () => {
 
 $('rest-parent').addEventListener('click', () => {
   sfx.tap();
-  openGate(openParent);
+  // タイマーで おわったなら、関門のあとは タイマーの画面へ（のばす・止める）。
+  // 1日の時間なら おうちのかたの画面へ
+  if (sessionOver()) openGate(() => openTimerSheet('running'));
+  else openGate(openParent);
 });
 
 /** オーバーレイが出ているか。ガチャや たまごの結果を見ているあいだは切りかえない */
@@ -413,22 +441,43 @@ function overlayOpen(): boolean {
   return document.querySelector('#app > .overlay:not([hidden])') !== null;
 }
 
-let wasOver = overDailyLimit();
+let wasOver = timeUp();
+/** 0 になった時刻（performance.now）。途中の ステージを 待つ長さを はかる */
+let overAt = 0;
+
+/** 遊んでいる途中か（ステージ・ミニゲームの1回ぶん）。0 になっても ここは待つ */
+function midGame(): boolean {
+  return current === 'play' || (current === 'mini' && miniPlaying());
+}
 
 /**
  * 時計が 1秒ごとに呼ぶ。のこりが 0 になったら「きょうは ここまで」へ、
  * 時間を足してもらったり 日付が変わったりしたら ホームへ戻す。
+ *
+ * ステージやミニゲームの途中は 終わるまで待つが、GRACE_SEC（3分）で打ち切る。
+ * ハードルのエンドレスは 終わりがなく、ポーズのまま置くこともできるので、
+ * 待ちっぱなしにすると 時間の意味がなくなる。
  */
 function onClockTick(): void {
-  const over = overDailyLimit();
+  const over = timeUp();
   if (over) {
-    const busy = current === 'mini' && miniPlaying();
-    if (current !== 'rest' && LOCKED_WHEN_OVER.has(current) && !busy && !overlayOpen()) show('rest');
+    if (!wasOver) overAt = performance.now();
+    if (midGame()) {
+      if (performance.now() - overAt > GRACE_SEC * 1000) {
+        if (current === 'play') runner.stop();
+        $('overlay-pause').hidden = true;
+        show('rest');
+      }
+    } else if (current !== 'rest' && LOCKED_WHEN_OVER.has(current) && !overlayOpen()) {
+      show('rest');
+    }
   } else if (current === 'rest') {
     goHome();
   }
   if (over !== wasOver) {
     wasOver = over;
+    // 0 になった瞬間。見えているときだけ、やわらかい ベルで知らせる
+    if (over && document.visibilityState === 'visible') sfx.alarm();
     // リザルトを見ているあいだに またいだら、ボタンの顔（つづける／きょうは おしまい）を合わせる
     if (current === 'result' && lastResult) {
       renderResultBtns(lastResult);
@@ -628,7 +677,7 @@ function renderTitle(): void {
   $('home-coins').textContent = String(p.coins);
 
   // 1日の上限に達したら、遊ぶ導線だけ閉じる（図鑑ときせかえは見られる）
-  const over = overDailyLimit();
+  const over = timeUp();
   const startBtn = $<HTMLButtonElement>('btn-start');
   const daily = $('daily-card');
   const hunt = $<HTMLButtonElement>('hunt-card');
@@ -858,7 +907,7 @@ function openCollection(where: 'shop' | 'ranch', from: 'home' | 'result'): void 
   else renderRanch();
 
   const play = $<HTMLButtonElement>(where === 'shop' ? 'shop-play' : 'ranch-play');
-  play.hidden = from !== 'result' || overDailyLimit();
+  play.hidden = from !== 'result' || timeUp();
   if (!play.hidden) {
     const next = lastResult && nextStageOf(lastResult.worldId, lastResult.stage);
     play.textContent = next ? 'つづきを あそぶ' : nextLabel();
@@ -1149,7 +1198,7 @@ function renderWorldList(): void {
     list.appendChild(b);
   }
 
-  $('map-hint').textContent = overDailyLimit()
+  $('map-hint').textContent = timeUp()
     ? 'きょうの ぼうけんは ここまで。また あした！'
     : `せかいを タップすると、なかの みちが みえるよ`;
 }
@@ -1326,7 +1375,7 @@ function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
     b.className =
       `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
       `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
-    b.disabled = !open || overDailyLimit();
+    b.disabled = !open || timeUp();
     // 道の線は、開いているマスまでを「行ったことのある道」にする
     b.dataset.road = open ? '1' : '0';
     // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる。
@@ -1418,7 +1467,7 @@ function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
   });
 
   const bossNeed = bossRequirement(w) - normalStars(w);
-  $('map-hint').textContent = overDailyLimit()
+  $('map-hint').textContent = timeUp()
     ? 'きょうの ぼうけんは ここまで。また あした！'
     : bossNeed > 0
       ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w)}）`
@@ -1550,7 +1599,7 @@ function startStage(world: World, stage: number): void {
 
 function startRun(cfg: RunConfig): void {
   // 上限に達していたら新しいステージは始めない（走っている途中では止めない）
-  if (overDailyLimit()) {
+  if (timeUp()) {
     goHome();
     return;
   }
@@ -1913,13 +1962,13 @@ function renderResultBtns(r: StageResult): void {
   const onMap = r.mode === 'stage';
   // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る。
   // ボスに負けたときだけは、挑みなおすのが主役になる
-  const over = overDailyLimit();
+  const over = timeUp();
   const next = nextStageOf(r.worldId, r.stage);
   const nextBtn = $('result-next');
   $('result-retry').hidden = r.failed ? over : true;
   nextBtn.hidden = r.failed && !over;
   nextBtn.textContent = over
-    ? 'きょうは おしまい'
+    ? endLabel()
     : next
       ? 'つづける'
       : onMap
@@ -1932,7 +1981,7 @@ function renderResultBtns(r: StageResult): void {
 
 /** 「つづける」の文字。きせかえ／ぼくじょうの「つづきを あそぶ」でも同じ行き先を使う */
 function nextLabel(): string {
-  if (overDailyLimit()) return 'きょうは おしまい';
+  if (timeUp()) return endLabel();
   if (!lastResult) return 'スタートへ';
   if (nextStageOf(lastResult.worldId, lastResult.stage)) return 'つづける';
   return lastResult.stage === 0 ? 'スタートへ' : 'マップへ';
@@ -1957,7 +2006,7 @@ function renderResultEgg(coins = profile().coins): void {
 
   // きょうの時間を使いきったら、きせかえ・ぼくじょうへの入口は出さない
   // （押しても「きょうは ここまで」になるだけ）
-  if (overDailyLimit()) {
+  if (timeUp()) {
     btn.hidden = true;
     row.hidden = true;
     return;
@@ -2035,7 +2084,7 @@ $('result-retry').addEventListener('click', () => {
 
 /** 「つづける」の行き先。きせかえ／ぼくじょうから戻ってきたときも同じ場所へ進む */
 function goNext(): void {
-  if (!lastResult || overDailyLimit()) {
+  if (!lastResult || timeUp()) {
     goHome();
     return;
   }
@@ -2250,6 +2299,21 @@ initParent(() => {
   renderTitle();
   refreshPlayClock();
 });
+initTimer({
+  gate: (onPass, why) => openGate(onPass, why),
+  onChange: (what) => {
+    refreshPlayClock();
+    if (current === 'parent') renderParent();
+    // かけたら ホームへ。わたされた子が いちばん最初に見るのが、のこりの時計になる
+    if (what === 'start') {
+      goHome();
+      ringClocks();
+    } else if (current === 'rest') {
+      goHome();
+    }
+  },
+});
+mountTimerButton($('btn-timer'));
 syncSettings();
 
 // file:// で開いたときなど、記録が残らない環境ではその場で伝える
@@ -2259,7 +2323,9 @@ $('no-storage').hidden = storageWorks;
 // （大人が設定している時間を、子どもの持ち時間から引かない）。
 // 「きょうは ここまで」の画面も数えない（もう遊べない時間を足しても意味がない）
 startPlayClock({
-  counting: () => current !== 'parent' && current !== 'rest' && $('overlay-gate').hidden,
+  // タイマーを かける画面も おとなの時間なので数えない
+  counting: () =>
+    current !== 'parent' && current !== 'rest' && $('overlay-gate').hidden && $('overlay-timer').hidden,
   onTick: onClockTick,
 });
 

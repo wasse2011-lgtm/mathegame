@@ -37,10 +37,10 @@ import {
 import {
   markMiniDone,
   miniDoneToday,
-  overDailyLimit,
   persist,
   profile,
   save,
+  timeUp,
 } from './save';
 import { currentLook } from './sprites';
 import { cherryArt, dotsArt, frameArt, splitArt } from './tenframe';
@@ -1329,7 +1329,7 @@ function openGame(id: MiniId): void {
   // 上限に達したら、新しい1回は始めない（走るステージと同じ。途中では止めない）。
   // ここを見ないと「もういちど」を押しつづけるかぎり、いつまでも遊べてしまう。
   // 遊んだ時間そのものは playclock.ts の時計が数えている（ここでは足さない）
-  if (overDailyLimit()) {
+  if (timeUp()) {
     env.onExit();
     return;
   }

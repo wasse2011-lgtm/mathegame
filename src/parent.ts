@@ -26,11 +26,15 @@ import {
   playedToday,
   profile,
   remainingToday,
+  clearSession,
+  extendSession,
   save,
+  sessionLeft,
   slots,
   stageStars,
   today,
 } from './save';
+import { openTimerSheet } from './timer';
 import { zukanProgress } from './zukan';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -101,6 +105,7 @@ export function renderParent(): void {
     : 'まだ十分なデータがありません。何ステージか遊ぶと出てきます。';
 
   renderLimit();
+  renderTimerRow();
   $<HTMLInputElement>('p-slow').checked = save.settings.slow;
 
   const pet = activePet();
@@ -175,8 +180,37 @@ function renderLimit(): void {
   $('p-extend-undo').hidden = !limit || extra <= 0;
 }
 
+/** タイマー（いまから ○分）の いまの状態 */
+function renderTimerRow(): void {
+  const t = save.timer;
+  const left = sessionLeft();
+  $('p-timer-now').textContent = !t
+    ? 'いまは かかっていません。'
+    : left > 0
+      ? `かかっています。のこり ${leftText(left)}（ぜんぶで ${Math.round(t.totalMs / 60_000)}分）`
+      : '時間になりました（お子さんには「じかんに なったよ」の画面が出ています）。';
+  $('p-timer-set').textContent = t ? 'かけなおす' : 'タイマーを かける';
+  $('p-timer-add').hidden = !t;
+  $('p-timer-stop').hidden = !t;
+}
+
 /** 設定の変更と、セーブデータの持ち出し／読みこみ */
 export function initParent(onChange: () => void): void {
+  // ここは関門の内側なので、かかっていても そのまま開く
+  $('p-timer-set').addEventListener('click', () => {
+    openTimerSheet(save.timer ? 'running' : 'setup');
+  });
+  $('p-timer-add').addEventListener('click', () => {
+    extendSession(10);
+    renderTimerRow();
+    onChange();
+  });
+  $('p-timer-stop').addEventListener('click', () => {
+    clearSession();
+    renderTimerRow();
+    onChange();
+  });
+
   const chips = $('p-limit-chips');
   for (const min of LIMIT_CHOICES) {
     const b = document.createElement('button');
@@ -256,7 +290,11 @@ let gateTimer = 0;
 let gatePass: (() => void) | null = null;
 
 function newGateQuestion(): void {
-  const gate = makeGate();
+  // 組は 23とおりしかないので、そのまま引くと 同じ問題が また出ることがある。
+  // 「まちがえたら問題を替える」を 必ず守る
+  const before = $('gate-q').textContent;
+  let gate = makeGate();
+  for (let i = 0; i < 8 && gate.text === before; i++) gate = makeGate();
   gateAnswer = gate.answer;
   $('gate-q').textContent = gate.text;
   $<HTMLInputElement>('gate-input').value = '';

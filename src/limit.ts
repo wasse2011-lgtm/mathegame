@@ -19,10 +19,13 @@ export function minutesLeft(sec: number): number {
   return Math.max(0, Math.ceil(sec / 60));
 }
 
-/** 「あと 12ふん」。制限なし（Infinity）なら '' */
-export function remainText(sec: number): string {
+/**
+ * 「あと 12ふん」。制限なし（Infinity）なら ''。
+ * @param ended 0 になったときの ことば（タイマーなら「おしまい」）
+ */
+export function remainText(sec: number, ended = 'きょうは おしまい'): string {
   if (!Number.isFinite(sec)) return '';
-  if (sec <= 0) return 'きょうは おしまい';
+  if (sec <= 0) return ended;
   const m = minutesLeft(sec);
   return `あと ${m}${minuteWord(m)}`;
 }
@@ -66,4 +69,54 @@ export function makeGate(rand: () => number = Math.random): { text: string; answ
 /** 全角の数字も受ける。日本語入力のまま打つと「１３６」になる */
 export function toHalfWidth(s: string): string {
   return s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+}
+
+// ------------------------------------------------------------------ タイマー（いまから ○分）
+
+/** タイマーで えらべる分数。文字盤が 60分なので 60 まで */
+export const TIMER_CHOICES = [5, 10, 15, 20, 30, 45, 60];
+
+/**
+ * 時間になっても、ステージやミニゲームの途中なら ここまでは待つ（秒）。
+ * 待たないと 答えている途中の問題がミスとして残る。ただ ハードルのエンドレスは
+ * 終わりがないので、待ちっぱなしにはしない
+ */
+export const GRACE_SEC = 180;
+
+/**
+ * 時計の おうぎ形。12時から 時計まわりに見て、のこり p（0〜1）のぶんを
+ * 「針 → 12時」の あいだに塗る（タイムタイマーと同じ向き）。
+ * 時間がたつと 針が 時計まわりに進み、12時に着いたら おしまい。
+ */
+export function wedgePath(cx: number, cy: number, r: number, p: number): string {
+  const f = (n: number): string => n.toFixed(2);
+  if (!(p > 0)) return '';
+  if (p >= 0.9995) {
+    return `M${f(cx)} ${f(cy - r)}A${f(r)} ${f(r)} 0 1 1 ${f(cx)} ${f(cy + r)}A${f(r)} ${f(r)} 0 1 1 ${f(cx)} ${f(cy - r)}Z`;
+  }
+  const a = (1 - p) * 2 * Math.PI;
+  const x = cx + r * Math.sin(a);
+  const y = cy - r * Math.cos(a);
+  const large = p > 0.5 ? 1 : 0;
+  return `M${f(cx)} ${f(cy)}L${f(x)} ${f(y)}A${f(r)} ${f(r)} 0 ${large} 1 ${f(cx)} ${f(cy - r)}Z`;
+}
+
+/** 針の向き（12時から 時計まわりの度）。のこり p のとき */
+export function handAngle(p: number): number {
+  return (1 - Math.min(1, Math.max(0, p))) * 360;
+}
+
+/**
+ * タイマーの文字盤を ゆびで回したときの分数。
+ * 文字盤は 60分で、12時が 0、反時計まわりに 5・10・15…（タイムタイマーと同じ）。
+ * 5分きざみに丸め、5〜60 におさめる。12時をまたいで 60 ⇄ 5 に跳ばないよう、
+ * 前の値から 30分より大きく離れたら 近いほうの はしに とどめる。
+ */
+export function dialMinutes(angleDeg: number, prev: number): number {
+  const a = ((angleDeg % 360) + 360) % 360;
+  // 12時の すぐ左（a が 360 に近い）は 0分に近い、すぐ右（a が 0 に近い）は 60分に近い
+  let m = Math.round((360 - a) / 6 / 5) * 5;
+  m = Math.min(60, Math.max(5, m));
+  if (Math.abs(m - prev) > 30) m = prev > 30 ? 60 : 5;
+  return m;
 }

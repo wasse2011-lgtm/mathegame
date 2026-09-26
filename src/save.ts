@@ -125,11 +125,34 @@ export interface Settings {
   dailyLimitMin: number;
 }
 
+/**
+ * タイマー（いまから ○分）。おうちのかたが 端末を わたすときに かける。
+ *
+ * 1日にあそべる時間とちがい、**きろくではなく 端末に1つ**。きろくを
+ * 切りかえても 逃げられない。時間は「さわっているあいだ」ではなく、
+ * かけた瞬間からの実時間で減る（裏に回しても、アプリを閉じても減る）。
+ *
+ * 終わる時刻を持たずに「のこり」と「最後に減らした時刻」を持つのは、
+ * 端末の時計を戻されても のこりが増えないようにするため（tickSession）。
+ */
+export interface SessionTimer {
+  /** seenAt の時点での のこり（ミリ秒） */
+  leftMs: number;
+  /** 輪の割合に使う長さ（ミリ秒）。延長すると のびる */
+  totalMs: number;
+  /** leftMs を最後に減らした時刻（Date.now()） */
+  seenAt: number;
+  /** かけた日（YYYY-MM-DD）。終わったまま日付が変わったら、自動で外す */
+  day: string;
+}
+
 export interface SaveData {
   v: 1;
   players: Profile[];
   active: number;
   settings: Settings;
+  /** かかっているタイマー。null は なし */
+  timer: SessionTimer | null;
   /**
    * コインのレート版。2 になる前のセーブは 1問1枚で貯めたものなので、
    * 読みこむときに COIN_SCALE を掛けて、買えるものの数を合わせる。
@@ -285,13 +308,121 @@ export function extendToday(sec: number, p: Profile = profile()): void {
   persist();
 }
 
+// ------------------------------------------------------------------ タイマー（いまから ○分）
+
+/**
+ * のこりを 実時間で減らす。1秒ごと（と起動したとき）に呼ぶ。
+ *
+ * 減らすのは「前に見た時刻から進んだぶん」だけ。時計が戻っていたら 0 として扱い、
+ * 基準の時刻だけ取りなおす（のこりは増えない）。アプリを閉じているあいだの
+ * ぶんも、つぎに開いたときに ここで まとめて引かれる。
+ */
+export function tickSession(now: number = Date.now()): void {
+  const t = save.timer;
+  if (!t) return;
+  t.leftMs = Math.max(0, t.leftMs - Math.max(0, now - t.seenAt));
+  t.seenAt = now;
+  // 終わったまま日付が変わったら外す。おうちのかたが外し忘れても、
+  // つぎの日に開いたら ずっと「おしまい」のまま、にはしない
+  if (t.leftMs <= 0 && t.day !== today(new Date(now))) save.timer = null;
+}
+
+/** タイマーの のこり（秒）。かかっていなければ Infinity */
+export function sessionLeft(now: number = Date.now()): number {
+  const t = save.timer;
+  if (!t) return Infinity;
+  return Math.max(0, t.leftMs - Math.max(0, now - t.seenAt)) / 1000;
+}
+
+/** タイマーが かかっていて、もう 0 になっているか */
+export function sessionOver(now: number = Date.now()): boolean {
+  return save.timer !== null && sessionLeft(now) <= 0;
+}
+
+/** いまから min 分のタイマーをかける（かかっていれば かけなおす） */
+export function startSession(min: number, now: number = Date.now()): void {
+  const ms = Math.round(min * 60_000);
+  save.timer = { leftMs: ms, totalMs: ms, seenAt: now, day: today(new Date(now)) };
+  persist();
+}
+
+/**
+ * タイマーを のばす。終わったあとに のばしたときは、のばした長さを
+ * 「まるまる1本」として輪を満タンから見せる（前の長さに足すと、
+ * 10分もらったのに 輪が半分以下の きいろ から始まって 分かりにくい）。
+ */
+export function extendSession(min: number, now: number = Date.now()): void {
+  const t = save.timer;
+  if (!t) return;
+  tickSession(now);
+  const ms = Math.round(min * 60_000);
+  if (t.leftMs <= 0) {
+    t.totalMs = ms;
+  } else {
+    t.totalMs += ms;
+  }
+  t.leftMs += ms;
+  t.day = today(new Date(now));
+  persist();
+}
+
+/** タイマーを外す */
+export function clearSession(): void {
+  save.timer = null;
+  persist();
+}
+
+export type LimitKind = 'daily' | 'session';
+
+/** 子どもに見せる のこり。1日の時間と タイマーの、先に終わるほう */
+export interface LimitView {
+  kind: LimitKind;
+  /** のこり（秒） */
+  remain: number;
+  /** 輪が満タンのときの長さ（秒） */
+  total: number;
+}
+
+/** いま効いている制限。どちらも無ければ null */
+export function limitView(now: number = Date.now()): LimitView | null {
+  let view: LimitView | null = null;
+  const all = allowanceToday();
+  if (all) view = { kind: 'daily', remain: remainingToday(), total: all };
+  if (save.timer) {
+    const remain = sessionLeft(now);
+    // 同じなら タイマーを見せる（わたしたときに かけた ほうが、子どもに身近）
+    if (!view || remain <= view.remain) view = { kind: 'session', remain, total: save.timer.totalMs / 1000 };
+  }
+  return view;
+}
+
+/** もう遊べないか（1日の時間を使いきった か タイマーが終わった） */
+export function timeUp(now: number = Date.now()): boolean {
+  return overDailyLimit() || sessionOver(now);
+}
+
 function freshSave(): SaveData {
   return {
     v: 1,
     players: Array.from({ length: SLOTS }, freshProfile),
     active: 0,
     settings: { sound: true, slow: false, leftHanded: false, dailyLimitMin: 0 },
+    timer: null,
     econ: ECON_REV,
+  };
+}
+
+/** 読みこんだタイマーを確かめる。形がおかしければ「なし」に落とす */
+function readTimer(t: unknown): SessionTimer | null {
+  if (!t || typeof t !== 'object') return null;
+  const o = t as Partial<SessionTimer>;
+  const nums = [o.leftMs, o.totalMs, o.seenAt];
+  if (!nums.every((n) => typeof n === 'number' && Number.isFinite(n))) return null;
+  return {
+    leftMs: Math.max(0, Number(o.leftMs)),
+    totalMs: Math.max(1, Number(o.totalMs)),
+    seenAt: Number(o.seenAt),
+    day: typeof o.day === 'string' ? o.day : today(),
   };
 }
 
@@ -347,6 +478,8 @@ function read(): SaveData {
       players,
       active: Math.min(Math.max(parsed.active ?? 0, 0), players.length - 1),
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
+      // タイマーは後から足した。古いセーブには無い
+      timer: readTimer(parsed.timer),
       econ: ECON_REV,
     };
   } catch {
@@ -412,6 +545,7 @@ export function resetAll(): void {
   save.players = fresh.players;
   save.active = 0;
   save.settings = fresh.settings;
+  save.timer = null;
   save.econ = fresh.econ;
   persist();
 }

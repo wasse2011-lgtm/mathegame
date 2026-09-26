@@ -2278,30 +2278,70 @@ body {
 .gate-input[disabled] { opacity: .5; }
 
 /* ---------------- のこり時間の時計（playclock.ts） ----------------
-   色のついた輪が、のこりに合わせて 12時の位置へ ちぢんでいく（タイムタイマーと同じ）。
-   まんなかの白い丸に 分の数字。字が読めなくても、輪の長さと色で分かる。
-   みどり → きいろ（半分をきった）→ あか（のこり 3分）→ おわると 夜の色に 月。 */
+   目ざまし時計。ベル・とって・あし・色のわく・白い文字盤・目もり・針・秒針。
+   のこりは 文字盤の おうぎ形（針 → 12時）。時間がたつと 針が 時計まわりに進み、
+   おうぎ形が ちいさくなる（タイムタイマーと同じ向き）。
+   色は わくと おうぎ形が いっしょに変わる:
+   みどり → きいろ（半分をきった）→ あか（のこり 3分。ベルが ときどき ゆれる）→ 夜の色。 */
 .tclock {
   --tc: var(--good);
+  --tc-dark: var(--good-dark);
   --tc-empty: rgba(38,49,61,.14);
   margin: 0; display: inline-flex; align-items: center; gap: .45rem; flex: 0 0 auto;
 }
 .tclock[hidden] { display: none !important; }
-.tclock[data-level="mid"] { --tc: var(--amber); }
-.tclock[data-level="low"] { --tc: var(--bad); }
-.tc-ring {
-  width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto;
-  display: grid; place-items: center;
-  background: conic-gradient(var(--tc) calc(var(--p, 1) * 360deg), var(--tc-empty) 0);
+.tclock[data-level="mid"], #btn-timer[data-level="mid"] { --tc: var(--amber); --tc-dark: var(--amber-dark); }
+.tclock[data-level="low"], #btn-timer[data-level="low"] { --tc: var(--bad); --tc-dark: var(--bad-dark); }
+.tclock[data-level="over"], #btn-timer[data-level="over"] { --tc: #6f7cc4; --tc-dark: #3f4a8c; }
+/* タイマーで おわったときは 夜ではなく、鳴っている 目ざまし時計の あか */
+.tclock[data-level="over"][data-kind="session"], #btn-timer.running[data-level="over"] { --tc: var(--bad); --tc-dark: var(--bad-dark); }
+
+.tc-clock { position: relative; flex: 0 0 auto; width: 40px; height: 40px; display: block; }
+.ac { display: block; width: 100%; height: 100%; overflow: visible; }
+.ac-bell, .ac-knob { fill: var(--tc-dark); }
+.ac-handle { fill: none; stroke: var(--tc-dark); stroke-width: 3.2; stroke-linecap: round; }
+.ac-legs { fill: none; stroke: #4a5563; stroke-width: 3.6; stroke-linecap: round; }
+.ac-body { fill: var(--tc); stroke: var(--tc-dark); stroke-width: 1.2; }
+.ac-face { fill: #fff; }
+.ac-wedge { fill: var(--tc); opacity: .88; transition: fill .3s ease; }
+.ac-ticks line { stroke: #9aa7b2; stroke-width: 1.1; stroke-linecap: round; }
+.ac-ticks line.major { stroke: #56626e; stroke-width: 1.8; }
+.ac-glint { fill: none; stroke: rgba(255,255,255,.9); stroke-width: 2.2; stroke-linecap: round; }
+.ac-hand { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+.ac-sec {
+  stroke: var(--bad); stroke-width: 1.2; stroke-linecap: round;
+  transform-box: view-box; transform-origin: 32px 35px;
+  animation: ac-sec 60s steps(60) infinite;
 }
+.ac-cap { fill: var(--ink); stroke: #fff; stroke-width: 1; }
+.ac-moon { font-size: 15px; display: none; }
+/* ベルは とっての まんなかを軸に ゆらす */
+.ac-bells { transform-box: view-box; transform-origin: 32px 14px; }
+@keyframes ac-sec { to { transform: rotate(360deg); } }
+
+/* 見出しの小さい時計は、秒針を出さない（せまいところで ちらつく）。
+   分の数字は 右下の まるに出す */
+.tclock:not(.wide):not(.big) .ac-sec { display: none; }
 .tc-num {
-  width: 24px; height: 24px; border-radius: 50%; background: #fff;
+  position: absolute; right: -7px; bottom: -4px;
+  min-width: 21px; height: 19px; padding: 0 .25rem; border-radius: 999px;
   display: grid; place-items: center;
-  font-size: .8rem; font-weight: 700; line-height: 1; color: var(--ink);
-  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+  background: var(--tc-dark); color: #fff; border: 2px solid #fff;
+  font-size: .7rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(0,0,0,.18);
 }
-.tc-num.long { font-size: .6rem; }
-.tclock[data-level="over"] .tc-num { background: #2d3a6b; font-size: .78rem; }
+.tc-num.long { font-size: .58rem; }
+.tclock.wide .tc-num, .tclock.big .tc-num { display: none; }
+
+/* おわったとき。1日の時間なら 夜の文字盤に 月、タイマーなら 数字の 0 のまま */
+.tclock[data-level="over"] .ac-sec, #btn-timer[data-level="over"] .ac-sec { animation: none; display: none; }
+.tclock[data-level="over"][data-kind="daily"] .ac-face { fill: #2d3a6b; }
+.tclock[data-level="over"][data-kind="daily"] .ac-ticks,
+.tclock[data-level="over"][data-kind="daily"] .ac-hand,
+.tclock[data-level="over"][data-kind="daily"] .ac-cap { display: none; }
+.tclock[data-level="over"][data-kind="daily"] .ac-moon { display: block; }
+.tclock[data-level="over"][data-kind="daily"] .tc-num { display: none; }
+
 .tc-text { font-size: 1.15rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
 .tclock[data-level="low"] .tc-text { color: var(--bad-dark); }
 .tc-bar {
@@ -2313,41 +2353,135 @@ body {
   width: calc(var(--p, 1) * 100%); background: var(--tc);
   transition: width .9s linear, background-color .3s ease;
 }
-/* せまい画面の見出し。タイトルの字を削りすぎないよう、輪を ひとまわり小さくする */
-@media (max-width: 360px) {
-  .map-head { gap: .5rem; }
-  .tc-ring { width: 30px; height: 30px; }
-  .tc-num { width: 22px; height: 22px; font-size: .74rem; }
-}
-.tclock.wide .tc-ring { width: 42px; height: 42px; }
-.tclock.wide .tc-num { width: 30px; height: 30px; font-size: .95rem; }
-.tclock.wide .tc-num.long { font-size: .74rem; }
+.tclock.wide .tc-clock { width: 50px; height: 50px; }
+.tclock.big .tc-clock { width: 150px; height: 150px; }
 
 /* ホーム。名前の行のすぐ下に、横いっぱいの帯で出す */
 .home-time {
   width: 100%; background: rgba(255,255,255,.88); border-radius: 999px;
-  padding: .3rem 1rem .3rem .35rem; gap: .6rem;
+  padding: .2rem 1rem .2rem .45rem; gap: .6rem;
 }
-/* リザルト。「つづける」の すぐ上。おわったときは下のボタンが「きょうは おしまい」と
+/* リザルト。「つづける」の すぐ上。おわったときは下のボタンが「おしまい」と
    言うので、同じことばを2つ並べない */
 .result-time { margin-top: .2rem; }
-.result-time[data-level="over"] { display: none; }
 .result-time .tc-text { font-size: 1.05rem; }
+.result-time[data-level="over"] { display: none; }
 
-/* 夜・ボスの空の上。輪の からの部分が 空にとけないように明るくする */
+/* 夜・ボスの空の上。帯の からの部分が 空にとけないように明るくする */
 .screen-play.dark .tclock { --tc-empty: rgba(255,255,255,.34); }
 
-/* 節目（のこり 5分・1分・おしまい）をまたいだ瞬間だけ、何度か はねる */
-.tclock.ping .tc-ring { animation: tc-ping .8s ease-in-out 3; }
-@keyframes tc-ping {
-  0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.3) rotate(-8deg); }
-  70% { transform: scale(.94) rotate(6deg); }
+/* のこり 3分から、ベルが ときどき ゆれる（ずっと ゆらすと 式から目が はなれる） */
+.tclock[data-level="low"] .ac-bells, #btn-timer[data-level="low"] .ac-bells {
+  animation: ac-jiggle 4s ease-in-out infinite;
 }
+@keyframes ac-jiggle {
+  0%, 12%, 100% { transform: none; }
+  3% { transform: rotate(-9deg); }
+  6% { transform: rotate(8deg); }
+  9% { transform: rotate(-5deg); }
+}
+
+/* 節目（のこり 5分・1分・おしまい）をまたいだ瞬間と、タイマーを かけた瞬間。
+   目ざまし時計が ジリリと鳴る（からだごと こきざみに ゆれて、ベルが大きく ふれる） */
+.tclock.ping .tc-clock, #btn-timer.ping .ac { animation: ac-ring .09s linear 20 alternate; }
+.tclock.ping .ac-bells, #btn-timer.ping .ac-bells { animation: ac-bells .18s ease-in-out 10 alternate; }
+@keyframes ac-ring { from { transform: rotate(-7deg); } to { transform: rotate(7deg) translateY(-1px); } }
+@keyframes ac-bells { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+
 @media (prefers-reduced-motion: reduce) {
-  .tclock.ping .tc-ring { animation: none; }
+  .ac-sec { animation: none; }
+  .tclock .ac-bells, .tclock.ping .tc-clock, .tclock.ping .ac-bells,
+  #btn-timer .ac-bells, #btn-timer.ping .ac { animation: none !important; }
   .tc-bar i { transition: none; }
 }
+
+/* せまい画面の見出し。タイトルの字を削りすぎないよう、時計を ひとまわり小さくする */
+@media (max-width: 360px) {
+  .map-head { gap: .5rem; }
+  .tclock:not(.wide):not(.big) .tc-clock { width: 34px; height: 34px; }
+}
+
+/* ---------------- ⏰ タイマーの入口（timer.ts） ----------------
+   歯車の反対のすみ。ながおしで開く。押しているあいだ、まわりの輪が満ちていく。
+   かかっているあいだは 中の時計に のこりの おうぎ形が出る。 */
+.timer-btn {
+  --tc: var(--blue);
+  --tc-dark: var(--blue-dark);
+  position: absolute;
+  top: calc(var(--safe-t) + .3rem);
+  left: calc(var(--safe-l) + .3rem);
+  width: 46px; height: 46px; padding: 5px;
+  background: rgba(255,255,255,.55); border: 0; border-radius: 50%;
+  cursor: pointer; z-index: 5; touch-action: none;
+  transition: transform .15s ease, background-color .2s ease;
+}
+.timer-btn:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.timer-btn.running { background: rgba(255,255,255,.9); }
+.timer-btn .ac { position: relative; }
+/* かかっていないときは 淡く。子どもの目を引かない */
+.timer-btn:not(.running) .ac { opacity: .62; }
+.timer-btn:not(.running) .ac-sec { display: none; }
+.hold-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); transform: rotate(-90deg); pointer-events: none; }
+.hold-ring circle {
+  fill: none; stroke: var(--amber); stroke-width: 4; stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100; opacity: 0;
+}
+.timer-btn.holding { transform: scale(.94); background: rgba(255,255,255,.95); }
+.timer-btn.holding .ac { opacity: 1; }
+.timer-btn.holding .hold-ring circle { opacity: 1; stroke-dashoffset: 0; transition: stroke-dashoffset .8s linear; }
+.timer-hint { right: auto; left: calc(var(--safe-l) + .4rem); top: calc(var(--safe-t) + 3.3rem); }
+@media (prefers-reduced-motion: reduce) {
+  .timer-btn.holding .hold-ring circle { transition: none; }
+}
+
+/* ---------------- タイマーを かける画面 ----------------
+   60分の文字盤（タイムタイマー）。赤い おうぎ形を ゆびで回して のばす／ちぢめる。 */
+.timer-sheet { max-height: 100%; overflow-y: auto; gap: .5rem; }
+.tm-lead { margin: 0; text-align: center; font-size: 1.05rem; font-weight: 700; color: var(--ink-2); }
+.tm-dial-wrap { position: relative; display: grid; place-items: center; }
+.tm-dial {
+  width: min(210px, 34vh); height: min(210px, 34vh);
+  touch-action: none; cursor: grab; display: block;
+  filter: drop-shadow(0 6px 10px rgba(20,40,60,.18));
+}
+.tm-dial:active { cursor: grabbing; }
+.tm-rim { fill: #ff6b5a; stroke: #d9483a; stroke-width: 2; }
+.tm-face { fill: #fff; }
+.tm-wedge { fill: #ff5a4a; }
+.tm-ticks line { stroke: #b3bec8; stroke-width: 1.2; }
+.tm-ticks line.major { stroke: #3a4652; stroke-width: 2.4; }
+.tm-nums text { font-size: 13px; font-weight: 700; fill: #3a4652; font-family: var(--font); }
+.tm-hand { stroke: #3a4652; stroke-width: 3; stroke-linecap: round; }
+.tm-cap { fill: #fff; stroke: #d9d9d9; stroke-width: 2; }
+.tm-knob { fill: #fff; stroke: #d9483a; stroke-width: 4; }
+/* 大きい数字は 文字盤の すぐ下。文字盤の上に重ねると 30 の数字に かぶる */
+.tm-big {
+  margin: -.5rem 0 0; padding: .1rem .75rem; border-radius: 999px; position: relative;
+  background: #fff; box-shadow: 0 2px 8px rgba(20,40,60,.16);
+  font-size: 1.7rem; font-weight: 700; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tm-big small { font-size: .9rem; margin-left: .15rem; color: var(--ink-2); }
+.tm-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: .25rem; margin-top: .4rem; }
+.tm-chip {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 48px; padding: .2rem 0; font-family: inherit; cursor: pointer;
+  background: #fff; color: var(--ink); border: 2px solid var(--line); border-radius: 12px;
+}
+.tm-chip b { font-size: 1.05rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.tm-chip small { font-size: .62rem; color: var(--ink-2); }
+.tm-chip[aria-pressed="true"] { background: #ff6b5a; border-color: #d9483a; color: #fff; }
+.tm-chip[aria-pressed="true"] small { color: rgba(255,255,255,.9); }
+.tm-start { min-height: 60px; font-size: clamp(1rem, 5vw, 1.3rem); padding: .6rem .5rem; white-space: nowrap; }
+.tm-run { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .35rem; }
+.tm-run[hidden] { display: none; }
+.tm-run .btn { min-height: 44px; font-size: .92rem; padding: 0 .3rem; border: 2px solid var(--line); background: #fff; }
+.tm-run .tm-stop { color: var(--bad-dark); }
+.tm-note {
+  margin: 0; font-size: .74rem; line-height: 1.55; color: var(--ink-2);
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
+.p-timer-now { margin: 0; font-size: .86rem; line-height: 1.5; }
 
 /* ---------------- きょうは ここまで ----------------
    夜の空に 月。じぶんの子が まんなかにいる。責めることばは置かない。 */
@@ -2387,6 +2521,24 @@ body {
 .rest-btns { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
 .rest-btns .btn-ghost { color: rgba(255,255,255,.78); min-height: 44px; font-size: .9rem; }
 .rest-btns .btn[hidden] { display: none; }
+
+/* タイマーで おわったとき。夕やけの空に、目ざまし時計が鳴る。
+   月と星は しまい、あしたの話もしない（「おうちの ひとに わたしてね」） */
+#screen-rest[data-reason="session"] {
+  background: linear-gradient(180deg, #ffb45e 0%, #ff8a6b 45%, #c86a9b 100%);
+}
+#screen-rest[data-reason="session"] .rest-moon,
+#screen-rest[data-reason="session"] .rest-star { display: none; }
+#screen-rest[data-reason="daily"] .rest-clock { display: none !important; }
+.rest-clock { filter: drop-shadow(0 8px 14px rgba(80,20,40,.3)); }
+.rest-clock.big .tc-clock { width: 128px; height: 128px; }
+.rest-clock.ringing .tc-clock { animation: ac-ring .08s linear 30 alternate; }
+.rest-clock.ringing .ac-bells { animation: ac-bells .16s ease-in-out 16 alternate; }
+#screen-rest[data-reason="session"] #rest-char { width: 96px; height: 96px; margin-top: -.6rem; }
+#screen-rest[data-reason="session"] .rest-next { color: #fff; background: rgba(120,30,60,.25); }
+@media (prefers-reduced-motion: reduce) {
+  .rest-clock.ringing .tc-clock, .rest-clock.ringing .ac-bells { animation: none; }
+}
 
 /* ---------------- オーバーレイ ---------------- */
 .overlay {

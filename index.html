@@ -212,6 +212,16 @@
            子どもが遊んでいるあいだに偶然ひらくことはない。 -->
       <button class="gear" id="btn-settings" type="button" aria-label="せってい（ながおし）">⚙</button>
       <p class="gear-hint" id="gear-hint" hidden>ながおしで ひらきます</p>
+
+      <!-- タイマー（いまから ○分）。歯車の反対のすみ。これも ながおし（0.8秒）で開く。
+           押しているあいだ まわりの輪が満ちていく。中の時計は timer.ts／playclock.ts が描き、
+           かかっているあいだは のこりの おうぎ形が出る -->
+      <button class="timer-btn" id="btn-timer" type="button" aria-label="タイマー（ながおし）">
+        <svg class="hold-ring" viewBox="0 0 52 52" aria-hidden="true" focusable="false">
+          <circle cx="26" cy="26" r="24" pathLength="100" />
+        </svg>
+      </button>
+      <p class="gear-hint timer-hint" id="timer-hint" hidden>ながおしで タイマー</p>
     </section>
 
     <!-- ===== きろく（セーブデータ）えらび ===== -->
@@ -559,9 +569,11 @@
         <span class="rest-star r5">✦</span>
       </div>
       <div class="rest-inner">
+        <!-- タイマーで おわったときだけ出る。目ざまし時計が ジリリと ゆれる -->
+        <span class="tclock big rest-clock" data-tclock hidden></span>
         <canvas id="rest-char" aria-hidden="true"></canvas>
-        <p class="rest-head">きょうは ここまで！</p>
-        <p class="rest-sub"><span id="rest-who">たくさん あそんだね。</span><br>また あした あそぼう！</p>
+        <p class="rest-head" id="rest-head">きょうは ここまで！</p>
+        <p class="rest-sub"><span id="rest-who">たくさん あそんだね。</span><br><span id="rest-bye">また あした あそぼう！</span></p>
         <p class="rest-next" id="rest-next"></p>
       </div>
       <div class="rest-btns">
@@ -610,6 +622,29 @@
           新しい きろくを作るときにも この計算の確認が入ります（新しい きろくで数えなおす抜け道を
           ふさぐため）。端末の日付を変えられると数えなおしになるので、確実に止めたい場合は
           端末のスクリーンタイム／ファミリーリンクと併用してください。
+        </p>
+
+        <!-- タイマー（いまから ○分）。ホームの ⏰ を ながおし でも かけられる -->
+        <h3 class="p-h">タイマー（いまから ○分で おしまい）</h3>
+        <div class="p-limit">
+          <p class="p-timer-now" id="p-timer-now"></p>
+          <div class="p-btns">
+            <button class="btn btn-ghost" id="p-timer-set" type="button">タイマーを かける</button>
+            <button class="btn btn-ghost" id="p-timer-add" type="button" hidden>＋10分</button>
+            <button class="btn btn-ghost" id="p-timer-stop" type="button" hidden>タイマーを 止める</button>
+          </div>
+        </div>
+        <p class="p-note">
+          端末を渡すときに「いまから 15分」のように かけるタイマーです。ホーム画面の左上の
+          時計（⏰）を 0.8秒 ながおしすると、この画面を開かずに かけられます。かけた瞬間から
+          実際の時間で減り、ほかのアプリに切りかえても、アプリを閉じても止まりません
+          （端末の時計を戻しても のこりは増えません）。
+        </p>
+        <p class="p-note">
+          時間になると「じかんに なったよ」の画面になります。ステージやミニゲームの途中なら
+          終わるまで待ちますが、最長 3分で打ち切ります。かかっているタイマーを のばす・止めるには、
+          この画面と同じ かけ算の確認が要ります。上の「1日に あそべる時間」と両方かけたときは、
+          先に終わるほうが お子さんの時計に出ます。
         </p>
 
         <h3 class="p-h">きょうの ようす</h3>
@@ -809,6 +844,31 @@
         <p class="p-note">ほし・コイン・ずかん・きせかえが すべて きえます。もとには もどせません。</p>
         <button class="btn btn-ghost" id="erase-cancel" type="button">やめる</button>
         <button class="btn btn-danger-ghost" id="erase-ok" type="button">けす</button>
+      </div>
+    </div>
+
+    <!-- タイマーを かける画面（timer.ts）。文字盤は 60分のタイムタイマーと同じで、
+         ゆびで回しても、下のボタンで えらんでも よい -->
+    <div class="overlay" id="overlay-timer" hidden>
+      <div class="sheet timer-sheet">
+        <p class="sheet-head">タイマー</p>
+        <p class="tm-lead" id="tm-lead">いまから なんぷん あそぶ？</p>
+        <div class="tm-dial-wrap">
+          <svg class="tm-dial" id="tm-dial" viewBox="0 0 200 200" role="slider" aria-label="なんぷん"></svg>
+          <p class="tm-big" id="tm-big" aria-live="polite">15<small>ふん</small></p>
+        </div>
+        <div class="tm-chips" id="tm-chips"></div>
+        <button class="btn btn-primary btn-xl tm-start" id="tm-start" type="button">15ふん スタート</button>
+        <div class="tm-run" id="tm-run" hidden>
+          <button class="btn btn-ghost" id="tm-add5" type="button">＋5分</button>
+          <button class="btn btn-ghost" id="tm-add10" type="button">＋10分</button>
+          <button class="btn btn-ghost tm-stop" id="tm-stop" type="button">止める</button>
+        </div>
+        <p class="tm-note">
+          保護者の方へ：スタートから この時間がたつと「おしまい」の画面になります。
+          のばす・止めるには かけ算の確認が要ります。
+        </p>
+        <button class="btn btn-ghost" id="tm-close" type="button">とじる</button>
       </div>
     </div>
 
