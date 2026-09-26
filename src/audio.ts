@@ -356,6 +356,17 @@ export const sfx = {
       tone(f, 0.18, { at: 0.1 + i * 0.07, wave: 'triangle', vol: 0.3 });
     });
   },
+  /**
+   * ペットが かばってくれた（光の たて）。まちがいの ブー（wrong）の直後に鳴らすので、
+   * そのぶん遅らせて始める。かたい「キン」から、上へ かけあがる音
+   */
+  guard(): void {
+    tone(1318.5, 0.08, { at: 0.16, wave: 'square', vol: 0.16 });
+    tone(1975.5, 0.3, { at: 0.18, wave: 'sine', vol: 0.28 });
+    [987.77, 1318.5, 1760].forEach((f, i) => {
+      tone(f, 0.16, { at: 0.26 + i * 0.06, wave: 'triangle', vol: 0.24 });
+    });
+  },
   /** ガチャのたまごが割れる */
   crack(): void {
     noise(0.14, 0.26);

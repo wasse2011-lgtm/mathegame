@@ -20,6 +20,47 @@ interface Head {
 /** 見た目だけのシルエット（まだ仲間になっていない子） */
 const SHADOW: PetArt = { shape: 'round', body: '#cbd5dd', shade: '#b2bfca' };
 
+/**
+ * でんせつの子（art.legend）を描く大きさの倍率。
+ * 牧場・広場・走っているときに、ほかの子と並んで「格」が違って見える大きさ。
+ * これより大きくすると、走るときに主人公（36*s うしろ）と重なりはじめる。
+ * アイコンは枠の大きさが決まっているので、ここでは大きくしない（paintPetIcon）。
+ */
+export const LEGEND_SCALE = 1.22;
+
+/** '#rrggbb' に 透明度を付ける */
+function alpha(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a.toFixed(3)})`;
+}
+
+/** 4本の とがりの きらきら */
+function sparkle(g: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  g.beginPath();
+  g.moveTo(x, y - r);
+  g.quadraticCurveTo(x, y, x + r, y);
+  g.quadraticCurveTo(x, y, x, y + r);
+  g.quadraticCurveTo(x, y, x - r, y);
+  g.quadraticCurveTo(x, y, x, y - r);
+  g.closePath();
+  g.fill();
+}
+
+/** 5つの かどの ほし */
+function star5(g: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (Math.PI / 5) * i - Math.PI / 2;
+    const rad = i % 2 ? r * 0.45 : r;
+    const px = x + Math.cos(a) * rad;
+    const py = y + Math.sin(a) * rad;
+    if (i === 0) g.moveTo(px, py);
+    else g.lineTo(px, py);
+  }
+  g.closePath();
+  g.fill();
+}
+
 function tone(art: PetArt, silhouette: boolean, key: 'body' | 'shade'): string {
   if (silhouette) return SHADOW[key] as string;
   return art[key];
@@ -71,6 +112,12 @@ function drawFace(g: CanvasRenderingContext2D, h: Head, art: PetArt, t: number):
     g.fillStyle = INK;
     ellipse(g, h.x - dx, ey, h.r * 0.13, h.r * 0.17 * blink);
     ellipse(g, h.x + dx, ey, h.r * 0.13, h.r * 0.17 * blink);
+    // でんせつの子は 目に 光を入れる。点の目のままだと ほかの子と同じ顔に見える
+    if (art.legend && blink === 1) {
+      g.fillStyle = '#fff';
+      circle(g, h.x - dx + h.r * 0.04, ey - h.r * 0.07, h.r * 0.055);
+      circle(g, h.x + dx + h.r * 0.04, ey - h.r * 0.07, h.r * 0.055);
+    }
   }
 
   // ちいさな口
@@ -108,6 +155,11 @@ function drawWing(g: CanvasRenderingContext2D, art: PetArt, cx: number, cy: numb
         ellipse(g, 0, -s * 0.02, s * 0.16, s * 0.18);
         break;
       case 'fire':
+        if (art.legend && !silhouette) {
+          // ゆらめく外がわの ほのお
+          g.fillStyle = 'rgba(255,98,40,.8)';
+          ellipse(g, 0, -s * 0.24, s * (0.25 + Math.sin(t * 13 + dir) * 0.02), s * (0.43 + Math.sin(t * 11) * 0.03));
+        }
         g.fillStyle = silhouette ? SHADOW.shade : '#ffb347';
         ellipse(g, 0, -s * 0.2, s * 0.2, s * 0.36);
         g.fillStyle = silhouette ? SHADOW.body : '#ffe08a';
@@ -124,6 +176,22 @@ function drawWing(g: CanvasRenderingContext2D, art: PetArt, cx: number, cy: numb
         g.quadraticCurveTo(s * 0.2, -s * 0.1, 0, 0);
         g.closePath();
         g.fill();
+        if (art.legend && !silhouette) {
+          // でんせつの子の はね。ふちを 光の色で なぞり、中に 羽（ほね）の すじを入れる。
+          // まっ白な ペガサスの はねが、白い からだに とけて見えなくなるのも これで防ぐ
+          g.strokeStyle = alpha(art.legend, 0.95);
+          g.lineWidth = Math.max(1, s * 0.028);
+          g.lineJoin = 'round';
+          g.stroke();
+          g.strokeStyle = big ? alpha('#000000', 0.18) : alpha(art.legend, 0.7);
+          g.lineCap = 'round';
+          g.beginPath();
+          for (const k of [0.35, 0.65]) {
+            g.moveTo(s * 0.02, -s * 0.04);
+            g.lineTo(s * (big ? 0.3 : 0.22) * k + s * 0.02, -s * (big ? 0.5 : 0.4) * (0.4 + k * 0.6));
+          }
+          g.stroke();
+        }
         break;
       }
     }
@@ -157,10 +225,28 @@ function drawTail(g: CanvasRenderingContext2D, art: PetArt, x: number, y: number
     case 'fluffy':
       g.fillStyle = shade;
       ellipse(g, x - s * 0.06, y - s * 0.12 + wag, s * 0.17, s * 0.26);
+      if (art.mane && !silhouette) {
+        // たてがみと おそろいの すじ（ユニコーンは にじいろの しっぽ）
+        stripes(g, art.mane, x - s * 0.06, y - s * 0.12 + wag, s * 0.17, s * 0.26);
+        break;
+      }
       g.fillStyle = body;
       ellipse(g, x - s * 0.04, y - s * 0.16 + wag, s * 0.1, s * 0.16);
       break;
     case 'fire':
+      if (art.legend && !silhouette) {
+        // フェニックスの おばね。3本の ほのおが おうぎに ひらいて ゆれる
+        for (const [a, len] of [[-0.75, 0.42], [-0.35, 0.5], [0.05, 0.4]] as const) {
+          g.save();
+          g.translate(x, y);
+          g.rotate(a + Math.sin(t * 5 + a * 3) * 0.08);
+          g.fillStyle = 'rgba(255,98,40,.85)';
+          ellipse(g, -s * len * 0.5, 0, s * len * 0.5, s * 0.08);
+          g.fillStyle = '#ffd05a';
+          ellipse(g, -s * len * 0.42, 0, s * len * 0.34, s * 0.035);
+          g.restore();
+        }
+      }
       g.fillStyle = silhouette ? SHADOW.shade : '#ff9c3c';
       ellipse(g, x - s * 0.04, y - s * 0.1 + wag, s * 0.14, s * 0.26);
       g.fillStyle = silhouette ? SHADOW.body : '#ffe08a';
@@ -175,6 +261,27 @@ function drawTail(g: CanvasRenderingContext2D, art: PetArt, x: number, y: number
     default:
       break;
   }
+}
+
+/** だ円の中を、色の すじで ななめに ぬり分ける（にじいろの しっぽ） */
+function stripes(g: CanvasRenderingContext2D, colors: string[], x: number, y: number, rx: number, ry: number): void {
+  g.save();
+  g.beginPath();
+  g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  g.clip();
+  const band = (ry * 2) / colors.length;
+  colors.forEach((c, i) => {
+    g.fillStyle = c;
+    g.beginPath();
+    const top = y - ry + band * i;
+    g.moveTo(x - rx, top + band * 0.5);
+    g.lineTo(x + rx, top - band * 0.5);
+    g.lineTo(x + rx, top + band * 0.6);
+    g.lineTo(x - rx, top + band * 1.6);
+    g.closePath();
+    g.fill();
+  });
+  g.restore();
 }
 
 function drawEar(g: CanvasRenderingContext2D, art: PetArt, h: Head, s: number, silhouette: boolean): void {
@@ -241,6 +348,25 @@ function drawEar(g: CanvasRenderingContext2D, art: PetArt, h: Head, s: number, s
       g.quadraticCurveTo(h.x - h.r * 0.5, h.y - h.r * 0.2, h.x - h.r * 0.4, h.y - h.r * 0.95);
       g.closePath();
       g.fill();
+      if (art.mane && !silhouette) {
+        // 色の すじを、たてがみの そとがわ → うちがわへ 並べる。はみ出しは たてがみの形で切る
+        g.save();
+        g.clip();
+        g.lineCap = 'round';
+        g.lineWidth = (h.r * 0.62) / art.mane.length;
+        const n = art.mane.length;
+        art.mane.forEach((c, i) => {
+          const u = (i + 0.5) / n;
+          const lx = (a: number, b: number) => h.x - h.r * (a + (b - a) * u);
+          const ly = (a: number, b: number) => h.y - h.r * (a + (b - a) * u);
+          g.strokeStyle = c;
+          g.beginPath();
+          g.moveTo(lx(0.2, 0.4), ly(1.05, 0.95));
+          g.quadraticCurveTo(lx(1.5, 0.5), ly(0.5, 0.2), h.x - h.r * 1.15, h.y + h.r * 0.5);
+          g.stroke();
+        });
+        g.restore();
+      }
       g.fillStyle = body;
       circle(g, h.x - h.r * 0.62, h.y - h.r * 0.95, h.r * 0.2);
       break;
@@ -284,6 +410,23 @@ function drawHorn(g: CanvasRenderingContext2D, art: PetArt, h: Head, silhouette:
   g.closePath();
   g.fill();
   g.stroke();
+  if (art.legend && !silhouette) {
+    // ねじれた 金の つの。ななめの すじを 3本、先に 光を1つ
+    g.save();
+    g.clip();
+    g.strokeStyle = '#d9a93c';
+    g.lineWidth = Math.max(1, h.r * 0.09);
+    g.beginPath();
+    for (let i = 1; i <= 3; i++) {
+      const y = h.y - h.r * (0.95 + i * 0.22);
+      g.moveTo(h.x - h.r * 0.25, y + h.r * 0.1);
+      g.lineTo(h.x + h.r * 0.25, y - h.r * 0.1);
+    }
+    g.stroke();
+    g.restore();
+    g.fillStyle = '#fff';
+    sparkle(g, h.x, h.y - h.r * 1.85, h.r * 0.22);
+  }
 }
 
 /** クワガタのはさみ */
@@ -566,6 +709,13 @@ function drawBody(
         g.fillStyle = silhouette ? SHADOW.body : 'rgba(255,255,255,.7)';
         ellipse(g, cx + rx * 0.05, cy + ry * 0.5, rx * 0.72, ry * 0.36);
       }
+      if (art.stars && !silhouette) {
+        // せなかの ほしもよう。夜空を およいできた くじら
+        g.fillStyle = art.stars;
+        star5(g, cx - rx * 0.35, cy - ry * 0.45, s * 0.055);
+        star5(g, cx + rx * 0.05, cy - ry * 0.62, s * 0.045);
+        star5(g, cx - rx * 0.62, cy - ry * 0.05, s * 0.04);
+      }
       if (art.spout && !silhouette) {
         // しおふき。ぽこぽこ のぼって消える
         const k = (t * 1.1) % 1;
@@ -613,6 +763,26 @@ function drawBody(
       const rx = s * 0.32;
       const ry = s * 0.22;
       const cy = footY - s * 0.3;
+      if (art.ridge) {
+        // せなかの とげ（ドラゴン）。からだより奥に描いて、ねもとを からだで かくす
+        g.fillStyle = silhouette ? SHADOW.shade : art.ridge;
+        for (let i = 0; i < 5; i++) {
+          const a = Math.PI * (1.08 + i * 0.11);
+          const bx = cx - s * 0.04 + Math.cos(a) * rx * 0.85;
+          const by = cy + Math.sin(a) * ry * 0.85;
+          const tx = cx - s * 0.04 + Math.cos(a) * rx * 1.3;
+          const ty = cy + Math.sin(a) * ry * 1.85;
+          const nx = -Math.sin(a) * s * 0.06;
+          const ny = Math.cos(a) * s * 0.06;
+          g.beginPath();
+          g.moveTo(bx - nx, by - ny);
+          g.lineTo(tx, ty);
+          g.lineTo(bx + nx, by + ny);
+          g.closePath();
+          g.fill();
+        }
+        g.fillStyle = body;
+      }
       ellipse(g, cx - s * 0.04, cy, rx, ry);
       if (art.belly) {
         g.fillStyle = silhouette ? SHADOW.body : 'rgba(255,255,255,.55)';
@@ -636,6 +806,74 @@ export interface PetDrawOpts {
   silhouette?: boolean;
   /** 上下のゆれを止める（アイコン用） */
   still?: boolean;
+  /** でんせつの子も 大きくしない（枠の決まったアイコン用） */
+  fit?: boolean;
+}
+
+/**
+ * でんせつの子の 後光。からだより奥に描く。
+ *
+ * ふつうの子と同じ描きかたで大きさだけ変えても、子どもには「ちょっと大きい子」にしか
+ * 見えない。ゆっくり回る光の すじ ＋ ふくらむ光 で、そこに いるだけで特別だと分かるようにする。
+ * 半径は からだの 0.8 倍まで。走っているときは主人公が 36*s うしろにいるので、
+ * これより広げると 主人公まで光に のまれる。
+ */
+function drawLegendHalo(
+  g: CanvasRenderingContext2D,
+  color: string,
+  cx: number,
+  cy: number,
+  s: number,
+  t: number,
+  reach = 1,
+): void {
+  const pulse = 1 + Math.sin(t * 3) * 0.05;
+  const R = s * 0.8 * pulse * reach;
+
+  // 光の すじ。12本を ゆっくり回す
+  g.save();
+  const rays = g.createRadialGradient(cx, cy, s * 0.12, cx, cy, R);
+  rays.addColorStop(0, alpha(color, 0.55));
+  rays.addColorStop(1, alpha(color, 0));
+  g.fillStyle = rays;
+  g.beginPath();
+  const n = 12;
+  const spin = t * 0.5;
+  for (let i = 0; i < n; i++) {
+    const a = spin + (Math.PI * 2 * i) / n;
+    const w = Math.PI / n / 1.6;
+    g.moveTo(cx, cy);
+    g.arc(cx, cy, R, a - w, a + w);
+    g.closePath();
+  }
+  g.fill();
+
+  // まんなかの ふくらむ光
+  const gr = s * 0.6 * pulse * reach;
+  const glow = g.createRadialGradient(cx, cy, 0, cx, cy, gr);
+  glow.addColorStop(0, 'rgba(255,255,255,.7)');
+  glow.addColorStop(0.45, alpha(color, 0.42));
+  glow.addColorStop(1, alpha(color, 0));
+  g.fillStyle = glow;
+  circle(g, cx, cy, gr);
+  g.restore();
+}
+
+/** でんせつの子の まわりを まわる きらきら。からだより手前に描く */
+function drawLegendSparkles(g: CanvasRenderingContext2D, color: string, cx: number, cy: number, s: number, t: number): void {
+  g.save();
+  for (let i = 0; i < 5; i++) {
+    const a = t * 0.9 + (Math.PI * 2 * i) / 5;
+    // よこ長の わ。奥（上半分）の きらきらは 小さく うすくして、からだの まわりを回って見せる
+    const depth = (Math.sin(a) + 1) / 2;
+    const x = cx + Math.cos(a) * s * 0.62;
+    const y = cy + Math.sin(a) * s * 0.2 - s * 0.05;
+    const tw = 0.55 + 0.45 * Math.sin(t * 6 + i * 1.7);
+    g.globalAlpha = (0.35 + depth * 0.65) * tw;
+    g.fillStyle = i % 2 ? '#ffffff' : color;
+    sparkle(g, x, y, s * (0.05 + depth * 0.05) * (0.7 + tw * 0.3));
+  }
+  g.restore();
 }
 
 /**
@@ -651,8 +889,9 @@ export function drawPet(
   t: number,
   opts: PetDrawOpts = {},
 ): void {
-  const s = size;
   const sil = Boolean(opts.silhouette);
+  const legend = !sil && art.legend ? art.legend : '';
+  const s = legend && !opts.fit ? size * LEGEND_SCALE : size;
   const bob = opts.still
     ? 0
     : art.fly
@@ -672,6 +911,10 @@ export function drawPet(
     g.fillStyle = grad;
     circle(g, cx, ay, r);
   }
+
+  // でんせつの子の 後光は さらに奥。アイコンでは 枠の中で消えきる長さにする
+  // （そのままだと 光の すじが 枠の四角で切れて、白い画面の上で 箱に見える）
+  if (legend) drawLegendHalo(g, legend, cx, y - s * 0.38, s, t, opts.fit ? 0.72 : 1);
 
   // はねは からだの うしろ
   drawWing(g, art, cx, y - s * 0.34, s, t, sil);
@@ -697,6 +940,8 @@ export function drawPet(
     drawFace(g, head, art, t);
   }
 
+  if (legend) drawLegendSparkles(g, legend, cx, y - s * 0.38, s, t);
+
   g.restore();
 }
 
@@ -716,6 +961,7 @@ export function paintPetIcon(
   if (!g) return;
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, size, size);
-  // つの・アンテナが切れないよう、下に寄せて少し小さめに描く
-  drawPet(g, size / 2, size * 0.88, size * 0.72, art, 0.5, { ...opts, still: true });
+  // つの・アンテナが切れないよう、下に寄せて少し小さめに描く。
+  // でんせつの子も 枠からはみ出さないよう、ここでは大きくしない（光で 格の違いを出す）
+  drawPet(g, size / 2, size * 0.88, size * 0.72, art, 0.5, { ...opts, still: true, fit: true });
 }

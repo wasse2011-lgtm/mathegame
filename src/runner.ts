@@ -229,6 +229,15 @@ const REVEAL_ARM = 0.35;
 /** 答えを教えたあと、押す間として最低これだけは残す（秒） */
 const TEACH_GRACE = 1.6;
 
+/** ペットが かばってくれる絵の長さ（秒）。前へ飛び出して たてを張り、もとの位置へ戻る */
+const GUARD_FX = 1.1;
+
+/**
+ * かばってもらったあとの持ち時間の倍率。
+ * せなかに乗せてもらったとき（petRescue の 0.85）と そろえる
+ */
+const GUARD_RETRY = 0.85;
+
 const T_APEX = 0.32;
 
 /** 最後の1問で、障害物を何倍にするか */
@@ -281,6 +290,7 @@ export class Runner {
   private elBossBar = document.getElementById('boss-bar') as HTMLElement;
   private elBossName = document.getElementById('boss-name') as HTMLElement;
   private elBossHp = document.getElementById('boss-hp') as HTMLElement;
+  private elBossWarn = document.getElementById('boss-warn') as HTMLElement;
 
   private buttons: HTMLButtonElement[] = [];
   private raf = 0;
@@ -374,8 +384,12 @@ export class Runner {
   private pet: PetDef | null = null;
   /** 障害物が来るまでの時間を何割のばすか（レアなペットの力） */
   private slow = 0;
-  /** あと何回 助けてもらえるか。ステージごとに戻る */
+  /** あと何回 助けてもらえるか（時間切れ）。ステージごとに戻る */
   private rescueLeft = 0;
+  /** あと何回 かばってもらえるか（まちがえたとき）。ステージごとに戻る */
+  private guardLeft = 0;
+  /** かばってくれている絵の残り秒数 */
+  private guardFx = 0;
   /** せなかに乗っているあいだの残り秒数 */
   private ride = 0;
   /** ついてくるペットの高さ（プレイヤーより遅れて上下する） */
@@ -571,6 +585,8 @@ export class Runner {
     const power = tier.petHelp ? petPower() : NO_POWER;
     this.slow = power.slow;
     this.rescueLeft = power.rescue;
+    this.guardLeft = power.guard;
+    this.guardFx = 0;
     // 回数を数えるのは、ふつうの いちばん最後のボスと、うらマップだけ。ほかは何回でも呼べる。
     // 0 回（ベリーハード）は、ペットの上乗せも無し
     const quota = this.mode === 'stage' ? hintQuota(cfg.world, cfg.stage, this.tier) : null;
@@ -595,6 +611,7 @@ export class Runner {
     this.elBossBar.hidden = !cfg.boss;
     this.elBossName.textContent = this.bossDefn.name;
     this.elBossHp.style.width = '100%';
+    this.renderBossWarn();
     this.elAnswers.style.setProperty('--cols', String(cfg.world.choices));
     this.buildPips();
     this.updateHud(false);
@@ -945,13 +962,24 @@ export class Runner {
     this.petTired = false;
     this.petExit = 0.001; // 去っていく途中（0 より大きく、1 未満）
     // いない子には助けにも来られない。ここを残すと、消えたペットが
-    // 時間切れのときだけ現れて背中に乗せることになる
+    // 時間切れのときだけ現れて背中に乗せることになる（まちがえたときに かばうのも同じ）
     this.rescueLeft = 0;
+    this.guardLeft = 0;
+    this.renderBossWarn();
     if (this.pet) {
       this.showBanner(`${this.pet.name}は つかれて やすんだ`, 1.6);
       sfx.voice(voiceOf(this.pet.art));
     }
     this.renderDock();
+  }
+
+  /**
+   * ボスの体力バーの右はしの ひとこと。ふだんは「1ミスで おしまい」。
+   * でんせつの子が まだ かばってくれるあいだは、そう書いておく
+   * （まちがえても負けないのに「おしまい」と書いてあると、うそになる）
+   */
+  private renderBossWarn(): void {
+    this.elBossWarn.textContent = this.guardLeft > 0 && this.pet ? `${this.pet.name}が 1かい まもる` : '1ミスで おしまい';
   }
 
   /** ヒントボタンのペットの顔。走りはじめと、いなくなったときだけ描きなおす */
@@ -1109,7 +1137,7 @@ export class Runner {
       this.beamHit = false;
       return;
     }
-    const time = answerTimeFor(this.world, this.stage, save.settings.slow, this.tier) * (1 + this.slow) * k;
+    const time = this.obstacleTime(k);
     if (this.boss) {
       this.startBossTurn(time);
       return;
@@ -1124,6 +1152,23 @@ export class Runner {
       // （並べたときの「作りもの感」が減る）
       scale: this.isFinal ? FINAL_SCALE : 0.88 + Math.random() * 0.3,
     };
+  }
+
+  /** 障害物が右端から届くまでの秒数。ペットの力（this.slow）はここでだけ効かせる */
+  private obstacleTime(k: number): number {
+    return answerTimeFor(this.world, this.stage, save.settings.slow, this.tier) * (1 + this.slow) * k;
+  }
+
+  /**
+   * 迫っていた障害物を、右端まで押しかえす（ペットが かばってくれたとき）。
+   * launchObstacle と違って 種類と大きさは変えない。押しかえしたものが
+   * 別のものに化けると、同じ相手に もう一度 挑んでいることが伝わらない。
+   */
+  private knockBack(k: number): void {
+    const x = this.spawnX();
+    this.burst(this.ob.x, this.groundY - 18 * this.s, 12, '#ffffff');
+    this.ob.x = x;
+    this.ob.v = (x - this.playerX) / this.obstacleTime(k);
   }
 
   /**
@@ -1291,6 +1336,12 @@ export class Runner {
       btn.disabled = true;
       window.setTimeout(() => btn.classList.add('spent'), 260);
 
+      // でんせつの ペットは、1ステージに1回だけ かばってくれる。ボスでも その場の負けにしない
+      if (this.guardLeft > 0) {
+        this.petGuard(q, ms);
+        return;
+      }
+
       // ボスは1問でもまちがえたら終わり。やりなおしはさせない
       if (this.boss) {
         this.loseToBoss(q);
@@ -1433,6 +1484,53 @@ export class Runner {
     this.renderDock();
   }
 
+  /**
+   * まちがえたとき、ペットが前に出て かばってくれる（petRescue の まちがい版）。
+   *
+   * ここでも まちがいの記録は甘くしない。noteWrong でミスとして数え、習熟度も下げる
+   * （★・図鑑・リベンジは ふだんの誤答と同じ）。押したボタンが ちがうことも、
+   * 赤・ゆれ・ブーで ふだんどおりに伝える。かばうのは その先だけ:
+   *   - ふつう: ころばない・れんぞく（コンボ）が切れない・迫っていたものを押しかえす
+   *   - ボス: その場で負けにしない。攻撃を はじき、同じ問題に もう一度
+   */
+  private petGuard(q: Question, ms: number): void {
+    this.guardLeft--;
+    this.renderBossWarn();
+    this.noteWrong(q, ms);
+    this.elQuestion.classList.remove('shake');
+    void this.elQuestion.offsetWidth;
+    this.elQuestion.classList.add('shake');
+    sfx.wrong();
+    sfx.guard();
+
+    const color = this.pet?.art.legend ?? '#8fd8ff';
+    const sx = this.px + 44 * this.s;
+    const sy = this.groundY - 24 * this.s;
+    this.guardFx = GUARD_FX;
+    this.rings.push({ x: sx, y: sy, r: 16 * this.s, life: 0.55, max: 0.55, color: '#ffffff' });
+    this.burst(sx, sy, 14, color);
+
+    if (this.boss) {
+      // 攻撃は たてで はじけて、ボスが撃ちなおす（突撃なら、はじき返されて出なおす）
+      if (this.shot) this.burst(this.shot.x, this.shot.y, 16, color);
+      this.launchObstacle(GUARD_RETRY);
+    } else if (!this.hunt) {
+      // にがて たいじ の敵は立って待っているだけなので、押しかえすものが無い
+      this.knockBack((this.revenge ? REVENGE_TIME : 1) * GUARD_RETRY);
+    }
+    // 帯は撃ちなおしのあとに出す。「ほんきだ！」「とつげき！」の帯に上書きされないように
+    this.showBanner(`${this.pet?.name ?? 'ペット'}が まもってくれた！`, 1.4);
+    // 連打ガード（0.3秒）を入れなおす。まちがえた勢いの指で つづけて押さないように
+    this.qElapsed = 0;
+    this.updateHud(false);
+
+    // 残りが正解ひとつになったら、そこで教える（ふだんの誤答と同じ）
+    if (this.buttons.filter((b) => b.disabled).length === this.buttons.length - 1) {
+      this.teachAnswer(q);
+    }
+    this.renderDock();
+  }
+
   /** 時間切れ。答えを見せてから次へ進む（ここで正解を教えるのが一番効く） */
   private timeout(): void {
     const q = this.q;
@@ -1445,7 +1543,7 @@ export class Runner {
     // ペットが助けてくれる（1ステージに1回だけ）。コインも落とさずに済む。
     // まちがいの記録は上でもう付けてあるので、★も図鑑も甘くならない。
     // ボス戦でも、攻撃が当たる「時間切れ」だけは身がわりになってもらえる
-    // （まちがえたときは helpers 抜きでその場で負け）
+    // （まちがえたときは、でんせつの子が かばう ほうの力（petGuard）で 1回だけ助かる）
     if (this.rescueLeft > 0) {
       this.petRescue();
       this.updateHud(false);
@@ -2036,6 +2134,7 @@ export class Runner {
     if (this.flash > 0) this.flash -= dt;
     if (this.banner > 0) this.banner -= dt;
     if (this.cheer.life > 0) this.cheer.life -= dt;
+    if (this.guardFx > 0) this.guardFx -= dt;
     if (this.cut >= 0) {
       this.cut += dt;
       if (this.cut > FIN_CUT_TOTAL) this.cut = -1;
@@ -2452,6 +2551,12 @@ export class Runner {
       return;
     }
 
+    // まちがえたところを かばってくれている
+    if (this.guardFx > 0) {
+      this.drawGuarding(size);
+      return;
+    }
+
     // 1 に近いほど「せなかに乗せている」。降りるときは 0 へ戻り、位置も走る位置へ滑る
     const k = Math.min(1, Math.max(0, this.ride / 0.35));
     // 走る位置。主人公は ±17*s、ペットは ±13*s を占めるので、中心どうしが
@@ -2477,7 +2582,7 @@ export class Runner {
     g.fill();
 
     // まだ助けてもらえるときは、ふんわり光らせておく（HUD を増やさずに伝える）
-    if (this.rescueLeft > 0) {
+    if (this.rescueLeft > 0 || this.guardLeft > 0) {
       const r = (20 + Math.sin(this.t * 5) * 2) * s;
       const cy = y - size * (this.pet.art.fly ? 0.7 : 0.45);
       const grad = g.createRadialGradient(x, cy, r * 0.5, x, cy, r);
@@ -2499,6 +2604,58 @@ export class Runner {
     // ここを覚えておいて、絵のペットをさわってもヒントが出せるようにする。
     // 指はボタンより大きいので、見た目より広めに取る
     this.petHit = { x, y: y - size * 0.45, r: size * 1.15 };
+  }
+
+  /**
+   * まちがえたところを かばってくれている絵。
+   *
+   * 主人公の前へ飛び出して、光の たてを張る。たては 最初に大きく ふくらみ、
+   * 消えぎわに うすくなる。終わりぎわには もとの位置（うしろ）へ戻っていく。
+   */
+  private drawGuarding(size: number): void {
+    if (!this.pet) return;
+    const g = this.g;
+    const s = this.s;
+    const e = GUARD_FX - this.guardFx; // 出てからの秒数
+    const go = Math.min(1, e / 0.18);
+    const back = Math.min(1, this.guardFx / 0.25);
+    const k = Math.min(go, back);
+    const ease = k * k * (3 - 2 * k);
+    const from = Math.max(this.px - 36 * s, 12 * s);
+    // 主人公（±17*s）と重ならない所まで前へ出る
+    const x = from + (this.px + 34 * s - from) * ease;
+    // 飛び出すときに ぴょんと 弧をえがく
+    const y = this.groundY - Math.sin(ease * Math.PI) * 14 * s;
+    drawPet(g, x, y, size * 1.1, this.pet.art, this.t);
+
+    // 光の たて
+    const color = this.pet.art.legend ?? '#8fd8ff';
+    const pop = Math.min(1, e / 0.12);
+    const fade = Math.min(1, this.guardFx / 0.4);
+    const cx = this.px + 44 * s;
+    const cy = this.groundY - 24 * s;
+    const r = (26 + (1 - pop) * 10 + Math.sin(this.t * 10) * 1.2) * s;
+    g.save();
+    g.globalAlpha = fade;
+    const grad = g.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(1, 'rgba(255,255,255,.5)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(cx, cy, r, -Math.PI * 0.5, Math.PI * 0.5);
+    g.fill();
+    g.strokeStyle = color;
+    g.lineWidth = 4 * s;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.arc(cx, cy, r, -Math.PI * 0.45, Math.PI * 0.45);
+    g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.95)';
+    g.lineWidth = 1.6 * s;
+    g.beginPath();
+    g.arc(cx, cy, r - 3 * s, -Math.PI * 0.4, Math.PI * 0.4);
+    g.stroke();
+    g.restore();
   }
 
   /**

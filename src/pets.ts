@@ -5,7 +5,8 @@
  * ・レア度の高い子は「やさしくなる」方向にだけ効く。むずかしくはしない。
  *     - おそくする: 障害物が来るまでの時間が少しのびる
  *     - せなかにのる: 時間切れのとき 1ステージに1回だけ助けてくれる
- *   どちらも「まちがい」の記録そのものは変えない。★も図鑑も、ちゃんと
+ *     - かばう: まちがえたとき 1ステージに1回だけ、前に出て守ってくれる
+ *   どれも「まちがい」の記録そのものは変えない。★も図鑑も、ちゃんと
  *   正解したぶんだけしか進まない（引きの良し悪しで学習の記録が甘くならない）。
  */
 
@@ -22,8 +23,10 @@ export interface RarityDef {
   soft: string;
   /** 障害物が来るまでの時間を何割のばすか */
   slow: number;
-  /** 1ステージに何回 助けてもらえるか */
+  /** 1ステージに何回 助けてもらえるか（時間切れ） */
   rescue: number;
+  /** 1ステージに何回 かばってもらえるか（まちがえたとき） */
+  guard: number;
   /**
    * ヒントの回数を上乗せする数。
    *
@@ -36,10 +39,10 @@ export interface RarityDef {
 }
 
 export const RARITIES: RarityDef[] = [
-  { id: 'n', label: 'ふつう', color: '#8aa0b0', soft: '#eef3f6', slow: 0, rescue: 0, hints: 0 },
-  { id: 'r', label: 'レア', color: '#4aa3dd', soft: '#e8f4fd', slow: 0.08, rescue: 0, hints: 1 },
-  { id: 'sr', label: 'スーパーレア', color: '#a86ad0', soft: '#f4ecfb', slow: 0.14, rescue: 0, hints: 2 },
-  { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1, hints: 4 },
+  { id: 'n', label: 'ふつう', color: '#8aa0b0', soft: '#eef3f6', slow: 0, rescue: 0, guard: 0, hints: 0 },
+  { id: 'r', label: 'レア', color: '#4aa3dd', soft: '#e8f4fd', slow: 0.08, rescue: 0, guard: 0, hints: 1 },
+  { id: 'sr', label: 'スーパーレア', color: '#a86ad0', soft: '#f4ecfb', slow: 0.14, rescue: 0, guard: 0, hints: 2 },
+  { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1, guard: 1, hints: 4 },
 ];
 
 /**
@@ -89,6 +92,18 @@ export interface PetArt {
   spout?: boolean;
   /** からだの うしろの ふんわりした光の色 */
   aura?: string;
+  /**
+   * でんせつの子の 威光（後光・光のわ・まわる きらきら）の色。
+   * これがある子は ひとまわり大きく描く（petart.ts の LEGEND_SCALE）。
+   * でんせつの子には必ず付ける。ふつうの子と並んだときに「格」が違って見えるように。
+   */
+  legend?: string;
+  /** たてがみの色。2色以上で にじいろの すじになる（ユニコーン） */
+  mane?: string[];
+  /** せなかの とげ（ドラゴン） */
+  ridge?: string;
+  /** せなかの ほしもよう（そらくじら） */
+  stars?: string;
   /** おなかの白い部分 */
   belly?: boolean;
   spike?: boolean;
@@ -267,23 +282,23 @@ export const PETS: PetDef[] = [
   // ---- でんせつ (5) ----
   {
     id: 'dragon', name: 'ドラゴン', rarity: 'ur', note: 'そらを とび、せなかに のせてくれる',
-    art: { shape: 'beast', body: '#4fb3a3', shade: '#2f8a7c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot' },
+    art: { shape: 'beast', body: '#4fb3a3', shade: '#2f8a7c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot', legend: '#ffd257', ridge: '#ffd257' },
   },
   {
     id: 'pegasus', name: 'ペガサス', rarity: 'ur', note: 'しろい つばさで かぜを きる',
-    art: { shape: 'beast', body: '#f7f6f2', shade: '#ccd4de', wing: 'bird', ear: 'mane', tail: 'fluffy', legs: 4, fly: true, face: 'dot' },
+    art: { shape: 'beast', body: '#f7f6f2', shade: '#ccd4de', wing: 'bird', ear: 'mane', tail: 'fluffy', legs: 4, fly: true, face: 'dot', legend: '#8fd3ff', mane: ['#a8dcff', '#e6f5ff', '#ffe7a0'] },
   },
   {
     id: 'unicorn', name: 'ユニコーン', rarity: 'ur', note: 'つのが にじいろに ひかる',
-    art: { shape: 'beast', body: '#fdf1f6', shade: '#e2b9d6', ear: 'mane', horn: true, tail: 'fluffy', legs: 4, fly: true, face: 'dot' },
+    art: { shape: 'beast', body: '#fdf1f6', shade: '#e2b9d6', ear: 'mane', horn: true, tail: 'fluffy', legs: 4, fly: true, face: 'dot', legend: '#ff9fe0', mane: ['#ff8fa3', '#ffd257', '#8fe3a0', '#8fc8ff', '#c9a0ff'] },
   },
   {
     id: 'phoenix', name: 'フェニックス', rarity: 'ur', note: 'ほのおの はねを ひろげて とぶ',
-    art: { shape: 'bird', body: '#f5893c', shade: '#d5591f', wing: 'fire', tail: 'fire', beak: 'small', ear: 'crest', fly: true, face: 'dot' },
+    art: { shape: 'bird', body: '#f5893c', shade: '#d5591f', wing: 'fire', tail: 'fire', beak: 'small', ear: 'crest', fly: true, face: 'dot', legend: '#ff9c3c' },
   },
   {
     id: 'sorakujira', name: 'そらくじら', rarity: 'ur', note: 'せなかに のせて そらを およぐ',
-    art: { shape: 'fish', body: '#6fa8dc', shade: '#4a86bd', belly: true, spout: true, fly: true, face: 'dot' },
+    art: { shape: 'fish', body: '#6fa8dc', shade: '#4a86bd', belly: true, spout: true, fly: true, face: 'dot', legend: '#bfe4ff', stars: '#fff3b0' },
   },
 ];
 
@@ -321,13 +336,15 @@ export function ownedCountByRarity(r: Rarity): { owned: number; total: number } 
 export interface PetPower {
   /** 障害物が来るまでの時間を何割のばすか */
   slow: number;
-  /** 1ステージに何回 助けてくれるか */
+  /** 1ステージに何回 助けてくれるか（時間切れ） */
   rescue: number;
+  /** 1ステージに何回 かばってくれるか（まちがえたとき） */
+  guard: number;
   /** 1ステージに何回 ヒントを見せてくれるか（基本回数への上乗せ） */
   hints: number;
 }
 
-export const NO_POWER: PetPower = { slow: 0, rescue: 0, hints: 0 };
+export const NO_POWER: PetPower = { slow: 0, rescue: 0, guard: 0, hints: 0 };
 
 /** いま つれている子の力。なかよし度 1 あがるごとに +2%（最大 +8%） */
 export function powerOf(pet: PetDef | null): PetPower {
@@ -337,6 +354,7 @@ export function powerOf(pet: PetDef | null): PetPower {
   return {
     slow: r.slow > 0 ? r.slow + bonus : 0,
     rescue: r.rescue,
+    guard: r.guard,
     // ヒントは なかよし度2つで1回ずつ増える。時間のばしより ゆっくり効かせる
     hints: r.hints > 0 ? r.hints + Math.floor((friendLevel(pet.id) - 1) / 2) : 0,
   };
