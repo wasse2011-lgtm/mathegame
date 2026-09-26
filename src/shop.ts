@@ -31,6 +31,7 @@ import {
 } from './items';
 import { persist, profile, type SkinId } from './save';
 import { currentLook, drawChar, paintHatIcon, paintSkinIcon } from './sprites';
+import { TrailFx, paintTrailIcon, trailDef } from './trails';
 import { NO_WEAPON, paintWeaponIcon, weaponDef } from './weapons';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -44,7 +45,7 @@ export function onShopChange(fn: () => void): void {
 
 // ぶきは2番目に置く。さいごの1問の フィニッシュに直結する品なので、
 // いちばん見にきてほしい（うしろに置くと、タブを送らないと見つからない）
-const TABS: ItemKind[] = ['skin', 'weapon', 'hat', 'acc', 'color'];
+const TABS: ItemKind[] = ['skin', 'weapon', 'hat', 'acc', 'color', 'trail'];
 
 let tab: ItemKind = 'skin';
 
@@ -58,7 +59,7 @@ export function setShopTab(kind: ItemKind): void {
 /**
  * よこにスワイプしてタブを送る。
  *
- * タブは 44px のマスが5つ。指のおおざっぱな子には、狙って押すより
+ * タブは 44px のマスが6つ。指のおおざっぱな子には、狙って押すより
  * 「はらって めくる」ほうが速い。アルバムをめくる感じで ぜんぶ見てまわれる。
  * はしまで行ったら反対のはしへ回る（行き止まりを作らない）。
  */
@@ -157,14 +158,20 @@ function initSwipe(): void {
 
 const preview = () => $<HTMLCanvasElement>('shop-preview');
 let previewRaf = 0;
+let previewLast = 0;
+/** 見本の あしあと。その場で走っているが、世界は流れていることにして うしろへ流す */
+const previewTrail = new TrailFx();
 
 /** いま着ているすがたを、大きく その場で走らせる */
 function paintPreview(ts: number): void {
   const canvas = preview();
   if ($('screen-shop').hidden) {
     previewRaf = 0;
+    previewLast = 0;
     return;
   }
+  const dt = Math.min(previewLast ? (ts - previewLast) / 1000 : 1 / 60, 1 / 20);
+  previewLast = ts;
   const g = canvas.getContext('2d');
   if (g) {
     const size = 132;
@@ -181,7 +188,13 @@ function paintPreview(ts: number): void {
     g.beginPath();
     g.ellipse(size / 2, size - 12, 28, 6, 0, 0, Math.PI * 2);
     g.fill();
+    // あしあとは キャラのうしろ。ランナーと同じ大きさの比（キャラ 34 に対する 58）で出す
+    const s = 58 / 34;
+    previewTrail.set(profile().trail);
+    previewTrail.update(dt, { x: size / 2, y: size - 14, speed: 70, s, air: false, on: true });
+    previewTrail.draw(g, s, 'back');
     drawChar(g, size / 2, size - 14 - bob, 58, currentLook(), { t, air: false, hurt: 0, squash: 1 });
+    previewTrail.draw(g, s, 'front');
   }
   previewRaf = requestAnimationFrame(paintPreview);
 }
@@ -211,6 +224,10 @@ function iconFor(canvas: HTMLCanvasElement, item: Item): void {
       break;
     case 'color':
       paintSkinIcon(canvas, { skin: p.skin, color: item.id }, 56);
+      break;
+    // あしあとも ぶきと同じ。キャラは描かず、そのものを大きく
+    case 'trail':
+      paintTrailIcon(canvas, item.id, 56);
       break;
   }
 }
@@ -249,9 +266,15 @@ function itemButton(item: Item): HTMLButtonElement {
     if (owned) {
       sfx.tap();
       equip(item);
-      // ぶきは「なにが起きるか」を言う。持ちかえた理由がその場で分かるように
+      // ぶき・あしあとは「なにが起きるか」を言う。えらんだ理由がその場で分かるように
+      // （あしあとは 走っているときにしか出ないので、ここで言わないと分からない）
+      const trail = item.kind === 'trail' && isEquipped(item) ? trailDef(item.id) : null;
       $('shop-msg').textContent =
-        item.kind === 'weapon' ? `${item.label}：${weaponDef(item.id).note}` : '';
+        item.kind === 'weapon'
+          ? `${item.label}：${weaponDef(item.id).note}`
+          : trail
+            ? `はしると ${trail.note}`
+            : '';
       renderShop();
       onChange?.();
       return;
@@ -268,10 +291,15 @@ function itemButton(item: Item): HTMLButtonElement {
   return b;
 }
 
-/** ぶき・ぼうし・アクセ・いろ を外すマス */
+/** ぶき・ぼうし・アクセ・いろ・あしあと を外すマス */
 function noneButton(kind: ItemKind, label: string): HTMLButtonElement {
   const p = profile();
-  const current = kind === 'weapon' ? p.weapon : kind === 'hat' ? p.hat : kind === 'acc' ? p.acc : p.color;
+  const current =
+    kind === 'weapon' ? p.weapon
+      : kind === 'hat' ? p.hat
+        : kind === 'acc' ? p.acc
+          : kind === 'trail' ? p.trail
+            : p.color;
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'item none';
@@ -283,6 +311,7 @@ function noneButton(kind: ItemKind, label: string): HTMLButtonElement {
     if (kind === 'weapon') p.weapon = '';
     else if (kind === 'hat') p.hat = '';
     else if (kind === 'acc') p.acc = '';
+    else if (kind === 'trail') p.trail = '';
     else p.color = '';
     persist();
     // ぶき なし でも さいごの1問の しめくくりはある。何が起きるかを 持ちかえたときと同じ形で言う
@@ -325,6 +354,7 @@ export function renderShop(): void {
   if (tab === 'hat') grid.appendChild(noneButton('hat', 'なし'));
   if (tab === 'acc') grid.appendChild(noneButton('acc', 'なし'));
   if (tab === 'color') grid.appendChild(noneButton('color', 'きほん'));
+  if (tab === 'trail') grid.appendChild(noneButton('trail', 'なし'));
   for (const item of ITEMS.filter((i) => i.kind === tab)) grid.appendChild(itemButton(item));
 
   // ガチャのボタンは、いま えらんでいる種類のもの。
@@ -348,7 +378,9 @@ function showGachaResult(item: Item): void {
   $('egg-got-head').textContent = `あたらしい ${KIND_LABEL[item.kind]}！`;
   $('egg-got').textContent = item.label;
   const c = $<HTMLCanvasElement>('egg-result-canvas');
-  paintSkinIcon(c, currentLook(), 120);
+  // あしあとは キャラの絵には出ないので、そのものを見せる
+  if (item.kind === 'trail') paintTrailIcon(c, item.id, 120);
+  else paintSkinIcon(c, currentLook(), 120);
   $('overlay-egg').hidden = false;
   sfx.crack();
 }

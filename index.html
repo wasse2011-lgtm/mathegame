@@ -203,9 +203,21 @@
             </button>
           </div>
 
-          <p class="yard-hint">なかまを タップしてみて！</p>
+          <!-- はなび。広場の左上のすみ。押すと ここから 空へ 3発 上がる。
+               コインの小さい使いみち（1日 5回まで。ねだんと のこりは となりの札）。 -->
+          <div class="hanabi-wrap">
+            <button class="hanabi-btn" id="hanabi-btn" type="button" aria-label="はなびを あげる">
+              <span aria-hidden="true">🎆</span>
+            </button>
+            <span class="hanabi-tag" aria-hidden="true"><span class="coin-dot"></span><b id="hanabi-cost">10</b><small id="hanabi-left">あと5</small></span>
+          </div>
+
+          <p class="yard-hint" id="yard-hint">なかまを タップしてみて！</p>
         </div>
       </div>
+
+      <!-- はなびを描く 1枚。ホームの いちばん上に重ねるが、さわれない -->
+      <canvas class="hanabi-sky" id="hanabi-sky" aria-hidden="true"></canvas>
 
       <!-- せってい。子どもの導線から外して画面のすみに置き、
            ひと押しでは開かない（ながおし）。おとなが探せば必ず見つかる位置で、
@@ -527,7 +539,19 @@
         <p class="coin-badge"><span class="coin-dot"></span><b id="ranch-coins">0</b></p>
       </header>
 
-      <div class="pasture"><canvas id="pasture" aria-label="ぼくじょう"></canvas></div>
+      <!-- おやつは ぼくじょうの中（空の右すみ）に置く。押すと その下の しばふに落ちてくるので、
+           ボタンと おきることが 同じ場所にある。たまごの列に並べると、押した場所と
+           落ちる場所が はなれて「なにが起きたか」が つながらない -->
+      <div class="pasture">
+        <canvas id="pasture" aria-label="ぼくじょう"></canvas>
+        <button class="snack-btn" id="snack-btn" type="button">
+          <span class="snack-emoji" aria-hidden="true">🍎</span>
+          <span class="snack-text">
+            <b>おやつ</b>
+            <span class="snack-cost"><span class="coin-dot"></span><span id="snack-cost">10</span><small id="snack-left">あと5</small></span>
+          </span>
+        </button>
+      </div>
 
       <div class="egg-row">
         <button class="egg-btn small" id="pet-egg" type="button">
@@ -545,6 +569,15 @@
             <span id="pet-egg-shiny-sub">レアが でやすい</span>
           </span>
           <span class="egg-cost"><span class="coin-dot"></span><span id="pet-egg-shiny-cost">120</span></span>
+        </button>
+        <!-- あそびどうぐ。つぎに置くものは決まっているので、その絵と名前を出す -->
+        <button class="egg-btn small toy" id="toy-buy" type="button">
+          <canvas class="toy-icon" id="toy-icon" aria-hidden="true"></canvas>
+          <span class="egg-text">
+            <b id="toy-name">どうぐ</b>
+            <span id="toy-sub">ぼくじょうに おく</span>
+          </span>
+          <span class="egg-cost" id="toy-cost-row"><span class="coin-dot"></span><span id="toy-cost">150</span></span>
         </button>
       </div>
 

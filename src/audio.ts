@@ -367,6 +367,22 @@ export const sfx = {
       tone(f, 0.16, { at: 0.26 + i * 0.06, wave: 'triangle', vol: 0.24 });
     });
   },
+  /** おやつが しばふに ぽとっと落ちる */
+  drop(): void {
+    tone(520, 0.08, { wave: 'sine', vol: 0.26, to: 260 });
+  },
+  /** はなびが ひゅーっと上がる */
+  whistle(): void {
+    tone(700, 0.5, { wave: 'sine', vol: 0.1, to: 1500 });
+  },
+  /** はなびが ひらく。どーん と きらきら */
+  boom(): void {
+    noise(0.35, 0.22);
+    tone(130, 0.3, { wave: 'triangle', vol: 0.3, to: 70 });
+    [1568, 2093, 1760].forEach((f, i) => {
+      tone(f, 0.08, { at: 0.18 + i * 0.07, wave: 'triangle', vol: 0.12 });
+    });
+  },
   /** ガチャのたまごが割れる */
   crack(): void {
     noise(0.14, 0.26);

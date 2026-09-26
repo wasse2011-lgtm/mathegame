@@ -15,9 +15,10 @@
  */
 
 import { persist, profile, type SkinId } from './save';
+import { TRAILS } from './trails';
 import { WEAPONS } from './weapons';
 
-export type ItemKind = 'skin' | 'hat' | 'acc' | 'weapon' | 'color';
+export type ItemKind = 'skin' | 'hat' | 'acc' | 'weapon' | 'color' | 'trail';
 
 export interface Item {
   id: string;
@@ -34,6 +35,8 @@ export const KIND_LABEL: Record<ItemKind, string> = {
   acc: 'アクセ',
   weapon: 'ぶき',
   color: 'いろ',
+  // 走ったうしろに残るもの。にくきゅう・ほし・にじ… を まとめて「あしあと」と呼ぶ
+  trail: 'あしあと',
 };
 
 /**
@@ -136,6 +139,10 @@ export const ITEMS: Item[] = [
   { id: 'color-rainbow', kind: 'color', label: 'にじいろ' },
   { id: 'color-silver', kind: 'color', label: 'ぎんいろ' },
   { id: 'color-gold', kind: 'color', label: 'きんいろ' },
+
+  // ---- あしあと（はしる あと） ----
+  // 中身は trails.ts。ぶきと同じく、名前は向こうから持ってくる
+  ...TRAILS.map((t): Item => ({ id: t.id, kind: 'trail', label: t.label })),
 ];
 
 /** いろの中身。キャラ本来の色を上から塗りかえる */
@@ -228,6 +235,9 @@ export function equip(item: Item): void {
     case 'color':
       p.color = p.color === item.id ? '' : item.id;
       break;
+    case 'trail':
+      p.trail = p.trail === item.id ? '' : item.id;
+      break;
   }
   persist();
 }
@@ -245,6 +255,8 @@ export function isEquipped(item: Item): boolean {
       return p.weapon === item.id;
     case 'color':
       return p.color === item.id;
+    case 'trail':
+      return p.trail === item.id;
     default:
       return false;
   }
