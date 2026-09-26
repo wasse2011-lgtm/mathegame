@@ -34,7 +34,9 @@ export type WeaponStyle =
 export type WeaponMotif =
   | 'fist' | 'beam' | 'arrow' | 'bubble' | 'blade' | 'boomerang' | 'hammer'
   | 'star' | 'heart' | 'bolt'
-  | 'shuriken' | 'drill' | 'yoyo' | 'pico' | 'snow' | 'note';
+  | 'shuriken' | 'drill' | 'yoyo' | 'pico' | 'snow' | 'note'
+  /** ぶき なし。手には何も持たず、からだごと ぶつかる */
+  | 'none';
 
 export interface WeaponDef {
   id: string;
@@ -56,35 +58,52 @@ export interface WeaponDef {
 /**
  * ぶきの一覧。
  *
- * ロケットパンチだけ最初から持っている。ぶきは「外す」ことができない
- * （キャラと同じで、必ず1つ身につけている）ので、ここが空だと
- * さいごの1問で何も起きない画面になってしまう。
+ * ロケットパンチだけ最初から持っている。
+ *
+ * 縦に長い ぶき（けん・ハンマー・つえ）の hold は **プラス**（先が 相手のほう＝右へ たおれる）。
+ * マイナスにすると先が キャラの顔のほうへ たおれて、剣先や つえの光が
+ * 右目・ほっぺに かぶる（キャラは右を向いていて、ぶきは顔の右はしで持つ）。
+ * よこに長い ぶき（銃・こぶし）は 少しだけ上へ向けるので マイナスのまま。
  */
 export const WEAPONS: WeaponDef[] = [
   { id: 'wp-punch', label: 'ロケットパンチ', note: 'こぶしが とんでいく', style: 'shot', motif: 'fist', color: '#f0803c', glow: '#ffd7ad', hold: -0.2, free: true },
   { id: 'wp-beam', label: 'ビームガン', note: 'まっすぐ うちぬく', style: 'shot', motif: 'beam', color: '#4fb8ee', glow: '#d8f4ff', hold: -0.25 },
   { id: 'wp-bow', label: 'ひかりの ゆみや', note: 'とおくから いぬく', style: 'shot', motif: 'arrow', color: '#6cbf5f', glow: '#e8ffdc', hold: 0 },
   { id: 'wp-bubble', label: 'シャボンほう', note: 'つつんで ぽん', style: 'shot', motif: 'bubble', color: '#8fd8f5', glow: '#ffffff', hold: -0.25 },
-  { id: 'wp-sword', label: 'ひかりの けん', note: 'ひとふりで きりさく', style: 'slash', motif: 'blade', color: '#ffd75e', glow: '#fff6d0', hold: -0.5 },
+  { id: 'wp-sword', label: 'ひかりの けん', note: 'ひとふりで きりさく', style: 'slash', motif: 'blade', color: '#ffd75e', glow: '#fff6d0', hold: 0.5 },
   { id: 'wp-boomerang', label: 'ブーメランエッジ', note: 'とんで まわって もどる', style: 'throw', motif: 'boomerang', color: '#9fd8ff', glow: '#eaf8ff', hold: 0.25 },
-  { id: 'wp-hammer', label: 'だいハンマー', note: 'うえから たたきつぶす', style: 'smash', motif: 'hammer', color: '#9aa7b4', glow: '#ffe3a8', hold: -0.55 },
-  { id: 'wp-wand', label: 'まほうの つえ', note: 'ほしが ふってくる', style: 'rain', motif: 'star', color: '#b79ae0', glow: '#ffe9a8', hold: -0.4 },
-  { id: 'wp-heart', label: 'ハートステッキ', note: 'ハートが はじける', style: 'rain', motif: 'heart', color: '#ff8fb1', glow: '#ffe1ec', hold: -0.4 },
-  { id: 'wp-thunder', label: 'かみなりロッド', note: 'かみなりが おちる', style: 'rain', motif: 'bolt', color: '#ffd75e', glow: '#fff8d0', hold: -0.4 },
+  { id: 'wp-hammer', label: 'だいハンマー', note: 'とびかかって たたきつぶす', style: 'smash', motif: 'hammer', color: '#9aa7b4', glow: '#ffe3a8', hold: 0.55 },
+  { id: 'wp-wand', label: 'まほうの つえ', note: 'ほしが ふってくる', style: 'rain', motif: 'star', color: '#b79ae0', glow: '#ffe9a8', hold: 0.4 },
+  { id: 'wp-heart', label: 'ハートステッキ', note: 'ハートが はじける', style: 'rain', motif: 'heart', color: '#ff8fb1', glow: '#ffe1ec', hold: 0.4 },
+  { id: 'wp-thunder', label: 'かみなりロッド', note: 'かみなりが おちる', style: 'rain', motif: 'bolt', color: '#ffd75e', glow: '#fff8d0', hold: 0.4 },
   // 型は いまの5つのまま、形（motif）で ちがいを出す。
   // 型を増やすと runner の うごき（ふみこみ・ため）まで作りなおしになる
   { id: 'wp-shuriken', label: 'しゅりけん', note: 'くるくる まわって ささる', style: 'shot', motif: 'shuriken', color: '#5b6b86', glow: '#dfe8f5', hold: 0 },
   { id: 'wp-drill', label: 'ドリル', note: 'まわって つきやぶる', style: 'slash', motif: 'drill', color: '#f2a23a', glow: '#fff0c8', hold: 0 },
   { id: 'wp-yoyo', label: 'ヨーヨー', note: 'のびて もどってくる', style: 'throw', motif: 'yoyo', color: '#e4675c', glow: '#ffe0dc', hold: 0 },
-  { id: 'wp-pico', label: 'ピコピコハンマー', note: 'ピコッと たたく', style: 'smash', motif: 'pico', color: '#ff6f6f', glow: '#fff3a8', hold: -0.55 },
-  { id: 'wp-ice', label: 'こおりの つえ', note: 'ゆきの けっしょうが ふる', style: 'rain', motif: 'snow', color: '#7fd0f5', glow: '#e8faff', hold: -0.4 },
-  { id: 'wp-note', label: 'おんぷの タクト', note: 'おんぷが ふってくる', style: 'rain', motif: 'note', color: '#ff9d3c', glow: '#fff1c8', hold: -0.4 },
+  { id: 'wp-pico', label: 'ピコピコハンマー', note: 'とびかかって ピコッと たたく', style: 'smash', motif: 'pico', color: '#ff6f6f', glow: '#fff3a8', hold: 0.55 },
+  { id: 'wp-ice', label: 'こおりの つえ', note: 'ゆきの けっしょうが ふる', style: 'rain', motif: 'snow', color: '#7fd0f5', glow: '#e8faff', hold: 0.4 },
+  { id: 'wp-note', label: 'おんぷの タクト', note: 'おんぷが ふってくる', style: 'rain', motif: 'note', color: '#ff9d3c', glow: '#fff1c8', hold: 0.4 },
 ];
+
+/**
+ * ぶき なし。きせかえの「なし」をえらぶと これになる（セーブの weapon は ''）。
+ *
+ * 手には何も持たないが、さいごの1問の フィニッシュそのものは消さない。
+ * 消すと「なし」だけ さいごの1問で何も起きず、フィニッシュのコインも付かない
+ * ＝ えらんだだけで損をする品になる。からだごと ぶつかる（slash と同じ ふみこみ）で しめくくる。
+ * WEAPONS には入れない（ガチャの中身・あつめた数に数えない）。
+ */
+export const NO_WEAPON: WeaponDef = {
+  id: '', label: 'たいあたり', note: 'からだごと ぶつかる', style: 'slash', motif: 'none', color: '#ff9f43', glow: '#fff1c4', hold: 0,
+};
 
 /** 最初から持っている1本。セーブに何も入っていないときの既定 */
 export const DEFAULT_WEAPON = 'wp-punch';
 
+/** id から ぶきを引く。'' は「なし」、知らない id は 最初の1本に落とす */
 export function weaponDef(id: string): WeaponDef {
+  if (id === '') return NO_WEAPON;
   return WEAPONS.find((w) => w.id === id) ?? WEAPONS[0];
 }
 
@@ -282,31 +301,44 @@ export function drawWeaponShape(
     }
 
     case 'arrow': {
-      // ゆみ。弦は細く、矢は1本つがえておく
+      // ゆみ。弓の しなりは 相手のほう（右）へ ふくらみ、弦は 手前（左）で
+      // 矢を つがえて 引いている。以前は 弧と弦が 逆むき（弦が 相手がわ）だった
+      const bx = -L * 0.16;
+      const br = L * 0.42;
+      const end = Math.PI * 0.36;
+      const ex = bx + Math.cos(end) * br;
+      const ey = Math.sin(end) * br;
+      const nock = -L * 0.3;
       g.strokeStyle = '#a9744a';
       g.lineWidth = Math.max(2, L * 0.09);
       g.beginPath();
-      g.arc(L * 0.08, 0, L * 0.42, Math.PI * 0.62, Math.PI * 1.38);
+      g.arc(bx, 0, br, -end, end);
       g.stroke();
-      g.strokeStyle = 'rgba(255,255,255,.9)';
-      g.lineWidth = Math.max(1, L * 0.03);
+      // 弦は 両はしから 引いた手もとへ「く」の字。白い紙の上（きせかえのマス）でも
+      // 暗くした空の前（カットイン）でも見える、中くらいの明るさにする
+      g.strokeStyle = '#c9b48f';
+      g.lineWidth = Math.max(1, L * 0.035);
       g.beginPath();
-      g.moveTo(L * 0.08 + Math.cos(Math.PI * 0.62) * L * 0.42, Math.sin(Math.PI * 0.62) * L * 0.42);
-      g.lineTo(L * 0.08 + Math.cos(Math.PI * 1.38) * L * 0.42, Math.sin(Math.PI * 1.38) * L * 0.42);
+      g.moveTo(ex, -ey);
+      g.lineTo(nock, 0);
+      g.lineTo(ex, ey);
       g.stroke();
       g.strokeStyle = def.color;
       g.lineWidth = Math.max(2, L * 0.07);
       g.beginPath();
-      g.moveTo(-L * 0.32, 0);
-      g.lineTo(L * 0.34, 0);
+      g.moveTo(nock, 0);
+      g.lineTo(L * 0.38, 0);
       g.stroke();
       g.fillStyle = def.glow;
+      g.strokeStyle = def.color;
+      g.lineWidth = Math.max(1, L * 0.025);
       g.beginPath();
-      g.moveTo(L * 0.46, 0);
-      g.lineTo(L * 0.28, -L * 0.12);
-      g.lineTo(L * 0.28, L * 0.12);
+      g.moveTo(L * 0.52, 0);
+      g.lineTo(L * 0.34, -L * 0.12);
+      g.lineTo(L * 0.34, L * 0.12);
       g.closePath();
       g.fill();
+      g.stroke();
       break;
     }
 
@@ -498,6 +530,10 @@ export function drawWeaponShape(
       break;
     }
 
+    // ぶき なし。手には何も描かない
+    case 'none':
+      break;
+
     // つえ・ステッキ・ロッド・タクト。棒の先に 星／ハート／いなずま／けっしょう／おんぷ が付く
     default: {
       // 棒は白い紙の上（きせかえのマス）でも見えるところまで濃くする
@@ -549,8 +585,16 @@ export function drawWeaponHeld(
   const def = weaponDef(id);
   // 走るのに合わせて、手もとが小さく上下する
   const bob = Math.sin(t * 12) * s * 0.04;
-  drawWeaponShape(g, x + s * 1.0, y + s * 0.66 + bob, s * 0.72, def.id, t);
+  drawWeaponShape(g, x + s * HELD_X, y + s * HELD_Y + bob, s * HELD_LEN, def.id, t);
 }
+
+/**
+ * 手もとの置き場所（キャラの箱の左上から、大きさ s の何倍か）と、持っているときの長さ。
+ * ハンマーの ふりおろし（smashPose）も ここから始まって ここへ戻るので、同じ数を使う
+ */
+const HELD_X = 1.0;
+const HELD_Y = 0.66;
+const HELD_LEN = 0.72;
 
 /** きせかえのマス用。ぶき単体を大きく描く */
 export function paintWeaponIcon(canvas: HTMLCanvasElement, id: string, size = 56): void {
@@ -608,13 +652,35 @@ export interface FinishView {
   /** 相手のまんなか */
   toX: number;
   toY: number;
+  /**
+   * 主人公が もともと立っている足もとの まんなか（ふみこみ・とびかかりの ずれを入れない）と、
+   * 主人公の大きさ。ハンマーは ここから とびかかる
+   */
+  homeX: number;
+  homeY: number;
+  charSize: number;
+  /**
+   * 主人公が じぶんで とどめを刺しにいくか（ふつうの フィニッシュ）。
+   * ボスの踏みつけでは false（主人公は踏みつけの動きをしていて、ハンマーを振れない）
+   */
+  leap: boolean;
 }
 
-/** ためのあいだ、手もとに集まってくる光 */
-function drawCharge(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, k: number): void {
+/** ためのあいだ、手もと（ハンマーは 振りかぶった頭）に集まってくる光 */
+function drawCharge(
+  g: CanvasRenderingContext2D,
+  def: WeaponDef,
+  v: FinishView,
+  k: number,
+  x = v.fromX,
+  y = v.fromY,
+): void {
   const s = v.s;
   const r = (5 + k * 13) * s;
-  const grad = g.createRadialGradient(v.fromX, v.fromY, 0, v.fromX, v.fromY, r * 1.9);
+  // 光の広がりは 顔（手もとの左）まで とどかない大きさにとどめる。
+  // 1.9 倍にしていたころは、ためきると 右目が 白く うもれていた
+  const R = r * 1.5;
+  const grad = g.createRadialGradient(x, y, 0, x, y, R);
   grad.addColorStop(0, 'rgba(255,255,255,.95)');
   grad.addColorStop(0.45, def.glow);
   grad.addColorStop(1, 'rgba(255,255,255,0)');
@@ -622,7 +688,7 @@ function drawCharge(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
   g.globalAlpha = 0.85;
   g.fillStyle = grad;
   g.beginPath();
-  g.arc(v.fromX, v.fromY, r * 1.9, 0, Math.PI * 2);
+  g.arc(x, y, R, 0, Math.PI * 2);
   g.fill();
   g.restore();
 
@@ -635,8 +701,8 @@ function drawCharge(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
     const a = v.t * 8 + (i * Math.PI * 2) / 6;
     const d = (34 - k * 24) * s;
     g.beginPath();
-    g.moveTo(v.fromX + Math.cos(a) * d, v.fromY + Math.sin(a) * d * 0.7);
-    g.lineTo(v.fromX + Math.cos(a) * (d - 8 * s), v.fromY + Math.sin(a) * (d - 8 * s) * 0.7);
+    g.moveTo(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.7);
+    g.lineTo(x + Math.cos(a) * (d - 8 * s), y + Math.sin(a) * (d - 8 * s) * 0.7);
     g.stroke();
   }
   g.restore();
@@ -644,15 +710,281 @@ function drawCharge(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
 
 /**
  * 空にかまえる高さ。
- * まほうじん も 振りかぶったハンマー もここに出す。画面の上に はみ出すと
- * 何をしているのか見えないので、canvas の中に必ず収める。
+ * まほうじん（と、ボスの踏みつけで 上から のせるハンマー）をここに出す。
+ * 画面の上に はみ出すと 何をしているのか見えないので、canvas の中に必ず収める。
  *
  * 下限が 46*s なのは カットインの板（画面の左上）より下に置くため。
- * ここを浅くすると、まほうじんや 振りかぶったハンマーが 板のうしろに隠れて、
+ * ここを浅くすると、まほうじんが 板のうしろに隠れて、
  * いちばん見せたい「何が起きているか」が読めなくなる。
  */
 function skyY(v: FinishView): number {
   return Math.max(v.toY - 72 * v.s, 46 * v.s);
+}
+
+// ------------------------------------------------------------------ ハンマーの ふりおろし
+
+/*
+ * ハンマー（smash）は 主人公が じぶんで振る。
+ *
+ * 以前は 相手の上に 大きなハンマーが浮かんで、ほぼ まっすぐ下へ落ちるだけだった。
+ * 振りかぶりも 弧も無いので、「たたいた」ではなく「上から物が落ちてきた」に見える。
+ * いまは次の順に動かす:
+ *   1. 頭の上へ 振りかぶる（柄の下のほうへ持ちかえながら 大きくなる）
+ *   2. ぐっと しゃがんで、さらに うしろへ引く（タメ）
+ *   3. とびかかりながら、頭の上を通る大きな弧で 振りおろす（ここだけ速い）
+ *   4. 当てたまま一拍おいて、はねかえって 元の場所へ もどる（持っている絵に戻る）
+ *
+ * 主人公の位置（smashLeap → runner の pxOff・py）と ハンマーの向き（smashPose）は
+ * 同じ時間の式から出す。別々に動かすと、手もとと 柄が はなれる。
+ * 振りかぶるときの にぎりは 頭の上に置く。手もと（顔の右はし）のまま頭の上へ振りかぶると、
+ * 柄が 顔の前を横切る。
+ */
+
+/** 振りかぶりおわる秒数 */
+const SM_RAISE = 0.42;
+/** 放つ この秒数まえから しゃがんで、さらに引く */
+const SM_CROUCH = 0.3;
+/** 当てたあと、のせたまま止まっている秒数 */
+const SM_PRESS = 0.22;
+/** はねかえって 元の場所へ もどる秒数 */
+const SM_BACK = 0.46;
+/** 着地の しゃがみが もどる秒数 */
+const SM_LAND = 0.2;
+/** ここまでは フィニッシュの絵がハンマーを描く（runner は 手もとの絵を消す） */
+const SM_END = FIN_CHARGE + FIN_FLY + SM_PRESS + SM_BACK + SM_LAND;
+
+/**
+ * 振るときの長さ（キャラの大きさの何倍か）。持っているとき（HELD_LEN）から ここまで大きくなる。
+ * これより長くすると、横長の画面（空が 地面から 113*s しかない）で
+ * 頭の上を通る いちばん高いところが 画面の上に はみ出す
+ */
+const SM_LEN = 1.45;
+/** 振るときに にぎる所。ぶきの まんなかから 長さの何倍ぶん下か（柄の下のほう） */
+const SM_GRIP = 0.44;
+/** 振りかぶった かたむき（頭が うしろ上） */
+const SM_UP = -0.55;
+/** タメで さらに引いた かたむき */
+const SM_PULL = -0.95;
+/** たたきつけた かたむき。柄が ほぼ よこになり、頭の たたく面が 真下を向く */
+const SM_HIT = Math.PI / 2 + 0.12;
+
+/** にぎる所。キャラの足もとの まんなかから、大きさの何倍か（上がマイナス） */
+const SM_AT_UP = { x: 0.16, y: -0.98 };
+const SM_AT_HIT = { x: 0.45, y: -0.62 };
+/** 頭の まんなか（ぶきの まんなかから 長さの何倍ぶん上か）。hammer も pico も同じ */
+const SM_HEAD = 0.29;
+
+const clamp01 = (k: number): number => Math.max(0, Math.min(1, k));
+const lerp = (a: number, b: number, k: number): number => a + (b - a) * k;
+const easeOut = (k: number): number => 1 - (1 - k) * (1 - k);
+const easeInOut = (k: number): number => k * k * (3 - 2 * k);
+
+interface SmashPose {
+  /** にぎる所（キャラの足もとの まんなかから、大きさの何倍か） */
+  ax: number;
+  ay: number;
+  angle: number;
+  /** 長さ（キャラの大きさの何倍か） */
+  len: number;
+  /** にぎる所が ぶきの まんなかから どれだけ下か（長さの何倍か） */
+  grip: number;
+  /** とびかかりの すすみぐあい。0 = 元の場所、1 = 当てる場所 */
+  go: number;
+  /** 山なりの高さ（キャラの大きさの何倍か。上がプラス） */
+  hop: number;
+  /** キャラの つぶれ（1 で そのまま、1 より小さいと しゃがむ） */
+  squash: number;
+}
+
+/** t 秒めの かまえ。時間だけで決まる（位置は smashBody が 相手の場所から出す） */
+function smashPose(def: WeaponDef, t: number): SmashPose {
+  const heldX = HELD_X - 0.5;
+  const heldY = HELD_Y - 1;
+  const hit = FIN_CHARGE + FIN_FLY;
+  const crouch = FIN_CHARGE - SM_CROUCH;
+
+  if (t < crouch) {
+    // 1. 振りかぶる。そのあとは 力をためて 小さく ふるえる
+    const k = easeInOut(clamp01(t / SM_RAISE));
+    const shake = t > SM_RAISE ? Math.sin(t * 46) * 0.035 : 0;
+    return {
+      ax: lerp(heldX, SM_AT_UP.x, k), ay: lerp(heldY, SM_AT_UP.y, k),
+      angle: lerp(def.hold, SM_UP, k) + shake,
+      len: lerp(HELD_LEN, SM_LEN, k), grip: lerp(0, SM_GRIP, k),
+      go: 0, hop: 0, squash: 1,
+    };
+  }
+  if (t < FIN_CHARGE) {
+    // 2. しゃがんで、さらに うしろへ引く
+    const k = easeOut((t - crouch) / SM_CROUCH);
+    return {
+      ax: SM_AT_UP.x, ay: SM_AT_UP.y, angle: lerp(SM_UP, SM_PULL, k),
+      len: SM_LEN, grip: SM_GRIP, go: 0, hop: 0, squash: 1 - 0.15 * k,
+    };
+  }
+  if (t < hit) {
+    // 3. とびかかりながら 振りおろす。振りは あとになるほど速い
+    //    （ふりはじめは重く、当たる直前がいちばん速い）
+    const k = (t - FIN_CHARGE) / FIN_FLY;
+    return {
+      ax: lerp(SM_AT_UP.x, SM_AT_HIT.x, k), ay: lerp(SM_AT_UP.y, SM_AT_HIT.y, k),
+      angle: lerp(SM_PULL, SM_HIT, k * k),
+      len: SM_LEN, grip: SM_GRIP,
+      go: easeOut(k), hop: Math.sin(k * Math.PI) * 0.2, squash: lerp(1.14, 1, k),
+    };
+  }
+  const a = t - hit;
+  if (a < SM_PRESS) {
+    // 4. 当てたまま。すこし めりこんでから もどる
+    return {
+      ax: SM_AT_HIT.x, ay: SM_AT_HIT.y, angle: SM_HIT + Math.sin((a / SM_PRESS) * Math.PI) * 0.09,
+      len: SM_LEN, grip: SM_GRIP, go: 1, hop: 0, squash: 1,
+    };
+  }
+  if (a < SM_PRESS + SM_BACK) {
+    // はねかえって 元の場所へ。ハンマーも 持っている絵の大きさ・向きへ もどしていく
+    const k = easeInOut((a - SM_PRESS) / SM_BACK);
+    return {
+      ax: lerp(SM_AT_HIT.x, heldX, k), ay: lerp(SM_AT_HIT.y, heldY, k),
+      angle: lerp(SM_HIT, def.hold, k),
+      len: lerp(SM_LEN, HELD_LEN, k), grip: lerp(SM_GRIP, 0, k),
+      go: 1 - k, hop: Math.sin(k * Math.PI) * 0.45, squash: 1,
+    };
+  }
+  // 着地。しゃがんで もどる
+  const k = clamp01((a - SM_PRESS - SM_BACK) / SM_LAND);
+  return {
+    ax: heldX, ay: heldY, angle: def.hold, len: HELD_LEN, grip: 0,
+    go: 0, hop: 0, squash: 1 - 0.12 * (1 - k),
+  };
+}
+
+/**
+ * 当てたときに 主人公の足もとが どこまで行くか（元の場所からの ずれ）。
+ * たたく面（頭の 前の面）が 相手の頭の上に来るところから 逆算する
+ */
+function smashReach(def: WeaponDef, v: FinishView): { x: number; y: number } {
+  const size = v.charSize;
+  const len = SM_LEN * size;
+  const head = (SM_HEAD + SM_GRIP) * len;
+  const face = (def.motif === 'pico' ? 0.42 : 0.34) * len;
+  const sin = Math.sin(SM_HIT);
+  const cos = Math.cos(SM_HIT);
+  // にぎる所から たたく面までの ずれ
+  const fx = head * sin + face * cos;
+  const fy = -head * cos + face * sin;
+  const footX = v.toX - fx - SM_AT_HIT.x * size;
+  const footY = v.toY - size * 0.22 - fy - SM_AT_HIT.y * size;
+  return {
+    // 相手が近すぎても うしろへは とばない（その場で 振りおろす）
+    x: Math.max(0, footX - v.homeX),
+    y: Math.min(-size * 0.3, footY - v.homeY),
+  };
+}
+
+/** t 秒めの 主人公の ずれと つぶれ */
+function smashBody(def: WeaponDef, v: FinishView, t: number): { dx: number; dy: number; squash: number; pose: SmashPose } {
+  const pose = smashPose(def, t);
+  const reach = smashReach(def, v);
+  return {
+    dx: reach.x * pose.go,
+    dy: reach.y * pose.go - pose.hop * v.charSize,
+    squash: pose.squash,
+    pose,
+  };
+}
+
+/**
+ * ハンマーで とびかかっている あいだの 主人公の ずれ（runner は pxOff・py・つぶれ に入れる）。
+ * ハンマーでないとき・ボスの踏みつけのときは null（runner は いつもの動きのまま）
+ */
+export function smashLeap(def: WeaponDef, v: FinishView): { dx: number; dy: number; squash: number } | null {
+  if (def.style !== 'smash' || !v.leap) return null;
+  const b = smashBody(def, v, Math.min(v.t, SM_END));
+  return { dx: b.dx, dy: b.dy, squash: b.squash };
+}
+
+/**
+ * いま ぶきを フィニッシュの絵のほうで描いているか。
+ * true のあいだは runner が キャラの手もとの ぶきを消す（2本に見えないように）
+ */
+export function finishHoldsWeapon(def: WeaponDef, v: FinishView): boolean {
+  return def.style === 'smash' && v.leap && v.t < SM_END;
+}
+
+/** t 秒めの ハンマーの置き場所（画面の座標） */
+function smashWorld(def: WeaponDef, v: FinishView, t: number) {
+  const size = v.charSize;
+  const b = smashBody(def, v, t);
+  const { pose } = b;
+  // つぶれは 足もとを中心に かかる（sprites.ts の drawChar と同じ）
+  const px = v.homeX + b.dx + (pose.ax * size) / pose.squash;
+  const py = v.homeY + b.dy + pose.ay * size * pose.squash;
+  const len = pose.len * size;
+  const sin = Math.sin(pose.angle);
+  const cos = Math.cos(pose.angle);
+  const toCenter = pose.grip * len;
+  const toHead = (SM_HEAD + pose.grip) * len;
+  return {
+    /** にぎる所 */
+    px, py,
+    /** ぶきの まんなか（drawWeaponShape に渡す点） */
+    cx: px + sin * toCenter,
+    cy: py - cos * toCenter,
+    /** 頭の まんなか */
+    hx: px + sin * toHead,
+    hy: py - cos * toHead,
+    toHead, len, angle: pose.angle,
+  };
+}
+
+/** 主人公が振る ハンマー。振りおろしている あいだは 残像と 弧のすじを うしろに引く */
+function drawSmash(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView): void {
+  if (v.t >= SM_END) return;
+  const s = v.s;
+  const now = smashWorld(def, v, v.t);
+  const swing = FIN_CHARGE;
+  const hit = FIN_CHARGE + FIN_FLY;
+
+  if (v.t >= swing && v.t < hit + 0.14) {
+    // 弧のすじ。頭が通ってきた道を 太い光で残す（速さを 形で見せる）
+    // （当てたあとの めりこみで 向きが 行って戻るので、戻る向きのときは 引かない。
+    //   逆向きに arc を引くと、ほぼ1周の輪になる）
+    const from = smashPose(def, Math.max(swing, v.t - 0.12)).angle;
+    const fade = v.t < hit ? 1 : 1 - (v.t - hit) / 0.14;
+    if (now.angle > from + 0.02) {
+      g.save();
+      g.lineCap = 'round';
+      for (const [w, color, alpha] of [[22, def.glow, 0.45], [9, '#ffffff', 0.85]] as const) {
+        g.globalAlpha = alpha * fade;
+        g.strokeStyle = color;
+        g.lineWidth = w * s;
+        g.beginPath();
+        g.arc(now.px, now.py, now.toHead, from - Math.PI / 2, now.angle - Math.PI / 2);
+        g.stroke();
+      }
+      g.restore();
+    }
+
+    // 残像。すこし前の ハンマーを うすく重ねる
+    for (let i = 3; i >= 1; i--) {
+      const t0 = v.t - i * 0.03;
+      if (t0 < swing) continue;
+      const w = smashWorld(def, v, t0);
+      g.save();
+      g.globalAlpha = 0.16 * (4 - i) * fade;
+      drawWeaponShape(g, w.cx, w.cy, w.len, def.id, v.t, w.angle);
+      g.restore();
+    }
+  }
+
+  drawWeaponShape(g, now.cx, now.cy, now.len, def.id, v.t, now.angle);
+
+  // ためのあいだ、振りかぶった頭に 光が集まる
+  if (v.t < swing) {
+    const k = clamp01((v.t - SM_RAISE * 0.5) / (swing - SM_RAISE * 0.5));
+    if (k > 0) drawCharge(g, def, v, k * 0.7, now.hx, now.hy);
+  }
 }
 
 // ------------------------------------------------------------------ 暗転とカットイン
@@ -748,7 +1080,18 @@ export function drawFinishCutIn(
   rr(g, x, y, edge, h, edge * 0.5);
   g.fill();
 
-  drawWeaponShape(g, x + edge + pad + icon / 2, y + h / 2, icon, def.id, t * 3);
+  if (def.motif === 'none') {
+    // ぶき なし は 持っている絵が無いので、当たるときの「ドン」を小さく出す
+    g.fillStyle = def.glow;
+    g.strokeStyle = def.color;
+    g.lineWidth = Math.max(1, icon * 0.07);
+    g.lineJoin = 'round';
+    spikePath(g, x + edge + pad + icon / 2, y + h / 2, icon * 0.46, 9, 0.62, 0);
+    g.fill();
+    g.stroke();
+  } else {
+    drawWeaponShape(g, x + edge + pad + icon / 2, y + h / 2, icon, def.id, t * 3);
+  }
 
   g.fillStyle = '#fff';
   g.textAlign = 'left';
@@ -885,6 +1228,26 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
       if (fade <= 0) return;
       g.save();
       g.globalAlpha = fade;
+      if (def.motif === 'none') {
+        // たいあたり。ふみこんだ からだの うしろに、よこの すじを引く
+        // （fromX は ふみこんだ いまの手もと。うしろは 元の立ち位置まで）
+        const tail = v.homeX - v.charSize * 0.3;
+        const head = v.fromX - v.charSize * 1.3;
+        if (head > tail) {
+          g.strokeStyle = def.glow;
+          g.lineCap = 'round';
+          const mid = v.homeY - v.charSize * 0.5;
+          for (const [off, w, back] of [[-0.3, 2.5, 0.3], [0, 5, 0], [0.3, 2.5, 0.2]] as const) {
+            g.lineWidth = w * s;
+            g.beginPath();
+            g.moveTo(tail + (head - tail) * back, mid + off * v.charSize);
+            g.lineTo(head, mid + off * v.charSize);
+            g.stroke();
+          }
+        }
+        g.restore();
+        break;
+      }
       if (def.motif === 'drill') {
         // ドリルは 斬らずに まっすぐ つく。弧ではなく よこ一直線の すじを引く
         const tip = v.fromX + dx * Math.max(fly, 0.2);
@@ -954,7 +1317,9 @@ function drawFlying(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
     }
 
     case 'smash': {
-      // 上から たたきつける。当てたあとは しばらく のせたまま
+      // ふつうの フィニッシュは 主人公が じぶんで振る（drawSmash）
+      if (v.leap) break;
+      // ボスの踏みつけ。主人公は踏みつけの動きをしているので、上から のせるだけにする
       const drop = Math.min(1, fly + after * 2);
       const x = v.toX;
       const top = skyY(v) + 8 * s;
@@ -1055,7 +1420,26 @@ function drawImpact(g: CanvasRenderingContext2D, def: WeaponDef, v: FinishView, 
   g.save();
   g.globalAlpha = fade;
 
-  if (def.motif === 'drill') {
+  if (def.style === 'smash') {
+    // 地面を つたわる ゆれ。たたきつけた重さを 足もとの輪で見せる
+    g.strokeStyle = '#fff';
+    g.lineWidth = 3.5 * s * (1 - k * 0.6);
+    g.beginPath();
+    g.ellipse(v.toX, v.homeY, (18 + k * 72) * s, (4 + k * 10) * s, 0, 0, Math.PI * 2);
+    g.stroke();
+  }
+
+  if (def.motif === 'none') {
+    // たいあたり。ぎざぎざの「ドン」が ふくらむ
+    const r = (20 + k * 40) * s;
+    g.fillStyle = def.glow;
+    g.strokeStyle = def.color;
+    g.lineWidth = 4 * s * (1 - k * 0.5);
+    g.lineJoin = 'round';
+    spikePath(g, v.toX, v.toY, r, 9, 0.62, v.t * 0.8);
+    g.fill();
+    g.stroke();
+  } else if (def.motif === 'drill') {
     // うずまき。つきやぶった あとが まわりながら広がる
     g.strokeStyle = '#fff';
     g.lineWidth = 6 * s * (1 - k * 0.5);
@@ -1135,17 +1519,13 @@ export function drawFinish(g: CanvasRenderingContext2D, def: WeaponDef, v: Finis
   const fly = Math.max(0, Math.min(1, (v.t - FIN_CHARGE) / FIN_FLY));
   const after = Math.max(0, v.t - FIN_CHARGE - FIN_FLY);
 
+  // ハンマーは 主人公が 振りかぶって・とびかかって・振りおろす（ため から 着地まで）
+  const smash = def.style === 'smash' && v.leap;
+
   if (v.t < FIN_CHARGE) {
     if (def.style === 'rain') drawCircle(g, def, v, charge);
-    else if (def.style === 'smash') {
-      // ハンマーが 相手の上に 振りかぶられていく
-      const top = skyY(v) + 8 * v.s;
-      g.save();
-      g.globalAlpha = Math.min(1, charge * 2);
-      drawWeaponShape(g, v.toX, v.toY - 30 * v.s - (v.toY - 30 * v.s - top) * charge, 78 * v.s, def.id, v.t, 0.15 - charge * 0.5);
-      g.restore();
-      drawCharge(g, def, v, charge * 0.6);
-    } else drawCharge(g, def, v, charge);
+    else if (smash) drawSmash(g, def, v);
+    else drawCharge(g, def, v, charge);
     // ための後半だけ、相手に照準を寄せる（タメの目に見えるぶん）
     drawLockOn(g, def, v, Math.max(0, (charge - 0.55) / 0.45));
     return;
@@ -1154,4 +1534,6 @@ export function drawFinish(g: CanvasRenderingContext2D, def: WeaponDef, v: Finis
   if (def.style === 'rain') drawCircle(g, def, v, 1);
   drawFlying(g, def, v, fly, after);
   if (after > 0) drawImpact(g, def, v, after);
+  // ハンマーは はじける光より手前。たたきつけた面が 光に うもれないように
+  if (smash) drawSmash(g, def, v);
 }
