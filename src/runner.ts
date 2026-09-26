@@ -52,7 +52,7 @@ import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
   COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, lumpRate, scaled, type CoinGain,
 } from './rewards';
-import { addPlayTime, profile, save, setStageStars, persist } from './save';
+import { profile, save, setStageStars, persist } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
@@ -363,8 +363,6 @@ export class Runner {
   private revengeIndex = 0;
   private revengeCorrect = 0;
   private revengeResult: RevengeResult | null = null;
-  /** この走りで遊んだ秒数。ステージが終わるかやめたときに保存する */
-  private elapsed = 0;
 
   // ペット
   private pet: PetDef | null = null;
@@ -517,7 +515,6 @@ export class Runner {
     this.combo = 0;
     this.learned = [];
     this.onDone = onDone;
-    this.elapsed = 0;
     this.particles = [];
     this.coinsFlying = [];
     this.floats = [];
@@ -605,7 +602,11 @@ export class Runner {
     this.raf = this.paused ? 0 : requestAnimationFrame(this.frame);
   }
 
-  /** 走るのをやめる。遊んだ時間はここで必ず記録する（途中でやめても数える） */
+  /**
+   * 走るのをやめる。
+   * 遊んだ時間は ここでは数えない（playclock.ts の時計が、画面に出ているあいだ
+   * 1秒ずつ数えている。ここでも足すと 2重に数える）。
+   */
   stop(): void {
     this.running = false;
     // ポーズを解除するのはここだけ。start() で落とすと、走り出す直前に
@@ -613,8 +614,6 @@ export class Runner {
     this.paused = false;
     cancelAnimationFrame(this.raf);
     this.raf = 0;
-    addPlayTime(this.elapsed);
-    this.elapsed = 0;
     this.hideHint();
     this.renderDock();
     stopDrone();
@@ -2023,7 +2022,6 @@ export class Runner {
       return;
     }
     this.t += dt;
-    this.elapsed += dt;
     // にがて たいじ では走らない。位相を止めておかないと、動かない地面の上で
     // 足だけ動きつづけて「走っているのに進まない」絵になる。
     // フィニッシュも同じ。足を止めて向かい合う

@@ -68,6 +68,11 @@
             <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
           </div>
 
+          <!-- のこり時間。おうちのかたが「1日に あそべる時間」を決めたときだけ出る。
+               字が読めなくても、色のついた輪と帯が みじかくなるのが見える
+               （中身は playclock.ts が作る。ほかの画面の小さい時計も同じ） -->
+          <p class="tclock wide with-bar home-time" data-tclock hidden></p>
+
           <!-- きょうの もんだい。1・3・5 をここで直接えらぶ。
                以前は押すと「なんもん やる？」の画面がはさまり、そこに
                「まえの ほうは かんたんな しき…」という説明が2行あった。
@@ -108,7 +113,6 @@
                ロゴと「あそぶ」が画面の外へ押し出されていた。合図（🆕・🎁・🥚）は
                下の3つのボタンに付けてあるので、行かせたい先はそちらで分かる。 -->
 
-          <p class="over-note" id="over-note" hidden>きょうの ぼうけんは ここまで。<br>ずかん・きせかえ・ぼくじょうは みられるよ。</p>
         </div>
 
         <button class="btn btn-primary btn-xl" id="btn-start">
@@ -233,6 +237,7 @@
           <p class="map-world" id="map-world">せかい ぜんぶ</p>
           <p class="map-desc" id="map-desc"></p>
         </div>
+        <span class="tclock" data-tclock hidden></span>
         <p class="coin-badge"><span class="coin-dot"></span><b id="map-coins">0</b></p>
       </header>
 
@@ -265,6 +270,7 @@
         <!-- 「れんぞく」の字は span に入れてある。せまい画面では落として
              数だけ残す（この行が太いと、ピップ列が押しつぶされる） -->
         <p class="hud-combo" id="hud-combo" hidden><b>0</b><span class="hc-word">れんぞく</span></p>
+        <span class="tclock" data-tclock hidden></span>
         <p class="coin-badge"><span class="coin-dot"></span><b id="hud-coins">0</b></p>
       </header>
 
@@ -370,6 +376,9 @@
           <p class="replay-note" id="result-replay" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
+          <!-- 「つづける」を押す前に、きょう あとどれだけ遊べるかを見せる -->
+          <p class="tclock wide result-time" data-tclock hidden></p>
+
           <div class="result-btns">
             <button class="btn btn-primary btn-xl" id="result-retry" type="button" hidden>もういちど</button>
             <button class="btn btn-primary btn-xl" id="result-next" type="button">つづける</button>
@@ -390,6 +399,7 @@
           <p class="map-world">たしざん図鑑</p>
           <p class="map-desc" id="zukan-desc">おぼえた カード 0 / 81</p>
         </div>
+        <span class="tclock" data-tclock hidden></span>
       </header>
       <span class="bar big"><i id="zukan-bar2"></i></span>
 
@@ -428,6 +438,7 @@
           <p class="map-world" id="mini-name">ミニゲーム</p>
           <p class="map-desc" id="mini-desc">あそびながら たしざんが つよくなる</p>
         </div>
+        <span class="tclock" data-tclock hidden></span>
         <p class="coin-badge"><span class="coin-dot"></span><b id="mini-coins">0</b></p>
       </header>
 
@@ -458,6 +469,7 @@
           <p class="map-world">きせかえ</p>
           <p class="map-desc" id="shop-desc">あつめた 3 / 39</p>
         </div>
+        <span class="tclock" data-tclock hidden></span>
         <p class="coin-badge"><span class="coin-dot"></span><b id="shop-coins">0</b></p>
       </header>
 
@@ -496,6 +508,7 @@
           <p class="map-world">ペットぼくじょう</p>
           <p class="map-desc" id="ranch-desc">なかま 0 / 30</p>
         </div>
+        <span class="tclock" data-tclock hidden></span>
         <p class="coin-badge"><span class="coin-dot"></span><b id="ranch-coins">0</b></p>
       </header>
 
@@ -531,6 +544,32 @@
       <button class="btn btn-primary btn-xl back-to-play" id="ranch-play" type="button" hidden>つづきを あそぶ</button>
     </section>
 
+    <!-- ===== きょうは ここまで =====
+         1日に あそべる時間を つかいきったとき。ステージやミニゲームの途中では出さず、
+         おわって ホーム・マップ・きせかえ などへ もどるところで ここに来る。
+         ここから出られるのは「きろくを えらぶ」（きょうだいに かわる）と
+         おうちのかたの関門だけ。日付が変わるか、時間を足してもらえば ホームへ戻る。 -->
+    <section class="screen" id="screen-rest" data-screen="rest" hidden>
+      <div class="rest-sky" aria-hidden="true">
+        <span class="rest-moon">🌙</span>
+        <span class="rest-star r1">✦</span>
+        <span class="rest-star r2">✧</span>
+        <span class="rest-star r3">✦</span>
+        <span class="rest-star r4">✧</span>
+        <span class="rest-star r5">✦</span>
+      </div>
+      <div class="rest-inner">
+        <canvas id="rest-char" aria-hidden="true"></canvas>
+        <p class="rest-head">きょうは ここまで！</p>
+        <p class="rest-sub"><span id="rest-who">たくさん あそんだね。</span><br>また あした あそぼう！</p>
+        <p class="rest-next" id="rest-next"></p>
+      </div>
+      <div class="rest-btns">
+        <button class="btn btn-ghost" id="rest-slots" type="button">きろくを えらぶ</button>
+        <button class="btn btn-ghost" id="rest-parent" type="button">おうちのかたへ</button>
+      </div>
+    </section>
+
     <!-- ===== おうちのかた ===== -->
     <section class="screen" id="screen-parent" data-screen="parent" hidden>
       <header class="map-head">
@@ -542,6 +581,38 @@
       </header>
 
       <div class="parent-scroll">
+        <!-- いちばん よく さわる設定なので、いちばん上に置く。えらんだ瞬間に保存する -->
+        <h3 class="p-h p-h-top">1日に あそべる時間</h3>
+        <div class="p-limit">
+          <div class="p-limit-now">
+            <span class="tclock wide" data-tclock hidden></span>
+            <div class="p-limit-lines" id="p-limit-now"></div>
+          </div>
+          <div class="p-chips" id="p-limit-chips" role="radiogroup" aria-label="1日に あそべる時間"></div>
+          <div class="p-btns">
+            <button class="btn btn-ghost" id="p-extend" type="button">きょうだけ ＋10分</button>
+            <button class="btn btn-ghost" id="p-extend-undo" type="button" hidden>延長を取り消す</button>
+          </div>
+        </div>
+        <p class="p-note">
+          時間は、このアプリを開いて操作しているあいだだけ数えます。ほかのアプリに切りかえたとき、
+          90秒 なにも操作がないとき、この画面にいるあいだは止まります。お子さんには、
+          ホーム・プレイ中・各画面の上に「のこり時間の時計」が出ます。
+        </p>
+        <p class="p-note">
+          時間になっても、ステージやミニゲームの途中では止めません（いきなり切ると、
+          答えている途中の問題がミスとして残るため）。終わったところで「きょうは ここまで」の
+          画面になり、きせかえ・ペット・ずかんも閉じます。「きょうだけ ＋10分」は、その日の
+          その きろくにだけ足され、あしたには元の長さに戻ります。
+        </p>
+        <p class="p-note">
+          時間は きろく（お子さん）ごとに数え、日付が変わると元に戻ります。制限をかけているあいだは、
+          新しい きろくを作るときにも この計算の確認が入ります（新しい きろくで数えなおす抜け道を
+          ふさぐため）。端末の日付を変えられると数えなおしになるので、確実に止めたい場合は
+          端末のスクリーンタイム／ファミリーリンクと併用してください。
+        </p>
+
+        <h3 class="p-h">きょうの ようす</h3>
         <div class="p-cards">
           <div class="p-card"><span>きょう あそんだ</span><b id="p-time">0 分</b></div>
           <div class="p-card"><span>おぼえた式</span><b id="p-zukan">0 / 81</b></div>
@@ -557,18 +628,7 @@
         <p class="p-note" id="p-weak-note"></p>
 
         <h3 class="p-h">せってい</h3>
-        <label class="p-row">
-          <span>1日にあそべる時間</span>
-          <select id="p-limit">
-            <option value="0">せいげんなし</option>
-            <option value="10">10分</option>
-            <option value="15">15分</option>
-            <option value="20">20分</option>
-            <option value="30">30分</option>
-          </select>
-        </label>
         <label class="toggle"><input type="checkbox" id="p-slow" /><span>ゆっくりモード（障害物を遅く）</span></label>
-        <p class="p-note">上限に達しても途中で止めることはしません。ステージの切れ目でおしまいの画面になります。</p>
 
         <h3 class="p-h">ペットのちから</h3>
         <p class="p-note" id="p-pet"></p>
@@ -736,7 +796,7 @@
         <label class="toggle"><input type="checkbox" id="set-left" /><span>ひだりきき</span></label>
         <button class="btn btn-primary" id="set-close" type="button">とじる</button>
         <button class="btn btn-ghost" id="btn-slots" type="button">きろくを えらぶ</button>
-        <button class="btn btn-ghost" id="btn-parent" type="button">おうちのかたへ</button>
+        <button class="btn btn-ghost btn-parent" id="btn-parent" type="button">おうちのかたへ<small>時間の制限・データの持ち出し</small></button>
         <button class="btn btn-ghost" id="btn-switch" type="button">なまえを かえる</button>
       </div>
     </div>
@@ -752,13 +812,16 @@
       </div>
     </div>
 
-    <!-- おとなだけが通れるようにする簡単な関門 -->
+    <!-- おとなだけが通れるようにする関門。かけ算（parent.ts）。
+         まちがえるたびに問題が替わり、3回つづけて まちがえると 30秒 待つ -->
     <div class="overlay" id="overlay-gate" hidden>
       <div class="sheet">
         <p class="sheet-head">おうちのかた だけ</p>
-        <p class="gate-q" id="gate-q">47 + 68 = ?</p>
-        <input class="gate-input" id="gate-input" type="text" inputmode="numeric" autocomplete="off" />
-        <p class="p-note" id="gate-msg"></p>
+        <p class="gate-why" id="gate-why" hidden></p>
+        <p class="gate-lead">保護者の方へ：次のかけ算の答えを入力してください。</p>
+        <p class="gate-q" id="gate-q">17 × 8 = ?</p>
+        <input class="gate-input" id="gate-input" type="text" inputmode="numeric" autocomplete="off" aria-label="こたえ" />
+        <p class="p-note" id="gate-msg" aria-live="polite"></p>
         <button class="btn btn-primary" id="gate-ok" type="button">すすむ</button>
         <button class="btn btn-ghost" id="gate-cancel" type="button">やめる</button>
       </div>
