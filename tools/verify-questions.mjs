@@ -63,8 +63,9 @@ const { WORLDS, BASIC_FACTS, allFacts, blankFor, cherry, factKey, stepOf } =
   await load('curriculum');
 const { frameArt, PLACE_MAX } = await load('tenframe');
 const {
-  laneFrom, endlessLane, cadenceAt, endlessCadence,
-  AIRTIME, LAND_LAG, TRIP_LAG, CLEAR_RATIO, clearsAt, clearWindow,
+  laneFrom, endlessLane, cadenceAt, endlessCadence, endlessGap, tallChance, endlessMaxHearts,
+  AIRTIME, LAND_LAG, TRIP_LAG, CLEAR_RATIO, TALL_CLEAR_RATIO, clearsAt, clearWindow,
+  HEARTS, ENDLESS_RANDOM_AT, ENDLESS_TALL_AT, ENDLESS_STAGES, STAGE_WARN,
 } = await load('hurdle');
 
 const N = 60000;
@@ -377,6 +378,61 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     if ((h.n % 10 === 0) !== (h.kind === 'gate')) bad.push(`エンドレス: ${h.n} こめの区切りがおかしい`);
   }
 
+  // 乱数の列を決めうちにする（CI の結果が 回すたびに変わらないように）
+  const seeded = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  // たかい ハードルは 100本めを こえてから。10のもんは たかくしない（区切りは ひと息つく場所）
+  {
+    const always = () => 0;
+    const lane = endlessLane(1, 400, always);
+    const early = lane.filter((h) => h.tall && h.n <= ENDLESS_TALL_AT);
+    if (early.length) bad.push(`エンドレス: ${early[0].n} こめ（${ENDLESS_TALL_AT} より前）が たかい`);
+    if (lane.some((h) => h.tall && h.kind === 'gate')) bad.push('エンドレス: 10のもんが たかい');
+    if (!lane.some((h) => h.tall)) bad.push(`エンドレス: ${ENDLESS_TALL_AT} を こえても たかい ハードルが出ない`);
+    // 割合は ふえる一方で、半分で止まる（ぜんぶ たかくはならない）
+    let prev = 0;
+    for (let n = 1; n <= 400; n++) {
+      const c = tallChance(n);
+      if (c < prev - 1e-9) bad.push(`エンドレス: たかい割合が ${n} こめで へった`);
+      if (c > 0.5 + 1e-9) bad.push(`エンドレス: たかい割合が ${n} こめで 半分を こえた`);
+      prev = c;
+    }
+    // じっさいの乱数でも、100本め より先で まざっている
+    const real = endlessLane(101, 300, seeded(7)).filter((h) => h.kind === 'base');
+    const rate = real.filter((h) => h.tall).length / real.length;
+    if (!(rate > 0.2 && rate < 0.6)) bad.push(`エンドレス: 101〜400本めの たかい割合が ${(rate * 100).toFixed(0)}%`);
+  }
+
+  // ハートの上限は 70本めで 2つ、100本めで 1つ。へる一方で、0 には ならない
+  {
+    const want = [[1, HEARTS], [69, HEARTS], [70, 2], [99, 2], [100, 1], [1000, 1]];
+    for (const [n, h] of want) {
+      if (endlessMaxHearts(n) !== h) bad.push(`エンドレス: ${n} こめの ハートの上限が ${endlessMaxHearts(n)}（${h} のはず）`);
+    }
+    let prev = HEARTS;
+    for (let n = 1; n <= 300; n++) {
+      const h = endlessMaxHearts(n);
+      if (h > prev) bad.push(`エンドレス: ${n} こめで ハートの上限が ふえた`);
+      if (h < 1) bad.push(`エンドレス: ${n} こめで ハートの上限が 0`);
+      prev = h;
+    }
+    // 節目は 10のもんの上に来て、予告は まえの節目より あと（予告が 札に かくれない）
+    let last = 0;
+    for (const st of ENDLESS_STAGES) {
+      if (st.at % 10 !== 0) bad.push(`エンドレス: 節目 ${st.at} が 10のもんの上に無い`);
+      if (st.at - STAGE_WARN <= last) bad.push(`エンドレス: 節目 ${st.at} の予告が まえの節目と かさなる`);
+      if (!st.warn || !st.title || !st.sub || !st.say) bad.push(`エンドレス: 節目 ${st.at} に ことばが足りない`);
+      last = st.at;
+    }
+    if (!ENDLESS_STAGES.some((st) => st.at === ENDLESS_RANDOM_AT)) bad.push('エンドレス: バラバラになる節目の予告が無い');
+    if (!ENDLESS_STAGES.some((st) => st.at === ENDLESS_TALL_AT)) bad.push('エンドレス: たかい ハードルの節目の予告が無い');
+  }
+
   // 拍は詰まる一方で、しかも かならず「跳んで、着地して、また跳べるようになる」
   // ぶんより長い。ここが破れると、次が来ても まだ跳べず、原理的に越えられなくなる
   const READY = AIRTIME + LAND_LAG;
@@ -397,6 +453,27 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     }
   }
 
+  // 50本めから先は 間がバラバラ。それより前は 決まった拍のまま。
+  // どれだけ短くなっても「跳べるようになるまで」より長い（乱数の両はしで見る）
+  if (ENDLESS_RANDOM_AT !== 50 || ENDLESS_TALL_AT !== 100) {
+    bad.push(`エンドレス: 節目が バラバラ ${ENDLESS_RANDOM_AT}本め・たかい ${ENDLESS_TALL_AT}本め（50・100 のはず）`);
+  }
+  for (const slow of [false, true]) {
+    for (let i = 0; i <= 300; i++) {
+      const lo = endlessGap(i, slow, 0);
+      const hi = endlessGap(i, slow, 0.999999);
+      if (i < ENDLESS_RANDOM_AT && (lo !== endlessCadence(i, slow) || hi !== lo)) {
+        bad.push(`エンドレス: ${i} 本め（${ENDLESS_RANDOM_AT} より前）で 拍が バラバラ（slow=${slow}）`);
+      }
+      if (i >= ENDLESS_RANDOM_AT && !(hi > lo + 0.2)) {
+        bad.push(`エンドレス: ${i} 本めで 拍が バラバラに なっていない（${lo.toFixed(2)}〜${hi.toFixed(2)}s, slow=${slow}）`);
+      }
+      if (lo < READY) {
+        bad.push(`エンドレスの いちばん短い間 ${lo.toFixed(2)}s が 跳べるようになるまで ${READY.toFixed(2)}s より短い（${i} 本め, slow=${slow}）`);
+      }
+    }
+  }
+
   // 当たり判定。**跳んだ「つもり」では越えられない**
   if (clearsAt(0)) bad.push('地面をはなれた瞬間に もう横木を越えている（当たり判定が無い）');
   if (clearsAt(AIRTIME)) bad.push('着地した瞬間に まだ横木を越えている');
@@ -405,6 +482,15 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
   // 越えていられる時間が 連打の拍より短い＝連打では かならず取りこぼす
   if (clearWindow() >= READY) {
     bad.push(`越えていられる ${clearWindow().toFixed(2)}s が 連打の拍 ${READY.toFixed(2)}s 以上（連打で ぜんぶ越えられる）`);
+  }
+  // たかい ハードル。越えていられる時間は ふつうより短いが、いちばん高いところなら越えられる
+  if (clearsAt(0, true) || clearsAt(AIRTIME, true)) bad.push('たかい ハードル: 地面の高さで 越えている');
+  if (!clearsAt(AIRTIME / 2, true)) bad.push('たかい ハードル: いちばん高いところでも 越えられない');
+  if (!(TALL_CLEAR_RATIO > CLEAR_RATIO && TALL_CLEAR_RATIO < 0.85)) {
+    bad.push(`たかい ハードル: 越える高さの割合が おかしい（${TALL_CLEAR_RATIO}）`);
+  }
+  if (!(clearWindow(true) < clearWindow() && clearWindow(true) > 0.3)) {
+    bad.push(`たかい ハードル: 越えていられる時間が ${clearWindow(true).toFixed(2)}s（ふつう ${clearWindow().toFixed(2)}s）`);
   }
 
   /**
@@ -416,16 +502,31 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
    * いまは跳躍が AIRTIME + LAND_LAG ごとの決まった拍になるので、
    * ハードルの拍とは合わず、必ず取りこぼす。
    */
-  const mash = (cadence, n) => {
+  /** ハードルが体に届く時刻。1本めは 1.6秒後（本物の pushLane と同じ）、あとは拍の関数で */
+  const hitsOf = (cadence, n) => {
     const hits = [];
     let t = 1.6;
     for (let i = 0; i < n; i++) {
       hits.push(t);
       t += cadence(i + 1);
     }
+    return hits;
+  };
+
+  /**
+   * エンドレスを じっさいの形で並べる。間は endlessGap（50本めから バラバラ）、
+   * どれが たかいかは endlessLane（100本めから まざる）。乱数は 決めうちの列
+   */
+  const endlessRun = (n, slow, rnd) => {
+    const lane = endlessLane(1, n, rnd);
+    return { hits: hitsOf((i) => endlessGap(i, slow, rnd()), n), tall: lane.map((h) => !!h.tall) };
+  };
+
+  const mash = (hits, tall = []) => {
+    const n = hits.length;
     const dt = 1 / 120;
     let clean = 0, air = false, airT = 0, lag = 0, at = 0;
-    for (let now = 0; at < n && now < 600; now += dt) {
+    for (let now = 0; at < n && now < 2000; now += dt) {
       if (!air && lag <= 0) { air = true; airT = 0; }  // 連打なので毎フレーム押す
       if (lag > 0) lag = Math.max(0, lag - dt);
       if (air) {
@@ -433,7 +534,7 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
         if (airT >= AIRTIME) { air = false; airT = 0; lag = LAND_LAG; }
       }
       while (at < n && now >= hits[at]) {
-        if (air && clearsAt(airT)) clean++;
+        if (air && clearsAt(airT, tall[at])) clean++;
         else { air = false; airT = 0; lag = TRIP_LAG; }
         at++;
       }
@@ -441,9 +542,12 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     return clean / n;
   };
 
-  const mashFacts = mash((i) => cadenceAt(i, 60, false), 60);
-  const mashEndless = mash((i) => endlessCadence(i, false), 120);
-  for (const [name, rate] of [['式モード', mashFacts], ['エンドレス', mashEndless]]) {
+  const mashFacts = mash(hitsOf((i) => cadenceAt(i, 60, false), 60));
+  const mashEndless = mash(hitsOf((i) => endlessCadence(i, false), 120));
+  // 50本めから先（バラバラ・たかいのが まざる）でも、連打は通らない
+  const late = endlessRun(250, false, seeded(3));
+  const mashLate = mash(late.hits.slice(ENDLESS_RANDOM_AT), late.tall.slice(ENDLESS_RANDOM_AT));
+  for (const [name, rate] of [['式モード', mashFacts], ['エンドレス', mashEndless], ['エンドレス 50本めから', mashLate]]) {
     if (rate > 0.9) bad.push(`連打だけで ${name}の ${(rate * 100).toFixed(0)}% を きれいに跳べる`);
   }
 
@@ -454,16 +558,11 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
    * 跳ぶ場所が分かっている子に取りこぼさせるためではない。
    * いちばん高いところがハードルに重なるように跳んだら 100% になることを見る。
    */
-  const timed = (cadence, n) => {
-    const hits = [];
-    let t = 1.6;
-    for (let i = 0; i < n; i++) {
-      hits.push(t);
-      t += cadence(i + 1);
-    }
+  const timed = (hits, tall = []) => {
+    const n = hits.length;
     const dt = 1 / 120;
     let clean = 0, air = false, airT = 0, lag = 0, at = 0;
-    for (let now = 0; at < n && now < 600; now += dt) {
+    for (let now = 0; at < n && now < 2000; now += dt) {
       // いちばん高いところ（AIRTIME/2）が ハードルに重なるように押す
       const want = hits[at] - AIRTIME / 2;
       if (!air && lag <= 0 && now >= want) { air = true; airT = 0; }
@@ -473,7 +572,7 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
         if (airT >= AIRTIME) { air = false; airT = 0; lag = LAND_LAG; }
       }
       while (at < n && now >= hits[at]) {
-        if (air && clearsAt(airT)) clean++;
+        if (air && clearsAt(airT, tall[at])) clean++;
         else { air = false; airT = 0; lag = TRIP_LAG; }
         at++;
       }
@@ -481,10 +580,21 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
     return clean / n;
   };
 
-  for (const [name, rate] of [
-    ['式モード', timed((i) => cadenceAt(i, 60, false), 60)],
-    ['エンドレス', timed((i) => endlessCadence(i, false), 150)],
-  ]) {
+  const runs = [
+    ['式モード', timed(hitsOf((i) => cadenceAt(i, 60, false), 60))],
+    ['エンドレス', timed(hitsOf((i) => endlessCadence(i, false), 150))],
+  ];
+  // バラバラの間と たかい ハードルが まざっても、拍に合わせれば ぜんぶ取れる。
+  // いちばん意地悪な形（間は ぜんぶ いちばん短い・100本めから先は ぜんぶ たかい）でも見る
+  for (const slow of [false, true]) {
+    for (let seed = 1; seed <= 12; seed++) {
+      const r = endlessRun(250, slow, seeded(seed));
+      runs.push([`エンドレス 250本（seed=${seed}, slow=${slow}）`, timed(r.hits, r.tall)]);
+    }
+    const worst = endlessLane(1, 250, () => 0).map((h) => h.n > ENDLESS_TALL_AT && h.kind === 'base');
+    runs.push([`エンドレス いちばん意地悪（slow=${slow}）`, timed(hitsOf((i) => endlessGap(i, slow, 0), 250), worst)]);
+  }
+  for (const [name, rate] of runs) {
     if (rate < 1) bad.push(`拍に合わせても ${name}で ${(100 - rate * 100).toFixed(0)}% 取りこぼす（速すぎる）`);
   }
 
@@ -508,6 +618,13 @@ console.log('\nG) ぴょんぴょん ハードルの道すじ');
         `つぎに跳べるまで ${READY.toFixed(2)}s ` +
         `→ 連打だけでは 式モード ${(mashFacts * 100).toFixed(0)}% / エンドレス ${(mashEndless * 100).toFixed(0)}%` +
         `（拍に合わせれば どちらも 100%）`,
+    );
+    const span = (i) => `${endlessGap(i, false, 0).toFixed(2)}〜${endlessGap(i, false, 0.999999).toFixed(2)}s`;
+    console.log(
+      `   エンドレスの節目: ${ENDLESS_RANDOM_AT}本めから 間がバラバラ（${span(ENDLESS_RANDOM_AT)} → 100本めから ${span(100)}）` +
+        ` / ハート ${ENDLESS_STAGES.filter((st) => st.hearts).map((st) => `${st.at}本めで ${st.hearts}つ`).join('・')}` +
+        ` / ${ENDLESS_TALL_AT}本めから たかい ハードル ${(tallChance(ENDLESS_TALL_AT + 1) * 100).toFixed(0)}%→${(tallChance(1000) * 100).toFixed(0)}%` +
+        `（越えていられる ${clearWindow(true).toFixed(2)}s）→ 連打だけでは ${(mashLate * 100).toFixed(0)}%（拍に合わせれば 100%）`,
     );
   }
 }
