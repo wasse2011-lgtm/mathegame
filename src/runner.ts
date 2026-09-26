@@ -66,7 +66,7 @@ import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
 import {
   FIN_CHARGE, FIN_CUT_TOTAL, FIN_FLY, FIN_STOP, FIN_TOTAL,
-  drawFinish, drawFinishCutIn, drawFinishDim, finishDim, weaponDef,
+  drawFinish, drawFinishCutIn, drawFinishDim, finishDim, finishHoldsWeapon, smashLeap, weaponDef,
   type FinishView, type WeaponDef,
 } from './weapons';
 
@@ -1729,8 +1729,17 @@ export class Runner {
       this.ob.x = f.x;
       this.ob.v = 0;
     }
-    if (this.weapon.style === 'slash') {
-      // けん は踏みこんで斬る。行って、戻ってくる
+    // ハンマーは 振りかぶって・しゃがんで・とびかかって 振りおろす。
+    // 位置も しゃがみも ハンマーの振りと同じ式（weapons.ts）から出すので、手もとと 柄が はなれない。
+    // ボスの踏みつけ（phase は 'stomp'）は 踏みつけの動きのままにする（leap が false で null が返る）
+    const leap = smashLeap(this.weapon, this.finView());
+    if (leap) {
+      this.pxOff = leap.dx;
+      this.py = leap.dy;
+      this.vy = 0;
+      this.char.squash = leap.squash;
+    } else if (this.weapon.style === 'slash') {
+      // けん は踏みこんで斬る。行って、戻ってくる（ぶき なし の たいあたりも同じ）
       const k = Math.min(1, Math.max(0, (f.t - FIN_CHARGE) / (FIN_FLY + 0.35)));
       const reach = Math.max(0, f.x - this.playerX - 26 * this.s);
       this.pxOff = reach * Math.sin(k * Math.PI);
@@ -1741,10 +1750,10 @@ export class Runner {
       const fire = Math.max(0, Math.min(1, (f.t - FIN_CHARGE) / 0.14));
       this.pxOff = -9 * this.s * tense * (1 - fire);
     }
-    // 放った瞬間。ひとふんばりぶん体をのばす
+    // 放った瞬間。ひとふんばりぶん体をのばす（ハンマーは とびかかりの式が のばす）
     if (!f.fired && f.t >= FIN_CHARGE) {
       f.fired = true;
-      this.char.squash = 1.16;
+      if (!leap) this.char.squash = 1.16;
       sfx.finishFire();
     }
     if (!f.hit && f.t >= FIN_CHARGE + FIN_FLY) this.finishImpact();
@@ -2359,13 +2368,24 @@ export class Runner {
     return {
       t: this.fin?.t ?? 0,
       s, W: this.W, H: this.H,
-      // 手もと（drawWeaponHeld が ぶきを置いている高さ）から出す。
-      // ここをずらすと、持っている絵と光の出どころが別の場所になる
-      fromX: this.px + 20 * s,
-      fromY: this.groundY - 18 * s,
+      // 持っている ぶきの先（drawWeaponHeld の手もとの すこし前・手の高さ）から出す。
+      // ここをずらすと、持っている絵と光の出どころが別の場所になる。
+      // 手もとそのもの（目の高さ）に置いていたころは、ための光が 右目に かぶっていた
+      fromX: this.px + 26 * s,
+      fromY: this.groundY - 14 * s,
       toX: this.fin?.x ?? this.ob.x,
       toY: this.fin?.y ?? this.groundY - 26 * s,
+      homeX: this.playerX,
+      homeY: this.groundY,
+      charSize: this.charSize(),
+      // ボスの とどめ（踏みつけ）は 主人公が 別の動きをしているので、ぶきを振りにいかない
+      leap: this.phase === 'finish',
     };
+  }
+
+  /** 主人公の大きさ。drawPlayer と フィニッシュ（ハンマーを振る手もと）で同じものを使う */
+  private charSize(): number {
+    return 34 * this.s;
   }
 
   // ---------------------------------------------------------------- にがて たいじ の絵
@@ -2517,7 +2537,10 @@ export class Runner {
     // 「にがてを たおした！」のような長い掛け声は左端が切れて読めない
     const half = g.measureText(this.cheer.text).width / 2 + 6 * s;
     const x = Math.min(Math.max(this.px, half), Math.max(half, this.W - half));
-    const y = this.groundY - (46 + k * 26) * s;
+    // ハンマーの フィニッシュでは 主人公が とびかかって 空中にいる。
+    // 地面からの高さのままだと、掛け声が ちょうど顔の上に重なる
+    const lift = this.phase === 'finish' ? Math.min(0, this.py) : 0;
+    const y = this.groundY + lift - (46 + k * 26) * s;
     g.lineWidth = 6 * s;
     g.strokeStyle = '#fff';
     g.lineJoin = 'round';
@@ -2727,9 +2750,13 @@ export class Runner {
   private drawPlayer(): void {
     const g = this.g;
     const s = this.s;
-    const size = 34 * s;
+    const size = this.charSize();
     if (!this.hintPaused) {
-      drawChar(g, this.px, this.groundY + this.py, size, currentLook(), this.char);
+      // ハンマーを振っているあいだは、手もとの ぶきを描かない。
+      // フィニッシュの絵（drawFinish）が 大きくして振っているので、描くと2本に見える
+      const look = currentLook();
+      if (this.fin && finishHoldsWeapon(this.weapon, this.finView())) look.weapon = '';
+      drawChar(g, this.px, this.groundY + this.py, size, look, this.char);
       return;
     }
 

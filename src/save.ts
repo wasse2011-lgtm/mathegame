@@ -502,9 +502,10 @@ function read(): SaveData {
       stars: p?.stars ?? {},
       facts: p?.facts ?? {},
       unlocked: Array.isArray(p?.unlocked) ? p.unlocked : [],
-      // ぶきは後から足した。古いセーブには無いので、必ず1本目に落とす
-      // （'' のままだと、さいごの1問で フィニッシュが出ない）
-      weapon: typeof p?.weapon === 'string' && p.weapon ? p.weapon : blank.weapon,
+      // ぶきは後から足した。古いセーブには無いので、1本目に落とす。
+      // '' は きせかえで「なし」をえらんだ印なので、そのまま残す
+      // （'' を1本目に戻すと、「なし」にしても 開きなおすたびに ロケットパンチに戻る）
+      weapon: typeof p?.weapon === 'string' ? p.weapon : blank.weapon,
       // ずかんの合図とごほうびは後から足した。古いセーブには無い
       zukanNew: Array.isArray(p?.zukanNew) ? p.zukanNew : [],
       zukanGot: Number.isFinite(p?.zukanGot) ? Number(p?.zukanGot) : 0,

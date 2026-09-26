@@ -203,15 +203,19 @@ export function rollGacha(kind: ItemKind): Item | null {
   return item;
 }
 
-/** 身につける。おなじものをもう一度えらぶと外れる（キャラと ぶき だけは外せない） */
+/**
+ * 身につける。ぼうし・アクセ・いろ は、おなじものをもう一度えらぶと外れる。
+ * キャラは外せない。ぶきは 外すなら きせかえの「なし」のマスから（shop.ts）
+ */
 export function equip(item: Item): void {
   const p = profile();
   switch (item.kind) {
     case 'skin':
       p.skin = item.id as SkinId;
       break;
-    // ぶきは「持ちかえる」もの。外せてしまうと、さいごの1問で
-    // フィニッシュが出ない状態を子どもが自分で作れてしまう
+    // ぶきは もう一度おしても外さない。えらびなおしの つもりで押して
+    // 手ぶらになると、何が起きたのか分からない。
+    // 「なし」にしても さいごの1問の しめくくりは たいあたり で残る（weapons.ts の NO_WEAPON）
     case 'weapon':
       p.weapon = item.id;
       break;

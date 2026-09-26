@@ -31,7 +31,7 @@ import {
 } from './items';
 import { persist, profile, type SkinId } from './save';
 import { currentLook, drawChar, paintHatIcon, paintSkinIcon } from './sprites';
-import { paintWeaponIcon, weaponDef } from './weapons';
+import { NO_WEAPON, paintWeaponIcon, weaponDef } from './weapons';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -268,10 +268,10 @@ function itemButton(item: Item): HTMLButtonElement {
   return b;
 }
 
-/** ぼうし・アクセ・いろ を外すマス */
+/** ぶき・ぼうし・アクセ・いろ を外すマス */
 function noneButton(kind: ItemKind, label: string): HTMLButtonElement {
   const p = profile();
-  const current = kind === 'hat' ? p.hat : kind === 'acc' ? p.acc : p.color;
+  const current = kind === 'weapon' ? p.weapon : kind === 'hat' ? p.hat : kind === 'acc' ? p.acc : p.color;
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'item none';
@@ -280,10 +280,13 @@ function noneButton(kind: ItemKind, label: string): HTMLButtonElement {
   b.append(Object.assign(document.createElement('span'), { textContent: label }));
   b.addEventListener('click', () => {
     sfx.tap();
-    if (kind === 'hat') p.hat = '';
+    if (kind === 'weapon') p.weapon = '';
+    else if (kind === 'hat') p.hat = '';
     else if (kind === 'acc') p.acc = '';
     else p.color = '';
     persist();
+    // ぶき なし でも さいごの1問の しめくくりはある。何が起きるかを 持ちかえたときと同じ形で言う
+    $('shop-msg').textContent = kind === 'weapon' ? `${label}：${NO_WEAPON.note}` : '';
     renderShop();
     onChange?.();
   });
@@ -318,6 +321,7 @@ export function renderShop(): void {
 
   const grid = $('item-grid');
   grid.replaceChildren();
+  if (tab === 'weapon') grid.appendChild(noneButton('weapon', 'なし'));
   if (tab === 'hat') grid.appendChild(noneButton('hat', 'なし'));
   if (tab === 'acc') grid.appendChild(noneButton('acc', 'なし'));
   if (tab === 'color') grid.appendChild(noneButton('color', 'きほん'));
