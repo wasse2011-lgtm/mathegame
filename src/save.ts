@@ -6,6 +6,7 @@
  * 星もコインも図鑑も混ざらない。枠は「名前が入っているか」で使用中を判断する。
  */
 
+import type { Tier } from './curriculum';
 import { COIN_SCALE } from './rewards';
 import { DEFAULT_WEAPON } from './weapons';
 
@@ -85,7 +86,7 @@ export interface Profile {
    */
   weapon: string;
   coins: number;
-  /** "1-3" → 星の数 (1..3) */
+  /** "1-3" → 星の数 (1..3)。ハードは "1-3h"、ベリーハードは "1-3vh"（starKey） */
   stars: Record<string, number>;
   /** "7+5" → 習熟度 */
   facts: Record<string, FactStat>;
@@ -596,13 +597,23 @@ export function clearSlot(i: number): void {
   persist();
 }
 
-/** ステージの星。ベストのみ更新する。 */
-export function stageStars(worldId: number, stage: number): number {
-  return profile().stars[`${worldId}-${stage}`] ?? 0;
+/**
+ * ★の保存キー。ふつうは "1-3"、ハードは "1-3h"、ベリーハードは "1-3vh"。
+ *
+ * ふつうのキーは むかしのまま（うしろに付けるだけ）。前に付けると、
+ * 旧セーブの ★ がぜんぶ読めなくなる。
+ */
+export function starKey(worldId: number, stage: number, tier: Tier = 0): string {
+  return `${worldId}-${stage}${tier === 2 ? 'vh' : tier === 1 ? 'h' : ''}`;
 }
 
-export function setStageStars(worldId: number, stage: number, stars: number): void {
-  const key = `${worldId}-${stage}`;
+/** ステージの星。ベストのみ更新する。 */
+export function stageStars(worldId: number, stage: number, tier: Tier = 0): number {
+  return profile().stars[starKey(worldId, stage, tier)] ?? 0;
+}
+
+export function setStageStars(worldId: number, stage: number, stars: number, tier: Tier = 0): void {
+  const key = starKey(worldId, stage, tier);
   const p = profile();
   if ((p.stars[key] ?? 0) < stars) p.stars[key] = stars;
   persist();

@@ -12,7 +12,7 @@
  * 要る家庭は、端末のスクリーンタイム／ファミリーリンクと併用してもらう（画面にも書く）。
  */
 
-import { WORLDS, bossStage, type Fact } from './curriculum';
+import { TIER_LIST, WORLDS, bossStage, type Fact } from './curriculum';
 import { EXTEND_CHOICES, LIMIT_CHOICES, makeGate, minuteWord, toHalfWidth } from './limit';
 import { activePet, ownedPets, rarityDef } from './pets';
 import { MASTERED } from './questions';
@@ -63,10 +63,13 @@ function weakList(limit: number): WeakFact[] {
   return out.slice(0, limit);
 }
 
+/** 集めた★。ハード・ベリーハード（うらマップ）の★も入れる（きろくを えらぶ画面の★と そろえる） */
 function totalStars(): number {
   let n = 0;
   for (const w of WORLDS) {
-    for (let s = 1; s <= bossStage(w); s++) n += stageStars(w.id, s);
+    for (const t of TIER_LIST) {
+      for (let s = 1; s <= bossStage(w); s++) n += stageStars(w.id, s, t);
+    }
   }
   return n;
 }
