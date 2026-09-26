@@ -358,6 +358,38 @@ body {
 @media (max-height: 620px) { #home-char { height: 68px; } .yard-hint { display: none; } }
 @media (max-height: 540px) { .yard { display: none; } }
 
+/* はなび。広場の左上のすみ。
+   下のほう（草の上）は じぶんの子と なかまが跳ねまわる場所で、そこに置くと
+   ボタンの うしろに キャラが かくれる。跳ねても頭が届かない 上のすみに置く。
+   ホーくんの ふきだしは左へ のびてくるので、こちらを下（z-index 1）にして かぶさらせる */
+.hanabi-wrap {
+  position: absolute; left: .1rem; top: .1rem; z-index: 1;
+  display: flex; align-items: center; gap: .25rem;
+}
+.hanabi-btn {
+  width: 44px; height: 44px; padding: 0; cursor: pointer;
+  display: grid; place-items: center; font-size: 1.35rem; line-height: 1;
+  background: radial-gradient(circle at 50% 40%, #3d4f86 0%, #1f2b52 100%);
+  border: 3px solid var(--amber); border-radius: 50%;
+  box-shadow: 0 3px 0 rgba(0,0,0,.14);
+}
+.hanabi-btn:active { transform: translateY(2px); }
+.hanabi-btn:focus-visible { outline: 4px solid var(--blue); outline-offset: 3px; }
+/* きょうは もう おしまい・コインが足りない。押すと わけを言うので disabled にはしない */
+.hanabi-wrap.off .hanabi-btn { border-color: var(--line); filter: grayscale(.5); opacity: .75; }
+.hanabi-btn.pop { animation: pop .28s ease-out; }
+.hanabi-tag {
+  display: flex; align-items: center; gap: .15rem; white-space: nowrap;
+  padding: .05rem .4rem; border-radius: 999px; background: rgba(255,255,255,.9);
+  font-size: .7rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+.hanabi-tag .coin-dot { width: 10px; height: 10px; }
+.hanabi-tag small { margin-left: .2rem; font-size: .62rem; color: var(--ink-2); }
+@media (prefers-reduced-motion: reduce) { .hanabi-btn.pop { animation: none; } }
+
+/* はなびを描く 1枚。ホームの いちばん上に重ねるが、指は下へ通す */
+.hanabi-sky { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 5; }
+
 /* ホーくん（めがねの フクロウ）。
    草の上の右はしに立っていて、押すと にがてな しき か まめちしきを1つ出す。
    ふきだしは **左どなり** に出す。上に出すと きせかえ／ペット／ずかん の
@@ -1896,6 +1928,11 @@ body {
 @media (max-height: 700px) {
   #shop-preview { width: 88px; height: 88px; }
 }
+/* 320px 幅では「あしあとの ガチャ」が「あしあと…」まで ちぢむ。
+   「ガチャ」が消えると 押すと何が起きるのか読めないので、2行に折る */
+@media (max-width: 22rem) {
+  .dress-row .egg-text b { white-space: normal; word-break: keep-all; font-size: 1rem; line-height: 1.2; }
+}
 
 .chip-row { display: flex; gap: .4rem; overflow-x: auto; scrollbar-width: none; padding-bottom: .15rem; flex: 0 0 auto; }
 .chip-row::-webkit-scrollbar { display: none; }
@@ -1908,13 +1945,18 @@ body {
 .chip small { font-size: .7rem; opacity: .8; font-variant-numeric: tabular-nums; }
 .chip[aria-selected="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 /* きせかえのタブは「ガチャで何を増やすか」を決めるところ。横に流して隠すと
-   選べることに気づかないので、5つとも1行で見えるマスにする */
-#shop-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: .3rem; overflow: visible; }
+   選べることに気づかないので、6つとも1行で見えるマスにする。
+   「あしあと」（4文字）が 320px 幅でも1行に入るよう、字は少し小さくしてある */
+#shop-tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: .25rem; overflow: visible; }
 #shop-tabs .chip {
   flex-direction: column; gap: 0; justify-content: center;
-  padding: .3rem .1rem; min-height: 50px; font-size: .84rem;
+  padding: .3rem 0; min-height: 50px; font-size: .78rem; letter-spacing: -.02em;
+  min-width: 0; white-space: nowrap;
 }
-#shop-tabs .chip small { font-size: .64rem; }
+#shop-tabs .chip small { font-size: .62rem; }
+@media (max-width: 22rem) {
+  #shop-tabs .chip { font-size: .7rem; }
+}
 /* 「まだ持っていない」を伝える一言。しかる色にはしない */
 .shop-msg { margin: 0; min-height: 1.1em; font-size: .8rem; font-weight: 700; color: var(--amber-dark); text-align: center; }
 
@@ -1992,8 +2034,37 @@ body {
   background: #e6f5fd;
 }
 #pasture { display: block; width: 100%; height: 100%; cursor: pointer; touch-action: manipulation; }
+.pasture { position: relative; }
 
-.egg-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; flex: 0 0 auto; }
+/* おやつ。空の右すみに浮かべる（しばふの上は なかまが歩くので かぶせない） */
+.snack-btn {
+  position: absolute; top: .35rem; right: .35rem;
+  display: flex; align-items: center; gap: .3rem;
+  min-height: 44px; padding: .2rem .55rem .2rem .4rem;
+  font-family: inherit; cursor: pointer; text-align: left;
+  background: rgba(255,255,255,.94); color: var(--ink);
+  border: 2px solid var(--amber); border-bottom-width: 4px; border-radius: 999px;
+}
+.snack-btn:active { transform: translateY(2px); border-bottom-width: 2px; }
+/* 押せないとき（きょうは もう おしまい・コインが足りない）。押すと わけを言うので disabled にはしない */
+.snack-btn.off { border-color: var(--line); opacity: .7; }
+.snack-emoji { font-size: 1.35rem; line-height: 1; }
+.snack-text { display: flex; flex-direction: column; line-height: 1.1; }
+.snack-text b { font-size: .82rem; }
+.snack-cost {
+  display: flex; align-items: center; gap: .2rem;
+  font-size: .72rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums;
+}
+.snack-cost .coin-dot { width: 11px; height: 11px; }
+.snack-cost small { margin-left: .25rem; font-size: .66rem; color: var(--ink-2); }
+
+.egg-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .4rem; flex: 0 0 auto; }
+/* あそびどうぐ。つぎに置くものの絵を たまごの絵文字の かわりに出す */
+.egg-btn.toy { border-color: #69c07a; background: linear-gradient(180deg, #fff, #f0fbef); }
+.egg-btn.toy .egg-cost { color: #3f8f4f; }
+.egg-btn.toy .egg-cost[hidden] { display: none; }
+.toy-icon { width: 34px; height: 34px; flex: 0 0 auto; }
+.egg-btn.toy .egg-text b { font-size: .84rem; letter-spacing: -.03em; }
 /* 横に2つ並ぶと幅が足りず、文字が折れる。小さいほうは縦積みにする */
 .egg-btn.small {
   flex-direction: column; align-items: center; text-align: center;
@@ -2004,6 +2075,13 @@ body {
 .egg-btn.small .egg-text b { font-size: .95rem; white-space: nowrap; }
 .egg-btn.small .egg-text span { font-size: .7rem; white-space: nowrap; }
 .egg-btn.small .egg-cost { font-size: .85rem; }
+/* 3つ並ぶと 320px 幅では「レアが でやすい」が はみ出す。字を ひとまわり小さく */
+@media (max-width: 22rem) {
+  .egg-btn.small { padding-inline: .2rem; }
+  .egg-btn.small .egg-text b { font-size: .84rem; }
+  .egg-btn.small .egg-text span { font-size: .6rem; }
+  .egg-btn.toy .egg-text b { font-size: .74rem; }
+}
 .egg-btn.shiny { border-color: #c88ae0; background: linear-gradient(180deg, #fff, #faf1ff); }
 .egg-btn.shiny .egg-cost { color: #9a56bd; }
 

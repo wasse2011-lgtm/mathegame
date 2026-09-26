@@ -76,9 +76,14 @@ export class Playground {
   /** かいぬしを描くための関数。sprites の currentLook をそのまま渡す */
   private drawHero: (g: CanvasRenderingContext2D, x: number, y: number, size: number, t: number, squash: number, air: boolean) => void;
 
+  /**
+   * @param padLeft 左はしの あき（px）。広場の左上には はなびの ボタンがあるので、
+   *   そこまで跳ねていくと じぶんの子が ボタンの うしろに かくれる。そのぶん 右へ よせる
+   */
   constructor(
     private canvas: HTMLCanvasElement,
     drawHero: Playground['drawHero'],
+    private padLeft = 16,
   ) {
     this.g = canvas.getContext('2d');
     this.drawHero = drawHero;
@@ -130,7 +135,7 @@ export class Playground {
   /** 混みすぎないように、大きさを頭数で決める */
   private layout(): void {
     const n = Math.max(this.actors.length, 1);
-    const size = Math.min(this.H * 0.42, (this.W / n) * 0.74, 44);
+    const size = Math.min(this.H * 0.42, ((this.W - this.padLeft + 16) / n) * 0.74, 44);
     for (const a of this.actors) {
       // かいぬしは ペットより ひとまわり大きい
       a.size = Math.max(20, size) * (a.pet ? 0.86 : 1.15);
@@ -271,7 +276,7 @@ export class Playground {
     }
 
     // かさなって見えないよう、近づきすぎた子はそっと押しあう
-    const span = Math.max(this.W - 32, 1);
+    const span = Math.max(this.W - this.padLeft - 16, 1);
     for (let i = 0; i < this.actors.length; i++) {
       for (let j = i + 1; j < this.actors.length; j++) {
         const a = this.actors[i];
@@ -310,7 +315,7 @@ export class Playground {
     for (const a of this.actors) {
       const air = Math.abs(Math.sin(a.phase)) * a.hopBoost;
       const wiggle = a.action === 'dance' ? Math.sin(this.t * 14) * a.size * 0.28 : 0;
-      a.x = 16 + a.u * (W - 32) + wiggle;
+      a.x = this.padLeft + a.u * (W - this.padLeft - 16) + wiggle;
       a.y = groundY - air * a.size * a.lift;
 
       // かげ（高いほど小さく薄く）

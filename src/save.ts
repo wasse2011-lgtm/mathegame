@@ -76,6 +76,19 @@ export interface MiniDay {
   done: string[];
 }
 
+/**
+ * おやつ・はなび（コインで買って その場で使いきるもの）を、きょう いくつ使ったか。
+ *
+ * 1日の数に上限を置いている（treats.ts の TREATS_PER_DAY）。安くて すぐ反応が返るので、
+ * 上限が無いと 1回の 気まぐれで たまごの ぶんまで 使いきってしまう。
+ * 日付が変わっていたら 0 から数えなおす（書きこみは使ったときだけ）。
+ */
+export interface TreatDay {
+  date: string;
+  snack: number;
+  hanabi: number;
+}
+
 export interface Profile {
   name: string;
   skin: SkinId;
@@ -91,6 +104,8 @@ export interface Profile {
    * さいごの1問の フィニッシュで必ず1本つかうので、空だと何も起きなくなる。
    */
   weapon: string;
+  /** はしる あと（走るとき足もとに残るもの）のアイテムID。'' は なし */
+  trail: string;
   coins: number;
   /** "1-3" → 星の数 (1..3)。ハードは "1-3h"、ベリーハードは "1-3vh"（starKey） */
   stars: Record<string, number>;
@@ -102,6 +117,10 @@ export interface Profile {
   pets: Record<string, number>;
   /** つれて歩くペットID。'' はひとり */
   pet: string;
+  /** ぼくじょうに置いた あそびどうぐのID（toys.ts）。買った順 */
+  toys: string[];
+  /** きょう使った おやつ・はなびの数 */
+  treat: TreatDay;
   daily: Daily;
   play: PlayTime;
   mini: MiniDay;
@@ -198,12 +217,15 @@ function freshProfile(): Profile {
     acc: '',
     color: '',
     weapon: DEFAULT_WEAPON,
+    trail: '',
     coins: 0,
     stars: {},
     facts: {},
     unlocked: [],
     pets: {},
     pet: '',
+    toys: [],
+    treat: { date: '', snack: 0, hanabi: 0 },
     daily: { date: '', streak: 0, done: false },
     play: { date: '', sec: 0, extra: 0 },
     mini: { date: '', done: [] },
@@ -515,6 +537,14 @@ function read(): SaveData {
       pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
       // タイマーは後から足した。古いセーブには無い
       timer: readTimer(p?.timer),
+      // はしる あと・あそびどうぐ・おやつと はなびは後から足した。古いセーブには無い
+      trail: typeof p?.trail === 'string' ? p.trail : '',
+      toys: Array.isArray(p?.toys) ? p.toys.filter((x): x is string => typeof x === 'string') : [],
+      treat: {
+        date: typeof p?.treat?.date === 'string' ? p.treat.date : '',
+        snack: Number.isFinite(p?.treat?.snack) ? Number(p?.treat?.snack) : 0,
+        hanabi: Number.isFinite(p?.treat?.hanabi) ? Number(p?.treat?.hanabi) : 0,
+      },
     }));
     // 枠の数は増える方向にしか変えない。減らすと、増やしたあとで戻したときに
     // 3人目のきろくが黙って消える

@@ -22,6 +22,7 @@ import {
   type Tier,
   type World,
 } from './curriculum';
+import { Hanabi } from './hanabi';
 import { GACHA_COST, lockedItems } from './items';
 import { GRACE_SEC, minuteWord } from './limit';
 import { initMini, miniLeftToday, miniPlaying, renderMiniList, stopMini } from './minigame';
@@ -70,6 +71,7 @@ import {
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { mapLook, skyCss, themeFor, timeIdFor, type MapLook, type TimeId } from './theme';
 import { nextTrivia, type Trivia } from './trivia';
+import { TREAT_COST, treatBlock, treatsLeft, useTreat } from './treats';
 import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
 
@@ -153,6 +155,7 @@ function show(name: ScreenName): void {
     startHomeIdle();
   } else {
     yard.stop(); // 見ていないあいだは動かさない（電池を食う）
+    hanabi.stop(); // 上がっている途中の はなびも、別の画面には持ちこさない
     hideSensei(); // ふきだしのタイマーを、別の画面に持ちこさない
   }
   if (name === 'shop') startShopIdle();
@@ -170,6 +173,8 @@ const yard = new Playground(
   (g, x, y, size, t, squash, air) => {
     drawChar(g, x, y, size, currentLook(), { t, air, hurt: 0, squash });
   },
+  // 左上の はなびの ボタン（44px）の うしろに じぶんの子が入りこまないように
+  40,
 );
 
 /** 広場に出す顔ぶれ。じぶんの子＋つれている子＋持っている子から数ひき */
@@ -178,6 +183,59 @@ function yardCast(): (PetDef | null)[] {
   const others = ownedPets().filter((p) => p.id !== active?.id).slice(0, active ? 3 : 4);
   return [null, ...(active ? [active] : []), ...others];
 }
+
+// ------------------------------------------------------------------ はなび
+
+/**
+ * はなび。広場の左はしのボタンから 空へ 3発 上がり、ひらくたびに なかまが跳ねる。
+ * コインの小さい使いみち（ねだん・1日の数は treats.ts）。
+ */
+const hanabi = new Hanabi($<HTMLCanvasElement>('hanabi-sky'));
+hanabi.onBurst = () => yard.cheerAll();
+
+/** 広場の下の ひとこと。はなびが上げられない わけを しばらく出して、元に戻す */
+const YARD_HINT = 'なかまを タップしてみて！';
+let yardHintTimer = 0;
+function sayInYard(text: string): void {
+  const hint = $('yard-hint');
+  hint.textContent = text;
+  window.clearTimeout(yardHintTimer);
+  yardHintTimer = window.setTimeout(() => {
+    hint.textContent = YARD_HINT;
+  }, 2600);
+}
+
+/** はなびの札（ねだん・のこり）と、押せるかどうかの見た目 */
+function renderHanabi(): void {
+  const left = treatsLeft('hanabi');
+  $('hanabi-cost').textContent = String(TREAT_COST.hanabi);
+  $('hanabi-left').textContent = left > 0 ? `あと${left}` : 'あした';
+  $('hanabi-btn').closest('.hanabi-wrap')?.classList.toggle('off', treatBlock('hanabi') !== null);
+  $('hanabi-btn').setAttribute('aria-label', `はなびを あげる。${TREAT_COST.hanabi}コイン。きょう あと ${left}かい`);
+}
+
+$('hanabi-btn').addEventListener('click', () => {
+  unlockAudio();
+  const btn = $('hanabi-btn');
+  // 押しても何も起きないボタンにはしない。上げられないときは わけを言う
+  const block = treatBlock('hanabi');
+  if (block) {
+    sfx.tap();
+    sayInYard(block === 'day'
+      ? 'はなびは また あした！'
+      : `あと ${TREAT_COST.hanabi - profile().coins} コインで はなび`);
+    return;
+  }
+  if (!useTreat('hanabi')) return;
+  btn.classList.remove('pop');
+  void btn.offsetWidth;
+  btn.classList.add('pop');
+  const r = btn.getBoundingClientRect();
+  hanabi.launch(r.left + r.width / 2, r.top);
+  $('home-coins').textContent = String(profile().coins);
+  renderSpendBadges();
+  renderHanabi();
+});
 
 function startHomeIdle(): void {
   // ホームを見ていないときは動かさない。renderTitle() は きせかえ・ぼくじょうで
@@ -835,12 +893,17 @@ function renderTitle(): void {
   // ずかんは、開かないと何も起きない画面。開く理由はボタンの 🆕 だけで出す。
   // 棒グラフの行をホームに並べていたころは、遊ぶ前に読む行が増えるわりに、
   // 子どもは伸びた棒を眺めて終わっていた（進みぐあいは ずかんの中にある）
-  const pets = ownedPets().length;
   $('zukan-badge').hidden = !(zukanPrizeReady() > 0 || zukanNewCount() > 0);
 
-  // いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方）
+  renderSpendBadges();
+  renderHanabi();
+}
+
+/** いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方） */
+function renderSpendBadges(): void {
+  const p = profile();
   $('shop-badge').hidden = !(lockedItems().length > 0 && p.coins >= GACHA_COST);
-  $('ranch-badge').hidden = !(pets < PET_COUNT && p.coins >= PET_EGG_COST);
+  $('ranch-badge').hidden = !(ownedPets().length < PET_COUNT && p.coins >= PET_EGG_COST);
 }
 
 $('btn-start').addEventListener('click', () => {

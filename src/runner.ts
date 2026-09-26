@@ -64,6 +64,7 @@ import { drawScene, drawWeather, type SceneView } from './scenery';
 import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
 import { themeFor, type ObstacleKind, type Theme } from './theme';
+import { TrailFx } from './trails';
 import {
   FIN_CHARGE, FIN_CUT_TOTAL, FIN_FLY, FIN_STOP, FIN_TOTAL,
   drawFinish, drawFinishCutIn, drawFinishDim, finishDim, finishHoldsWeapon, smashLeap, weaponDef,
@@ -415,6 +416,8 @@ export class Runner {
   // フィニッシュ（さいごの1問の とどめ）
   /** いま身につけている ぶき。走り出すたびに読みなおす */
   private weapon: WeaponDef = weaponDef('');
+  /** はしる あと（きせかえ）。走っているあいだ 足もとに出す */
+  private trail = new TrailFx();
   /**
    * フィニッシュの進行。null は「いま演出していない」。
    * ボスの踏みつけでも使う（そのときは 当たった瞬間から始める）。
@@ -561,6 +564,9 @@ export class Runner {
 
     // ぶきは走り出すたびに読みなおす（きせかえで持ちかえた直後に走ることがある）
     this.weapon = weaponDef(profile().weapon);
+    // あしあとも同じ。前の走りで出ていたぶんは持ちこさない
+    this.trail.set(profile().trail);
+    this.trail.clear();
     this.fin = null;
     this.finDim = 0;
     this.finStop = 0;
@@ -2193,9 +2199,19 @@ export class Runner {
     // にがて たいじ は立ち止まっている。地面まで流すと、動かない敵だけが
     // 取り残されて滑って見える。フィニッシュも同じで、そこだけ景色を止めて
     // 向かい合う（走りながら撃つと、何が起きたのか見えない）
-    if (!this.hunt && this.phase !== 'finish') {
-      this.scroll += Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3) * dt;
-    }
+    const flow = !this.hunt && this.phase !== 'finish'
+      ? Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3)
+      : 0;
+    this.scroll += flow * dt;
+    // あしあとは 地面と同じ速さで うしろへ流す（止まっていれば 出さない）
+    this.trail.update(dt, {
+      x: this.px,
+      y: this.groundY + this.py,
+      speed: flow,
+      s: this.s,
+      air: this.char.air,
+      on: flow > 0 && this.phase !== 'over',
+    });
 
     if (this.boss) this.updateBoss(dt);
     if (this.phase === 'beam') this.updateBeam(dt);
@@ -2314,6 +2330,8 @@ export class Runner {
       if (this.ob.v > this.runSpeed * 2.2) this.drawSpeedLines();
     }
 
+    // あしあと（きせかえ）の 地面の ぶんは 主人公と コンボの光の うしろ
+    this.trail.draw(g, s, 'back');
     if (this.combo >= 8) this.drawRushLines();
     if (this.combo >= 5) this.drawAura();
     if (this.combo >= 3) this.drawTrail();
@@ -2324,6 +2342,8 @@ export class Runner {
     if (this.ride > 0) this.drawFollower();
     this.drawPlayer();
     if (this.ride <= 0) this.drawFollower();
+    // 宙に うかぶ あしあとは ペットの上。うしろに描くと ペットに かくれて見えない
+    this.trail.draw(g, s, 'front');
     // ビームは主人公の手もとから出る。キャラより手前に描く
     if (this.phase === 'beam') this.drawBeam();
     // フィニッシュも同じ。手もとから出て、相手のところで はじける
