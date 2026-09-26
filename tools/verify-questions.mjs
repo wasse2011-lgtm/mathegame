@@ -693,6 +693,90 @@ console.log('\nH) ミニゲームの出題が つづけて同じにならない�
   }
 }
 
+console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
+{
+  // 子どもに見せる「あと 12ふん」と、時間の のこり・延長・日付の切りかえ、
+  // それから関門の問題（かけ算）が 子どもに解けない形になっているかを見る。
+  const lim = await loadTogether(
+    'limit',
+    `export * from './src/limit';
+     export {
+       save, profile, playedToday, allowanceToday, remainingToday, overDailyLimit,
+       extendToday, addPlayTime, clearSlot, today,
+     } from './src/save';`,
+  );
+  const bad = [];
+  const eq = (got, want, what) => {
+    if (got !== want) bad.push(`${what}: ${JSON.stringify(got)}（ほしいのは ${JSON.stringify(want)}）`);
+  };
+
+  // ふん／ぷん。まちがった読みは 字を覚えたての子に そのまま覚えられてしまう
+  const reading = {
+    1: 'ぷん', 2: 'ふん', 3: 'ぷん', 4: 'ぷん', 5: 'ふん', 6: 'ぷん', 7: 'ふん', 8: 'ぷん', 9: 'ふん',
+    10: 'ぷん', 11: 'ぷん', 12: 'ふん', 15: 'ふん', 20: 'ぷん', 29: 'ふん', 30: 'ぷん', 45: 'ふん', 60: 'ぷん', 90: 'ぷん', 100: 'ぷん',
+  };
+  for (const [n, w] of Object.entries(reading)) eq(lim.minuteWord(Number(n)), w, `${n} の読み`);
+
+  // のこりは くりあげ。0 になるのは おわったときだけ
+  eq(lim.remainText(Infinity), '', '制限なし');
+  eq(lim.remainText(0), 'きょうは おしまい', 'のこり 0秒');
+  eq(lim.remainText(1), 'あと 1ぷん', 'のこり 1秒');
+  eq(lim.remainText(60), 'あと 1ぷん', 'のこり 60秒');
+  eq(lim.remainText(61), 'あと 2ふん', 'のこり 61秒');
+  eq(lim.remainText(1800), 'あと 30ぷん', 'のこり 30分');
+  eq(lim.timeLevel(0, 0), 'over', '色: 0秒');
+  eq(lim.timeLevel(180, 0.1), 'low', '色: のこり 3分');
+  eq(lim.timeLevel(181, 0.1), 'mid', '色: のこり 3分1秒');
+  eq(lim.timeLevel(1000, 0.51), 'high', '色: 半分より上');
+  eq(lim.timeLevel(1000, 0.5), 'mid', '色: ちょうど半分');
+
+  // 関門。こたえは ぜんぶ 3けた（足し算の くりかえしでは届きにくい）、数は 12〜19 と 6〜9
+  if (lim.GATE_PAIRS.length < 15) bad.push(`関門の組が少なすぎる: ${lim.GATE_PAIRS.length}`);
+  for (const [a, b] of lim.GATE_PAIRS) {
+    if (a < 12 || a > 19 || b < 6 || b > 9 || a * b < 100) bad.push(`関門に向かない組: ${a} × ${b}`);
+  }
+  for (const r of [0, 0.5, 0.999999, 1]) {
+    const g = lim.makeGate(() => r);
+    const m = g.text.match(/^(\d+) × (\d+) = \?$/);
+    if (!m || Number(m[1]) * Number(m[2]) !== g.answer) bad.push(`関門の問題がこわれている（乱数 ${r}）: ${g.text} → ${g.answer}`);
+  }
+  eq(lim.toHalfWidth('１３６'), '136', '全角の数字');
+
+  // セーブの側。上限・延長・日付の切りかえ
+  const p = lim.profile();
+  p.name = 'テスト';
+  lim.save.settings.dailyLimitMin = 0;
+  eq(lim.overDailyLimit(), false, '制限なしで上限');
+  eq(lim.remainingToday(), Infinity, '制限なしの のこり');
+  lim.save.settings.dailyLimitMin = 30;
+  p.play = { date: lim.today(), sec: 1799, extra: 0 };
+  eq(lim.overDailyLimit(), false, '30分に 1秒たりない');
+  lim.addPlayTime(1);
+  eq(lim.overDailyLimit(), true, '30分ちょうど');
+  lim.extendToday(600);
+  eq(lim.remainingToday(), 600, '＋10分');
+  lim.extendToday(-99999);
+  eq(p.play.extra, 0, '延長の取り消しは 0 で止まる');
+  // きのうの ぶんは 数えない（延長も持ちこさない）
+  p.play = { date: '2000-01-01', sec: 99999, extra: 600 };
+  eq(lim.playedToday(), 0, 'きのう遊んだぶん');
+  eq(lim.allowanceToday(), 1800, 'きのうの延長');
+  lim.addPlayTime(5);
+  eq(JSON.stringify(p.play), JSON.stringify({ date: lim.today(), sec: 5, extra: 0 }), '日付が変わって最初の1秒');
+  // きろくを けしても、きょう遊んだ時間は残る（けして作りなおすと 時間が戻る、を防ぐ）
+  p.play = { date: lim.today(), sec: 1800, extra: 0 };
+  lim.clearSlot(lim.save.active);
+  eq(lim.save.players[lim.save.active].name, '', 'けしたら名前は空');
+  eq(lim.save.players[lim.save.active].play.sec, 1800, 'けしても きょうの時間は残る');
+
+  if (bad.length) {
+    failed++;
+    console.log('   ' + bad.slice(0, 8).join('\n   '));
+  } else {
+    console.log(`   すべて正常（関門 ${lim.GATE_PAIRS.length}とおり 例: ${lim.makeGate().text}）`);
+  }
+}
+
 console.log('\nI) 出題の例');
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {

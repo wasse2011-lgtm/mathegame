@@ -1896,12 +1896,6 @@ body {
 .egg-got { margin: 0 0 .4rem; font-size: 1.5rem; font-weight: 700; }
 @media (prefers-reduced-motion: reduce) { .egg-sheet canvas { animation: none; } }
 
-.over-note {
-  margin: 0; font-size: .88rem; font-weight: 700; color: var(--ink-2); text-align: center;
-  background: rgba(255,255,255,.85); border-radius: var(--r-md); padding: .55rem .7rem; line-height: 1.6;
-}
-.over-note[hidden] { display: none; }
-
 /* ---------------- ミニゲーム ----------------
    走らない れんしゅう場。時間で追われないぶん、押しまちがえても
    取り返せる作りにしてある（大きいボタン・広い間隔・選びなおせる）。 */
@@ -2229,15 +2223,28 @@ body {
 .p-table td:first-child { font-weight: 700; }
 .p-table tbody tr:last-child td { border-bottom: 0; }
 .p-note { margin: .5rem 0 0; font-size: .8rem; color: var(--ink-2); line-height: 1.6; }
-.p-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+/* 1日に あそべる時間。いちばん上に置き、ボタンを押した瞬間に保存する */
+.p-h-top { margin-top: .3rem; }
+.p-limit {
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
-  padding: .6rem .8rem; min-height: 52px; font-size: .95rem; margin-bottom: .5rem;
+  padding: .7rem .8rem; display: flex; flex-direction: column; gap: .6rem;
 }
-.p-row select {
-  font-family: inherit; font-size: .95rem; padding: .35rem .5rem; min-height: 40px;
-  border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--ink);
+/* お子さんに見えている時計と同じものを出し、その下に きろくごとの時間を並べる */
+.p-limit-now { display: flex; flex-direction: column; align-items: flex-start; gap: .45rem; }
+.p-limit-now .tc-text { font-size: 1.05rem; }
+.p-limit-lines { min-width: 0; }
+.p-limit-lines p { margin: 0; font-size: .86rem; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.p-limit-lines p.over { color: var(--bad-dark); font-weight: 700; }
+.p-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: .4rem; }
+.p-chip {
+  font-family: inherit; font-size: .95rem; font-weight: 700; min-height: 44px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink);
+  cursor: pointer; font-variant-numeric: tabular-nums;
 }
+.p-chip[aria-checked="true"] { background: var(--blue); border-color: var(--blue-dark); color: #fff; }
+.p-chip:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.p-limit .p-btns { margin-top: 0; flex-wrap: wrap; }
+.p-limit .p-btns .btn { white-space: nowrap; padding: .5rem .8rem; }
 #screen-parent .toggle { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: .5rem .8rem; font-size: .95rem; }
 .p-data {
   width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem;
@@ -2246,13 +2253,140 @@ body {
 }
 .p-btns { display: flex; gap: .5rem; margin-top: .4rem; }
 .p-btns .btn { flex: 1; min-height: 44px; font-size: .9rem; border: 1px solid var(--line); background: var(--paper); }
+.p-btns .btn[hidden] { display: none; }
 
+/* せっていの「おうちのかたへ」。何が中にあるかを、おとな向けに小さく添える */
+.btn-parent small { display: block; margin-top: .1rem; font-size: .72rem; font-weight: 400; }
+
+/* 子どもに向けた ひとこと（なぜ ここで止まったのか）。ひらがなで書く */
+.gate-why {
+  margin: 0; text-align: center; font-size: .95rem; font-weight: 700; line-height: 1.5;
+  color: var(--blue-dark); background: #eaf5fc; border-radius: 10px; padding: .45rem .6rem;
+}
+.gate-why[hidden] { display: none; }
+/* おとなへの指示。漢字で書く（ひらがなを読みはじめた子には読めない） */
+.gate-lead {
+  margin: 0; text-align: center; font-size: .82rem; color: var(--ink-2); line-height: 1.5;
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
 .gate-q { margin: 0; text-align: center; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .gate-input {
   font-family: inherit; font-size: 1.3rem; text-align: center; min-height: 52px;
   border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
   -webkit-user-select: text; user-select: text;
 }
+.gate-input[disabled] { opacity: .5; }
+
+/* ---------------- のこり時間の時計（playclock.ts） ----------------
+   色のついた輪が、のこりに合わせて 12時の位置へ ちぢんでいく（タイムタイマーと同じ）。
+   まんなかの白い丸に 分の数字。字が読めなくても、輪の長さと色で分かる。
+   みどり → きいろ（半分をきった）→ あか（のこり 3分）→ おわると 夜の色に 月。 */
+.tclock {
+  --tc: var(--good);
+  --tc-empty: rgba(38,49,61,.14);
+  margin: 0; display: inline-flex; align-items: center; gap: .45rem; flex: 0 0 auto;
+}
+.tclock[hidden] { display: none !important; }
+.tclock[data-level="mid"] { --tc: var(--amber); }
+.tclock[data-level="low"] { --tc: var(--bad); }
+.tc-ring {
+  width: 34px; height: 34px; border-radius: 50%; flex: 0 0 auto;
+  display: grid; place-items: center;
+  background: conic-gradient(var(--tc) calc(var(--p, 1) * 360deg), var(--tc-empty) 0);
+}
+.tc-num {
+  width: 24px; height: 24px; border-radius: 50%; background: #fff;
+  display: grid; place-items: center;
+  font-size: .8rem; font-weight: 700; line-height: 1; color: var(--ink);
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+.tc-num.long { font-size: .6rem; }
+.tclock[data-level="over"] .tc-num { background: #2d3a6b; font-size: .78rem; }
+.tc-text { font-size: 1.15rem; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.tclock[data-level="low"] .tc-text { color: var(--bad-dark); }
+.tc-bar {
+  flex: 1 1 auto; min-width: 40px; height: 12px; border-radius: 99px;
+  background: var(--tc-empty); overflow: hidden;
+}
+.tc-bar i {
+  display: block; height: 100%; border-radius: inherit;
+  width: calc(var(--p, 1) * 100%); background: var(--tc);
+  transition: width .9s linear, background-color .3s ease;
+}
+/* せまい画面の見出し。タイトルの字を削りすぎないよう、輪を ひとまわり小さくする */
+@media (max-width: 360px) {
+  .map-head { gap: .5rem; }
+  .tc-ring { width: 30px; height: 30px; }
+  .tc-num { width: 22px; height: 22px; font-size: .74rem; }
+}
+.tclock.wide .tc-ring { width: 42px; height: 42px; }
+.tclock.wide .tc-num { width: 30px; height: 30px; font-size: .95rem; }
+.tclock.wide .tc-num.long { font-size: .74rem; }
+
+/* ホーム。名前の行のすぐ下に、横いっぱいの帯で出す */
+.home-time {
+  width: 100%; background: rgba(255,255,255,.88); border-radius: 999px;
+  padding: .3rem 1rem .3rem .35rem; gap: .6rem;
+}
+/* リザルト。「つづける」の すぐ上。おわったときは下のボタンが「きょうは おしまい」と
+   言うので、同じことばを2つ並べない */
+.result-time { margin-top: .2rem; }
+.result-time[data-level="over"] { display: none; }
+.result-time .tc-text { font-size: 1.05rem; }
+
+/* 夜・ボスの空の上。輪の からの部分が 空にとけないように明るくする */
+.screen-play.dark .tclock { --tc-empty: rgba(255,255,255,.34); }
+
+/* 節目（のこり 5分・1分・おしまい）をまたいだ瞬間だけ、何度か はねる */
+.tclock.ping .tc-ring { animation: tc-ping .8s ease-in-out 3; }
+@keyframes tc-ping {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.3) rotate(-8deg); }
+  70% { transform: scale(.94) rotate(6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tclock.ping .tc-ring { animation: none; }
+  .tc-bar i { transition: none; }
+}
+
+/* ---------------- きょうは ここまで ----------------
+   夜の空に 月。じぶんの子が まんなかにいる。責めることばは置かない。 */
+#screen-rest {
+  background: linear-gradient(180deg, #1d2757 0%, #34407a 58%, #4f5f9a 100%);
+  color: #fff; align-items: center; gap: 1rem; overflow-y: auto;
+  padding: calc(var(--safe-t) + 1.2rem) calc(var(--safe-r) + 1.2rem) calc(var(--safe-b) + .8rem) calc(var(--safe-l) + 1.2rem);
+}
+.rest-sky { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.rest-moon {
+  position: absolute; top: calc(var(--safe-t) + 1.2rem); right: 12%;
+  font-size: 3.2rem; line-height: 1; filter: drop-shadow(0 0 18px rgba(255,236,160,.55));
+}
+.rest-star { position: absolute; color: #fff6c9; animation: twinkle 2.8s ease-in-out infinite; }
+/* 星は 字にかからない 上のほう（と、すみ）にだけ置く */
+.rest-star.r1 { top: 9%; left: 12%; font-size: 1.2rem; }
+.rest-star.r2 { top: 20%; left: 32%; font-size: .8rem; animation-delay: .6s; }
+.rest-star.r3 { top: 15%; right: 36%; font-size: .9rem; animation-delay: 1.2s; }
+.rest-star.r4 { top: 27%; right: 9%; font-size: 1rem; animation-delay: 1.8s; }
+.rest-star.r5 { bottom: 14%; left: 7%; font-size: .75rem; animation-delay: .9s; }
+@media (prefers-reduced-motion: reduce) { .rest-star { animation: none; opacity: .8; } }
+.rest-inner {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: .6rem;
+  text-align: center; width: 100%; max-width: 24rem; margin-block: auto;
+}
+#rest-char {
+  width: 120px; height: 120px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255,255,255,.22), rgba(255,255,255,0));
+}
+.rest-head { margin: 0; font-size: clamp(1.5rem, 7vw, 2.2rem); font-weight: 700; line-height: 1.3; }
+.rest-sub { margin: 0; font-size: 1.15rem; line-height: 1.7; color: rgba(255,255,255,.92); }
+.rest-next {
+  margin: .3rem 0 0; font-size: .98rem; font-weight: 700; color: #ffe08a;
+  background: rgba(255,255,255,.1); border-radius: 999px; padding: .35rem .95rem;
+}
+.rest-next:empty { display: none; }
+.rest-btns { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem; }
+.rest-btns .btn-ghost { color: rgba(255,255,255,.78); min-height: 44px; font-size: .9rem; }
+.rest-btns .btn[hidden] { display: none; }
 
 /* ---------------- オーバーレイ ---------------- */
 .overlay {

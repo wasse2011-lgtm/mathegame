@@ -20,9 +20,10 @@ import {
   type World,
 } from './curriculum';
 import { GACHA_COST, lockedItems } from './items';
-import { initMini, miniLeftToday, renderMiniList, stopMini } from './minigame';
+import { minuteWord } from './limit';
+import { initMini, miniLeftToday, miniPlaying, renderMiniList, stopMini } from './minigame';
 import { renderMiniMap } from './minimap';
-import { initParent, makeGate, renderParent } from './parent';
+import { initGate, initParent, openGate, renderParent } from './parent';
 import {
   PET_COUNT,
   PET_EGG_COST,
@@ -31,6 +32,7 @@ import {
   ownedPets,
   type PetDef,
 } from './pets';
+import { refreshPlayClock, startPlayClock } from './playclock';
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
@@ -61,7 +63,7 @@ import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
 
 type ScreenName =
-  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent';
+  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent' | 'rest';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
@@ -74,6 +76,7 @@ const screens: Record<ScreenName, HTMLElement> = {
   ranch: document.getElementById('screen-ranch') as HTMLElement,
   mini: document.getElementById('screen-mini') as HTMLElement,
   parent: document.getElementById('screen-parent') as HTMLElement,
+  rest: document.getElementById('screen-rest') as HTMLElement,
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -88,7 +91,22 @@ let lastResult: StageResult | null = null;
 /** きせかえ／ぼくじょうをどこから開いたか。ゲームの途中なら続きへ戻す導線を出す */
 let shopFrom: 'home' | 'result' = 'home';
 
+/**
+ * 1日に あそべる時間を使いきったら、ここへは行かせず「きょうは ここまで」にする画面。
+ *
+ * プレイ（play）とリザルト（result）は入れない。ステージの途中では止めず、
+ * 終わった結果までは見せる（新しいステージは startRun が止める）。
+ * きろく えらび（slots）も入れない。きょうだいが 1台を使っているとき、
+ * つぎの子に かわれなくなる（時間は きろくごとに数えている）。
+ * ミニゲームは、1回ぶんを遊んでいる途中だけ見のがす（onClockTick を見る）。
+ */
+const LOCKED_WHEN_OVER: ReadonlySet<ScreenName> = new Set<ScreenName>([
+  'title', 'map', 'zukan', 'shop', 'ranch', 'mini',
+]);
+
 function show(name: ScreenName): void {
+  if (LOCKED_WHEN_OVER.has(name) && overDailyLimit()) name = 'rest';
+  if (name === 'rest') renderRest();
   // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
   if (current === 'result' && name !== 'result') stopResultAnim();
   // ミニゲームも同じ。演出の途中で ← を押されても、タイマーを残さない
@@ -361,7 +379,62 @@ $('sensei').addEventListener('click', () => {
 function goHome(): void {
   $('overlay-pause').hidden = true;
   renderTitle();
+  // きろくを切りかえたあとなどは のこり時間が変わっている。節目の知らせを
+  // 出しなおさないよう、時計の基準も ここで取りなおす
+  refreshPlayClock();
   show('title');
+}
+
+// ------------------------------------------------------------------ きょうは ここまで
+
+/** 「きょうは ここまで」の画面。show('rest') のたびに作りなおす */
+function renderRest(): void {
+  const p = profile();
+  paintSkinIcon($<HTMLCanvasElement>('rest-char'), currentLook(), 120);
+  $('rest-who').textContent = p.name ? `${p.name}、たくさん あそんだね。` : 'たくさん あそんだね。';
+  const min = save.settings.dailyLimitMin;
+  $('rest-next').textContent = min ? `あしたは また ${min}${minuteWord(min)} あそべるよ` : '';
+  // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない
+  $('rest-slots').hidden = usedSlots() < 2;
+}
+
+$('rest-slots').addEventListener('click', () => {
+  sfx.tap();
+  showSlots();
+});
+
+$('rest-parent').addEventListener('click', () => {
+  sfx.tap();
+  openGate(openParent);
+});
+
+/** オーバーレイが出ているか。ガチャや たまごの結果を見ているあいだは切りかえない */
+function overlayOpen(): boolean {
+  return document.querySelector('#app > .overlay:not([hidden])') !== null;
+}
+
+let wasOver = overDailyLimit();
+
+/**
+ * 時計が 1秒ごとに呼ぶ。のこりが 0 になったら「きょうは ここまで」へ、
+ * 時間を足してもらったり 日付が変わったりしたら ホームへ戻す。
+ */
+function onClockTick(): void {
+  const over = overDailyLimit();
+  if (over) {
+    const busy = current === 'mini' && miniPlaying();
+    if (current !== 'rest' && LOCKED_WHEN_OVER.has(current) && !busy && !overlayOpen()) show('rest');
+  } else if (current === 'rest') {
+    goHome();
+  }
+  if (over !== wasOver) {
+    wasOver = over;
+    // リザルトを見ているあいだに またいだら、ボタンの顔（つづける／きょうは おしまい）を合わせる
+    if (current === 'result' && lastResult) {
+      renderResultBtns(lastResult);
+      renderResultEgg();
+    }
+  }
 }
 
 // ------------------------------------------------------------------ 進行状況
@@ -589,8 +662,6 @@ function renderTitle(): void {
   sub.hidden = over;
   sub.textContent = `つぎは ${spotLabel(spot)}`;
 
-  $('over-note').hidden = !over;
-
   daily.classList.toggle('done', p.daily.done);
   // 何問やるかは このカードの中で直接えらぶ（1・3・5）。
   // ふだんは説明の行を出さない。ボタンの数と ●の数で足りている
@@ -687,8 +758,18 @@ function renderSlots(): void {
 
     pick.addEventListener('click', () => {
       sfx.tap();
-      selectSlot(i);
-      goHome();
+      const go = (): void => {
+        selectSlot(i);
+        goHome();
+      };
+      // 時間の制限をかけているあいだは、新しい きろくを作るのに関門を通す。
+      // 時間は きろくごとに数えるので、ここが素通りだと「新しい きろくを作れば
+      // また遊べる」になってしまう
+      if (empty && save.settings.dailyLimitMin > 0) {
+        openGate(go, 'あたらしい きろくは、おうちの ひとと いっしょに つくってね');
+      } else {
+        go();
+      }
     });
     card.appendChild(pick);
 
@@ -1821,6 +1902,15 @@ function renderResult(r: StageResult): void {
     }
   }, endAt);
 
+  renderResultBtns(r);
+}
+
+/**
+ * リザルトの下のボタン。
+ * 見ているあいだに 1日の時間を使いきったときも、onClockTick から呼びなおす。
+ */
+function renderResultBtns(r: StageResult): void {
+  const onMap = r.mode === 'stage';
   // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る。
   // ボスに負けたときだけは、挑みなおすのが主役になる
   const over = overDailyLimit();
@@ -1864,6 +1954,14 @@ function renderResultEgg(coins = profile().coins): void {
   const row = $('result-spend');
   const bar = $('result-egg-bar');
   const fill = bar.firstElementChild as HTMLElement;
+
+  // きょうの時間を使いきったら、きせかえ・ぼくじょうへの入口は出さない
+  // （押しても「きょうは ここまで」になるだけ）
+  if (overDailyLimit()) {
+    btn.hidden = true;
+    row.hidden = true;
+    return;
+  }
 
   // 両方できるときは、小さく横に2つ並べる。1枚だけ出していたころは
   // ペットのほうしか出ず、ガチャも まわせるのに そこから行けなかった
@@ -2071,31 +2169,14 @@ $('set-close').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ おうちのかた
 
-let gateAnswer = 0;
-
-$('btn-parent').addEventListener('click', () => {
-  const gate = makeGate();
-  gateAnswer = gate.answer;
-  $('gate-q').textContent = gate.text;
-  $<HTMLInputElement>('gate-input').value = '';
-  $('gate-msg').textContent = '';
-  $('overlay-settings').hidden = true;
-  $('overlay-gate').hidden = false;
-});
-
-$('gate-cancel').addEventListener('click', () => {
-  $('overlay-gate').hidden = true;
-});
-
-$('gate-ok').addEventListener('click', () => {
-  const value = Number($<HTMLInputElement>('gate-input').value.trim());
-  if (value !== gateAnswer) {
-    $('gate-msg').textContent = 'こたえが ちがいます。';
-    return;
-  }
-  $('overlay-gate').hidden = true;
+function openParent(): void {
   renderParent();
   show('parent');
+}
+
+$('btn-parent').addEventListener('click', () => {
+  $('overlay-settings').hidden = true;
+  openGate(openParent);
 });
 
 $('parent-back').addEventListener('click', () => {
@@ -2163,14 +2244,24 @@ initMini({
   onCoins: onCollectionChange,
   onExit: goHome,
 });
+initGate();
 initParent(() => {
   syncSettings();
   renderTitle();
+  refreshPlayClock();
 });
 syncSettings();
 
 // file:// で開いたときなど、記録が残らない環境ではその場で伝える
 $('no-storage').hidden = storageWorks;
+
+// 1日に あそべる時間を数える時計。おうちのかたの画面と関門のあいだは数えない
+// （大人が設定している時間を、子どもの持ち時間から引かない）。
+// 「きょうは ここまで」の画面も数えない（もう遊べない時間を足しても意味がない）
+startPlayClock({
+  counting: () => current !== 'parent' && current !== 'rest' && $('overlay-gate').hidden,
+  onTick: onClockTick,
+});
 
 renderTitle();
 // きろくが2つ以上あるなら、まず誰のぼうけんかを選んでもらう。

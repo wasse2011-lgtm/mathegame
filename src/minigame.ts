@@ -35,7 +35,6 @@ import {
   MINI_PERFECT,
 } from './rewards';
 import {
-  addPlayTime,
   markMiniDone,
   miniDoneToday,
   overDailyLimit,
@@ -159,24 +158,6 @@ function clearTimers(): void {
   while (timers.length) clearTimeout(timers.pop());
 }
 
-/**
- * 遊んだ時間。ここも「1日にあそべる時間」に数える。
- *
- * 数えないと、上限をつけた家庭で「本編は終わりでも ミニゲームは無限」になり、
- * 親の設定が意味を持たなくなる。ランナーとちがって毎フレーム進めていないので、
- * ひらいてから閉じるまでの実時間で数える。裏に回したまま放置されたぶんまで
- * 数えないよう、1回ぶんは 10分で頭打ちにする。
- */
-const PLAY_CAP_SEC = 600;
-let startedAt = 0;
-
-function countPlayTime(): void {
-  if (!startedAt) return;
-  const sec = Math.min((performance.now() - startedAt) / 1000, PLAY_CAP_SEC);
-  startedAt = 0;
-  addPlayTime(sec);
-}
-
 // ------------------------------------------------------------------ 共通の見た目
 
 function shake(el: HTMLElement): void {
@@ -280,7 +261,6 @@ function renderClearFacts(facts: Fact[]): void {
 }
 
 function finish(id: MiniId, perfect: boolean, note: string, jumped?: number, recap: Fact[] = []): void {
-  countPlayTime();
   const { coins, first } = payout(id, perfect, jumped);
   sfx.clear();
   $('mini-clear-head').textContent = perfect ? 'ぜんぶ せいかい！' : 'できた！';
@@ -1300,7 +1280,6 @@ function startRuler(): void {
 /** ミニゲームの一覧。きょうの ごほうびが残っているかも ここに出す */
 export function renderMiniList(): void {
   hurdle?.stop();
-  countPlayTime();
   $('mini-coins').textContent = String(profile().coins);
   $('mini-name').textContent = 'ミニゲーム';
   $('mini-desc').textContent = 'あそびながら たしざんが つよくなる';
@@ -1347,14 +1326,13 @@ function openGame(id: MiniId): void {
   clearTimers();
   // later() は setTimeout しか覚えていない。rAF はここで自分で止める
   hurdle?.stop();
-  countPlayTime();
   // 上限に達したら、新しい1回は始めない（走るステージと同じ。途中では止めない）。
-  // ここを見ないと「もういちど」を押しつづけるかぎり、いつまでも遊べてしまう
+  // ここを見ないと「もういちど」を押しつづけるかぎり、いつまでも遊べてしまう。
+  // 遊んだ時間そのものは playclock.ts の時計が数えている（ここでは足さない）
   if (overDailyLimit()) {
     env.onExit();
     return;
   }
-  startedAt = performance.now();
   current = id;
   const def = GAMES.find((g) => g.id === id) ?? GAMES[0];
   $('mini-name').textContent = def.name;
@@ -1399,12 +1377,19 @@ export function miniBack(): void {
   renderMiniList();
 }
 
-/** 画面を離れるとき。動いているものを全部止め、遊んだ時間を記録する */
+/** 画面を離れるとき。動いているものを全部止める */
 export function stopMini(): void {
   clearTimers();
   hurdle?.stop();
-  countPlayTime();
   $('overlay-mini').hidden = true;
+}
+
+/**
+ * 1回ぶんを遊んでいる最中か（一覧ではなく、盤面が出ているか）。
+ * 上限に達しても、遊んでいる途中では「きょうは ここまで」に切りかえない
+ */
+export function miniPlaying(): boolean {
+  return !$('mini-play').hidden;
 }
 
 /** きょう まだ ごほうびが残っているミニゲームの数。ホームのカードに出す */

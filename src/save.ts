@@ -49,6 +49,11 @@ export interface Daily {
 export interface PlayTime {
   date: string;
   sec: number;
+  /**
+   * おうちのかたが「きょうだけ」足した時間（秒）。1日にあそべる時間に上乗せする。
+   * sec と同じく、日付が変わると 0 に戻る（あしたまで持ちこさない）
+   */
+  extra: number;
 }
 
 /**
@@ -168,7 +173,7 @@ function freshProfile(): Profile {
     pets: {},
     pet: '',
     daily: { date: '', streak: 0, done: false },
-    play: { date: '', sec: 0 },
+    play: { date: '', sec: 0, extra: 0 },
     mini: { date: '', done: [] },
     zukanNew: [],
     zukanGot: 0,
@@ -205,19 +210,24 @@ export function refreshDaily(p: Profile): void {
       done: false,
     };
   }
-  if (p.play.date !== now) p.play = { date: now, sec: 0 };
+  if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
   persist();
 }
 
-/** 遊んだ時間を足す。日付をまたいだ場合は今日ぶんから数えなおす */
+/**
+ * 遊んだ時間を足す。日付をまたいだ場合は今日ぶんから数えなおす。
+ *
+ * 呼ぶのは playclock.ts の時計だけで、1秒ごとに来る。ここで persist() すると
+ * 毎秒セーブ全体を書くことになるので、書きこみは時計の側でまとめる
+ * （裏に回したときは main.ts の flushSave が吐き出す）。
+ */
 export function addPlayTime(sec: number): void {
   if (sec <= 0) return;
   const p = profile();
   const now = today();
-  if (p.play.date !== now) p.play = { date: now, sec: 0 };
+  if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
   p.play.sec += Math.round(sec);
   p.seen = now;
-  persist();
 }
 
 /**
@@ -238,12 +248,41 @@ export function markMiniDone(id: string): void {
   persist();
 }
 
+// ------------------------------------------------------------------ 1日にあそべる時間
+
+/** きょう遊んだ秒数 */
+export function playedToday(p: Profile = profile()): number {
+  return p.play.date === today() ? p.play.sec : 0;
+}
+
+/** きょう遊べる秒数（おうちのかたが足したぶんを含む）。0 は制限なし */
+export function allowanceToday(p: Profile = profile()): number {
+  const limit = save.settings.dailyLimitMin;
+  if (!limit) return 0;
+  const extra = p.play.date === today() ? p.play.extra : 0;
+  return limit * 60 + extra;
+}
+
+/** きょう のこりの秒数。制限なしなら Infinity */
+export function remainingToday(p: Profile = profile()): number {
+  const all = allowanceToday(p);
+  return all ? Math.max(0, all - playedToday(p)) : Infinity;
+}
+
 /** 今日の上限に達したか（上限なしなら常に false） */
 export function overDailyLimit(): boolean {
-  const limit = save.settings.dailyLimitMin;
-  if (!limit) return false;
-  const p = profile();
-  return p.play.date === today() && p.play.sec >= limit * 60;
+  return remainingToday() <= 0;
+}
+
+/**
+ * きょうだけ遊べる時間を足す（マイナスで取り消し。0 より下にはしない）。
+ * 設定の分数そのものは変えない。あしたになれば元の長さに戻る。
+ */
+export function extendToday(sec: number, p: Profile = profile()): void {
+  const now = today();
+  if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
+  p.play.extra = Math.max(0, p.play.extra + Math.round(sec));
+  persist();
 }
 
 function freshSave(): SaveData {
@@ -274,7 +313,12 @@ function read(): SaveData {
       ...p,
       coins: Math.round((p?.coins ?? 0) * scale),
       daily: { ...blank.daily, ...(p?.daily ?? {}) },
-      play: { ...blank.play, ...(p?.play ?? {}) },
+      // extra（きょうだけ足した時間）は後から足した。古いセーブには無い
+      play: {
+        ...blank.play,
+        ...(p?.play ?? {}),
+        extra: Number.isFinite(p?.play?.extra) ? Number(p?.play?.extra) : 0,
+      },
       // ミニゲームは後から足した。配列がこわれていても遊べるように、型ごと確かめる
       mini: {
         date: typeof p?.mini?.date === 'string' ? p.mini.date : '',
@@ -398,7 +442,11 @@ export function selectSlot(i: number): void {
 /** きろくを消す。枠は残し、中身だけまっさらにする */
 export function clearSlot(i: number): void {
   if (i < 0 || i >= save.players.length) return;
+  // きょう遊んだ時間だけは残す。ここまで消すと「けす → 同じ枠で なまえを入れなおす」で
+  // 1日にあそべる時間が まるごと戻ってしまう（関門を通らない抜け道になる）
+  const play = save.players[i].play;
   save.players[i] = freshProfile();
+  save.players[i].play = play;
   // いま遊んでいるきろくを消したら、残っているきろくに移る。
   // 空の枠を選んだままにすると、ホームがいきなり「はじめる」に戻る
   if (save.active === i) {
