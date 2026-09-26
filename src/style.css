@@ -2149,6 +2149,138 @@ body {
 #overlay-pet.legend #pet-result-canvas { filter: drop-shadow(0 0 12px rgba(255,200,80,.85)); }
 @media (prefers-reduced-motion: reduce) { #pet-result-canvas { animation: none; } }
 
+/* たまごが かえる演出（ranch.ts の showRoll）。
+   白い たまごが ゆれて、レア度の段の数だけ 色が変わる（あお → むらさき → きん）。
+   段が上がるごとに たまごの光・うしろの光・光のすじが ふえ、結果の札にも その色が残る。
+   重なりは 奥から: うしろの光と光のすじ（.hatch-fx）→ たまご／結果の札 → ひかり・きらきら（.hatch-top）。
+   .hatch-fx と .hatch-top は absolute なので、何もしないと札より手前に描かれる。札と たまごにも
+   z-index を持たせて、奥と手前を はっきり分ける */
+#overlay-pet { --fx: #ffd257; transition: background-color .3s ease; }
+/* たまごのあいだは 暗くして、うしろの牧場を 見えにくくする（たまごに目を集める） */
+#overlay-pet.hatching { background: rgba(14, 22, 32, .84); }
+.hatch-stage, #pet-sheet { position: relative; z-index: 1; }
+.hatch-stage[hidden], #pet-sheet[hidden] { display: none; }
+.hatch-fx, .hatch-top { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.hatch-top { z-index: 2; }
+.hatch-glow, .hatch-rays { position: absolute; left: 50%; top: 45%; opacity: 0; transition: opacity .4s ease; }
+.hatch-glow {
+  width: 34rem; height: 34rem; margin: -17rem 0 0 -17rem;
+  background: radial-gradient(circle, var(--fx) 0, transparent 62%);
+}
+#overlay-pet[data-fx="r"] .hatch-glow { opacity: .5; }
+#overlay-pet[data-fx="sr"] .hatch-glow { opacity: .65; }
+#overlay-pet[data-fx="ur"] .hatch-glow { opacity: .85; }
+.hatch-rays {
+  width: 60rem; height: 60rem; margin: -30rem 0 0 -30rem;
+  background: repeating-conic-gradient(from 0deg, var(--fx) 0 9deg, transparent 9deg 24deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0, transparent 52%);
+          mask-image: radial-gradient(circle, #000 0, transparent 52%);
+}
+#overlay-pet[data-fx="sr"] .hatch-rays { opacity: .4; animation: hatch-spin 14s linear infinite; }
+#overlay-pet[data-fx="ur"] .hatch-rays { opacity: .7; animation: hatch-spin 7s linear infinite; }
+@keyframes hatch-spin { to { transform: rotate(360deg); } }
+/* 結果の札の ふち。レア からは その色で光らせる */
+#overlay-pet[data-fx="r"] .egg-sheet,
+#overlay-pet[data-fx="sr"] .egg-sheet,
+#overlay-pet[data-fx="ur"] .egg-sheet { box-shadow: 0 0 0 4px var(--fx), 0 0 30px var(--fx); }
+#pet-sheet .rarity-badge { animation: badge-pop .45s .12s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes badge-pop { from { transform: scale(.2); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.hatch-stage {
+  display: flex; flex-direction: column; align-items: center; gap: .7rem;
+  width: 100%; min-height: 60%; justify-content: center; cursor: pointer;
+}
+.hatch-say {
+  margin: 0; min-height: 1.5em; color: #fff; font-size: 1.35rem; font-weight: 700;
+  text-align: center; text-shadow: 0 2px 0 rgba(0,0,0,.4);
+}
+.hatch-skip { margin: 0; color: rgba(255,255,255,.6); font-size: .8rem; font-weight: 700; }
+/* たまご。上と下の半分を 同じ絵で重ね、ぎざぎざの線で切ってある（われるときに 別々に とぶ）。
+   上の半分は 1% だけ下へ はみ出させて、つなぎめに すきまの線が出ないようにする */
+.hatch-egg {
+  --egg: #fff1d6; --egg-hi: #fff; --egg-spot: #f0cf92; --glow: transparent; --glow-r: 0px;
+  position: relative; width: 8.5rem; height: 10.6rem; transform-origin: 50% 90%;
+  filter: drop-shadow(0 0 var(--glow-r) var(--glow)) drop-shadow(0 6px 0 rgba(0,0,0,.2));
+}
+.egg-half {
+  position: absolute; inset: 0; display: block;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background:
+    radial-gradient(circle at 30% 68%, var(--egg-spot) 0 .55rem, transparent .6rem),
+    radial-gradient(circle at 70% 40%, var(--egg-spot) 0 .45rem, transparent .5rem),
+    radial-gradient(circle at 60% 83%, var(--egg-spot) 0 .35rem, transparent .4rem),
+    radial-gradient(circle at 44% 22%, var(--egg-spot) 0 .3rem, transparent .35rem),
+    radial-gradient(ellipse at 34% 26%, var(--egg-hi) 0 14%, var(--egg) 58%);
+  box-shadow: inset -10px -12px 0 rgba(0,0,0,.07);
+}
+.egg-half.top {
+  clip-path: polygon(0 0, 100% 0, 100% 54%, 96% 54%, 92% 49%, 84% 58%, 76% 49%, 68% 58%, 60% 49%,
+    52% 58%, 44% 49%, 36% 58%, 28% 49%, 20% 58%, 12% 49%, 4% 55%, 0 55%);
+}
+.egg-half.bot {
+  clip-path: polygon(0 100%, 100% 100%, 100% 53%, 96% 53%, 92% 48%, 84% 57%, 76% 48%, 68% 57%, 60% 48%,
+    52% 57%, 44% 48%, 36% 57%, 28% 48%, 20% 57%, 12% 48%, 4% 54%, 0 54%);
+}
+/* ひび。われる直前に 左から走らせる */
+.egg-crack { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.egg-crack polyline {
+  fill: none; stroke: #6b4a2f; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round;
+  stroke-dasharray: 1; stroke-dashoffset: 1;
+}
+.hatch-egg.cracking .egg-crack polyline { animation: egg-crack .45s ease-out forwards; }
+@keyframes egg-crack { to { stroke-dashoffset: 0; } }
+.hatch-egg.open .egg-crack { opacity: 0; }
+.hatch-egg.open .egg-half.top { animation: egg-top .45s ease-out forwards; }
+.hatch-egg.open .egg-half.bot { animation: egg-bot .45s ease-in forwards; }
+@keyframes egg-top { to { transform: translate(-26px, -110px) rotate(-38deg); opacity: 0; } }
+@keyframes egg-bot { to { transform: translateY(46px) scale(.9); opacity: 0; } }
+
+.hatch-egg.in { animation: egg-in .4s cubic-bezier(.2,1.5,.4,1); }
+@keyframes egg-in { from { transform: translateY(40px) scale(.2); opacity: 0; } to { transform: none; opacity: 1; } }
+.hatch-egg.wobble { animation: egg-wobble .55s ease-in-out; }
+@keyframes egg-wobble {
+  0%, 100% { transform: none; }
+  20% { transform: rotate(-12deg); }
+  45% { transform: rotate(10deg); }
+  70% { transform: rotate(-6deg); }
+  85% { transform: rotate(3deg); }
+}
+/* 色が変わる瞬間。ゆれより強く、さいごに ふくらむ */
+.hatch-egg.shake { animation: egg-shake .6s ease-in-out; }
+@keyframes egg-shake {
+  0%, 100% { transform: none; }
+  10%, 30%, 50% { transform: translateX(-7px) rotate(-6deg); }
+  20%, 40%, 60% { transform: translateX(7px) rotate(6deg); }
+  80% { transform: scale(1.12); }
+}
+
+.hatch-flash { position: absolute; inset: 0; background: var(--flash, #fff); opacity: 0; }
+.hatch-flash.on { animation: hatch-flash .5s ease-out; }
+@keyframes hatch-flash { from { opacity: .85; } to { opacity: 0; } }
+
+/* きらきら（ふつうは 紙ふぶき）。結果の絵の あたりから まわりへ とぶ */
+.hatch-bit {
+  position: absolute; left: 50%; top: 40%; font-style: normal; font-size: 1.3rem; line-height: 1;
+  color: var(--c); text-shadow: 0 0 6px var(--c); opacity: 0;
+  animation: hatch-bit 1.1s ease-out both;
+}
+.hatch-bit.paper { width: 9px; height: 13px; border-radius: 2px; background: var(--c); text-shadow: none; }
+@keyframes hatch-bit {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(.4); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--r)); }
+}
+.hatch-bit.rain { top: -2rem; left: var(--x); animation: hatch-rain 2.2s linear both; }
+@keyframes hatch-rain {
+  0% { opacity: 0; transform: none; }
+  10% { opacity: 1; }
+  100% { opacity: .8; transform: translateY(110vh) rotate(var(--r)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #overlay-pet .hatch-rays, #pet-sheet .rarity-badge, .hatch-flash.on { animation: none; }
+  .hatch-bit { display: none; }
+}
+
 .no-storage {
   margin: 0; font-size: .85rem; line-height: 1.6; text-align: center; color: var(--bad-dark);
   background: #fdeee9; border: 2px solid var(--bad); border-radius: var(--r-md); padding: .5rem .8rem;
@@ -2324,16 +2456,36 @@ body {
   font-size: 1rem; font-weight: 700; color: var(--ink-2); text-align: center;
   font-variant-numeric: tabular-nums;
 }
-/* 立てた はた。指で置いた場所がひと目で分かるよう、大きく・跳ねさせる */
+/* 立てた はた。指で置いた場所がひと目で分かるよう、大きく・跳ねさせる。
+   はばは 0 で、left が そのまま ぼうの まん中になる（判定に使う場所と 1px も ずらさない）。
+   以前の 🚩 の絵文字は ぼうが字の左はしにあり、まん中寄せで置くと ぼうが 13px ほど左に出ていた。
+   ぼうは 線まで おろし、線の上に 足もとの点を打つ。どこに立てたかを 線の上で読めるようにする */
 .ruler-flag {
-  position: absolute; top: .2rem; transform: translateX(-50%); font-size: 2.2rem; line-height: 1;
+  position: absolute; top: .3rem; bottom: 50%; width: 0;
   filter: drop-shadow(0 2px 0 rgba(0,0,0,.15));
+}
+.ruler-flag i { position: absolute; display: block; }
+.rf-pole { left: -2px; top: 0; bottom: 0; width: 4px; border-radius: 2px; background: #6b4a2f; }
+/* ぼうの先の 金の玉 */
+.rf-pole::before {
+  content: ''; position: absolute; left: -3px; top: -6px; width: 10px; height: 10px;
+  border-radius: 50%; background: #ffd257; border: 1px solid #c99a1f;
+}
+.rf-cloth {
+  left: 2px; top: 1px; width: 2.2rem; height: 1.6rem;
+  background: linear-gradient(180deg, #ff6b6b, #e03131);
+  clip-path: polygon(0 0, 100% 45%, 0 100%);
+}
+.ruler-flag.flip .rf-cloth { left: auto; right: 2px; clip-path: polygon(100% 0, 0 45%, 100% 100%); }
+.rf-foot {
+  left: -7px; bottom: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: #e03131; border: 3px solid #fff; box-shadow: 0 0 0 2px #b8323a;
 }
 .ruler-flag.drop { animation: flag-drop .34s ease; }
 @keyframes flag-drop {
-  0% { transform: translate(-50%, -16px) scale(.7); }
-  60% { transform: translate(-50%, 3px) scale(1.1); }
-  100% { transform: translate(-50%, 0) scale(1); }
+  0% { transform: translateY(-18px); }
+  60% { transform: translateY(3px); }
+  100% { transform: none; }
 }
 /* 数え歩きのふきだしは線の上を通るので、答えの札は線の下いっぱいに逃がす。
    同じ位置に来ると2つが重なって、どちらも読めなくなる */

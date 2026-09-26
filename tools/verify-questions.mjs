@@ -640,7 +640,7 @@ console.log('\nH) ミニゲームの出題が つづけて同じにならない�
   //   ・ものさしの6問は、式も 旗を立てる場所も かぶらない
   const mini = await loadTogether(
     'mini',
-    `export { rulerPlan } from './src/minigame';
+    `export { rulerPlan, bandFor } from './src/minigame';
      export { weakestFacts } from './src/questions';
      export { factStat } from './src/save';
      export { WORLDS, allFacts, factKey } from './src/curriculum';`,
@@ -681,6 +681,36 @@ console.log('\nH) ミニゲームの出題が つづけて同じにならない�
     if (plan.slice(2).some((r) => !r.fact)) bad.push('ものさし: 3問めからは たし算のはず');
     if (plan.some((r) => r.fact && r.answer !== r.fact.a + r.fact.b)) {
       bad.push('ものさし: 旗を立てる先が こたえと ちがう');
+    }
+  }
+
+  // ものさしの「ぴったり／おしい／はずれ」。7 なら 6.5〜7.5 が ぴったり、6 以下・8 以上は はずれ。
+  // 以前は はずれが 1.5 はなれてからで、6 に立てても「おしい」だった
+  const bands = [
+    [10, 7, [[7, 'hit'], [6.5, 'hit'], [7.5, 'hit'], [6.49, 'near'], [7.51, 'near'], [6.01, 'near'], [7.99, 'near'], [6, 'far'], [8, 'far'], [5.5, 'far'], [8.5, 'far']]],
+    [20, 7, [[6.5, 'hit'], [7.5, 'hit'], [6.49, 'near'], [7.51, 'near'], [5.01, 'near'], [8.99, 'near'], [5, 'far'], [9, 'far']]],
+    [100, 37, [[33, 'hit'], [41, 'hit'], [32.9, 'near'], [41.1, 'near'], [27.1, 'near'], [46.9, 'near'], [27, 'far'], [47, 'far']]],
+  ];
+  for (const [bmax, answer, cases] of bands) {
+    for (const [g, want] of cases) {
+      const got = mini.bandFor(g, answer, bmax);
+      if (got !== want) bad.push(`ものさし 0〜${bmax}: ${answer} に ${g} で ${got}（ほしいのは ${want}）`);
+    }
+  }
+  // 判定の式が 右と左で 同じ幅か。
+  // （「少し右で おしい・1 近く左でも ぴったり」の原因は 式ではなく 旗の絵（🚩 の ぼうが
+  //   判定の場所より左に出ていた）だったので、そちらは style.css の .ruler-flag で直してある。
+  //   ここで見られるのは 式の側だけ）
+  for (const bmax of [10, 20, 100]) {
+    for (let answer = 1; answer < bmax; answer++) {
+      for (let k = 0; k <= 80; k++) {
+        const d = (k * bmax) / 400;
+        if (answer - d < 0 || answer + d > bmax) continue;
+        if (mini.bandFor(answer + d, answer, bmax) !== mini.bandFor(answer - d, answer, bmax)) {
+          bad.push(`ものさし 0〜${bmax}: ${answer} の 右と左で 判定が ちがう（±${d.toFixed(2)}）`);
+          break;
+        }
+      }
     }
   }
 

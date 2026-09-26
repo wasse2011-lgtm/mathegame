@@ -862,7 +862,27 @@
     </div>
 
     <div class="overlay" id="overlay-pet" hidden>
-      <div class="sheet egg-sheet">
+      <!-- たまごが かえる演出（ranch.ts の showRoll）。
+           奥に うしろの光・光のすじ、手前に ひかり・きらきら。まん中に たまご／結果の札 -->
+      <div class="hatch-fx" aria-hidden="true">
+        <div class="hatch-glow"></div>
+        <div class="hatch-rays"></div>
+      </div>
+      <div class="hatch-stage" id="hatch-stage" hidden>
+        <div class="hatch-egg" id="hatch-egg" aria-hidden="true">
+          <i class="egg-half top"></i>
+          <i class="egg-half bot"></i>
+          <svg class="egg-crack" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline points="4,54 12,48 20,57 28,48 36,57 44,48 52,57 60,48 68,57 76,48 84,57 92,48 96,53" pathLength="1" />
+          </svg>
+        </div>
+        <p class="hatch-say" id="hatch-say">あれ？ たまごが…</p>
+        <p class="hatch-skip">タップで すぐ みる</p>
+      </div>
+      <div class="hatch-top" id="hatch-top" aria-hidden="true">
+        <div class="hatch-flash" id="hatch-flash"></div>
+      </div>
+      <div class="sheet egg-sheet" id="pet-sheet">
         <p class="rarity-badge" id="pet-rarity">ふつう</p>
         <p class="egg-got-head" id="pet-result-head">なかまに なった！</p>
         <canvas id="pet-result-canvas"></canvas>
