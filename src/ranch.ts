@@ -46,7 +46,8 @@ export function powerText(pet: PetDef): string {
   if (pw.slow > 0) parts.push(`しょうがいぶつが ${Math.round(pw.slow * 100)}％ ゆっくり`);
   // ヒントに回数があるのは さいごのボスだけ。そこだけの力だと分かる言いかたにする
   if (pw.hints > 0) parts.push(`さいごの ボスで ヒントを ${pw.hints}かい ふやす`);
-  if (pw.rescue > 0) parts.push('1かい せなかに のせてくれる');
+  if (pw.rescue > 0) parts.push('じかんぎれのとき 1かい せなかに のせてくれる');
+  if (pw.guard > 0) parts.push('まちがえたとき 1かい まもってくれる');
   return parts.length ? parts.join('・') : 'いっしょに はしってくれる';
 }
 
@@ -499,6 +500,7 @@ function showRoll(roll: PetRoll): void {
     : `${roll.pet.note}${roll.equipped ? '' : '（つれて歩く子は そのまま）'}`;
   $('pet-result-head').textContent = roll.dup ? 'また あえたね！' : 'なかまに なった！';
 
+  $('overlay-pet').classList.toggle('legend', roll.pet.rarity === 'ur');
   const c = $<HTMLCanvasElement>('pet-result-canvas');
   paintPetIcon(c, roll.pet.art, 132);
   $('overlay-pet').hidden = false;

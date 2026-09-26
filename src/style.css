@@ -2025,6 +2025,25 @@ body {
 .pet-cell[aria-pressed="true"] { outline: 3px solid var(--amber); outline-offset: 1px; }
 .pet-cell canvas { width: 54px; height: 54px; }
 .pet-name { line-height: 1.15; text-align: center; }
+/* でんせつの子の わく。金の ふちで かこみ、ときどき 光が ななめに すべる。
+   ほかの子と同じ わくだと、一覧の中で 格の違いが見えない */
+.pet-cell.r-ur:not(.locked) {
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 36%, #fffbea 0 32%, var(--rs) 72%);
+  border-color: #e39a22;
+  box-shadow: 0 0 0 2px rgba(255,210,87,.5), 0 3px 10px rgba(232,145,42,.35);
+}
+.pet-cell.r-ur:not(.locked)::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.8) 50%, transparent 62%);
+  transform: translateX(-130%);
+  animation: legend-shine 3.4s ease-in-out infinite;
+}
+@keyframes legend-shine {
+  0%, 60% { transform: translateX(-130%); }
+  100% { transform: translateX(130%); }
+}
+@media (prefers-reduced-motion: reduce) { .pet-cell.r-ur:not(.locked)::after { display: none; } }
 .hearts { color: #e4675c; font-size: .68rem; letter-spacing: -1px; line-height: 1; }
 
 .rarity-badge {
@@ -2034,6 +2053,12 @@ body {
 }
 .pet-note { margin: 0; font-size: .82rem; color: var(--ink-2); text-align: center; line-height: 1.5; }
 #pet-result-canvas { width: 132px; height: 132px; animation: egg-pop .5s cubic-bezier(.2,1.5,.4,1); }
+/* でんせつの子が出たとき。札を金にして、絵のまわりを光らせる */
+#overlay-pet.legend .rarity-badge {
+  background: linear-gradient(90deg, #ffe7a0, #ffc15a, #ffe7a0); color: #7a4300; border-color: #e39a22;
+  box-shadow: 0 0 14px rgba(255,190,60,.75);
+}
+#overlay-pet.legend #pet-result-canvas { filter: drop-shadow(0 0 12px rgba(255,200,80,.85)); }
 @media (prefers-reduced-motion: reduce) { #pet-result-canvas { animation: none; } }
 
 .no-storage {
@@ -2044,6 +2069,9 @@ body {
 
 .egg-sheet { align-items: center; text-align: center; }
 .egg-sheet canvas { width: 120px; height: 120px; animation: egg-pop .5s cubic-bezier(.2,1.5,.4,1); }
+/* .sheet（あとに書いてある）の align-items: stretch が .egg-sheet の center に勝つので、
+   絵だけ 左に寄っていた。絵は自分で まん中に置く */
+.egg-sheet canvas { align-self: center; }
 @keyframes egg-pop { from { transform: scale(.3) rotate(-25deg); } to { transform: scale(1) rotate(0); } }
 .egg-got-head { margin: 0; font-size: 1rem; font-weight: 700; color: var(--amber-dark); }
 .egg-got { margin: 0 0 .4rem; font-size: 1.5rem; font-weight: 700; }
