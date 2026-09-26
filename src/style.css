@@ -706,6 +706,16 @@ body {
 .slot-body b { font-size: 1.25rem; }
 .slot-body span { font-size: .82rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .slot-body small { font-size: .72rem; color: var(--ink-2); opacity: .8; }
+/* 時間が 0 になっている きろくの しるし（色は おしまいの画面に そろえる。夜／夕やけ） */
+.slot-lock {
+  align-self: flex-start; margin-top: .2rem; padding: .1rem .55rem; border-radius: 999px;
+  font-style: normal; font-size: .74rem; font-weight: 700; color: #fff; background: #4f5f9a;
+}
+.slot-lock.session { background: #e0705a; }
+/* いま おしまいになっている きろく。えらべない（えらんでも 同じ画面に戻るだけ） */
+.slot.stuck .slot-pick { cursor: default; }
+.slot.stuck .slot-pick:active { transform: none; }
+.slot.stuck .slot-face, .slot.stuck .slot-body > :not(.slot-lock) { opacity: .55; }
 .slot-del {
   flex: 0 0 auto; align-self: center;
   font-family: inherit; font-size: .8rem; font-weight: 700; color: var(--bad);
@@ -2665,7 +2675,7 @@ body {
 .tm-start { min-height: 60px; font-size: clamp(1rem, 5vw, 1.3rem); padding: .6rem .5rem; white-space: nowrap; }
 .tm-run { display: flex; flex-direction: column; gap: .35rem; }
 .tm-run[hidden] { display: none; }
-.tm-run-label, .gate-extend-label {
+.tm-run-label {
   margin: .2rem 0 0; text-align: center; font-size: .85rem; font-weight: 700; color: var(--ink-2);
 }
 /* のばす ボタンは 「＋」が付くぶん 字を少し詰める */
@@ -2676,10 +2686,23 @@ body {
   border: 2px solid var(--line); background: #fff; color: var(--bad-dark);
 }
 
-/* 関門の「のばす じかん」。おしまいの画面から開いたときだけ出る */
-.gate-extend { display: flex; flex-direction: column; gap: .3rem; }
+/* 関門の「とおったら どうするか」。おしまいの画面から開いたときだけ出る。
+   「このまま スタート画面へ」と「じかんを のばす」の 2択を 横に並べ、下に 5〜10分 */
+.gate-extend { display: flex; flex-direction: column; gap: .4rem; }
 .gate-extend[hidden] { display: none; }
-.gate-extend-label { margin-top: 0; }
+.gate-opts { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; }
+.gate-opt {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+  min-height: 56px; padding: .35rem .3rem; font-family: inherit; cursor: pointer; text-align: center;
+  background: #fff; color: var(--ink); border: 2px solid var(--line); border-radius: 12px;
+}
+/* せまい画面（320px）で「のば／す」と 字の途中で割れないよう、空白でだけ折る */
+.gate-opt b { font-size: .98rem; line-height: 1.25; word-break: keep-all; }
+.gate-opt small { font-size: .7rem; line-height: 1.3; color: var(--ink-2); }
+.gate-opt[aria-checked="true"] { background: #eaf5fc; border-color: var(--blue); color: var(--blue-dark); }
+.gate-opt[aria-checked="true"] small { color: var(--blue-dark); }
+/* 「このまま」のあいだは 分数を うすく（押せば「のばす」に切りかわる） */
+.gate-chips.off .tm-chip { opacity: .45; }
 .tm-note {
   margin: 0; font-size: .74rem; line-height: 1.55; color: var(--ink-2);
   font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;

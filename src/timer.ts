@@ -1,5 +1,6 @@
 /**
  * タイマー（いまから ○分）。おうちのかたが 端末を わたすときに かける。
+ * かかるのは いま遊んでいる きろく（きろくごとに持つ。save.ts の SessionTimer）。
  *
  * 入口は ホームの左上の ⏰ボタン。せっていの歯車と同じく **ながおし（0.8秒）** で開く。
  * 押しているあいだ ボタンの まわりの輪が満ちていくので、おとなには「開きかけている」
@@ -18,7 +19,7 @@
 
 import { sfx } from './audio';
 import { EXTEND_CHOICES, TIMER_CHOICES, dialMinutes, handAngle, minuteWord, wedgePath } from './limit';
-import { clearSession, extendSession, save, sessionLeft, startSession } from './save';
+import { clearSession, extendSession, profile, sessionLeft, startSession } from './save';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -121,7 +122,7 @@ function angleAt(e: PointerEvent, svg: Element): number {
 
 /** 画面の中身を いまの状態に合わせる */
 function renderSheet(): void {
-  const running = mode === 'running' && save.timer !== null;
+  const running = mode === 'running' && profile().timer !== null;
   const left = sessionLeft();
 
   // かかっているときは、いまの のこりを 文字盤と大きい数字で見せる。
@@ -188,7 +189,7 @@ function closeSheet(): void {
  * かかっていれば 関門を通してから 開く。
  */
 export function openTimer(): void {
-  if (save.timer) {
+  if (profile().timer) {
     env.gate(() => openTimerSheet('running'), 'タイマーを かえるのは、おうちの ひと だけ だよ');
   } else {
     openTimerSheet('setup');

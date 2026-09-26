@@ -55,6 +55,12 @@ export interface PlayTime {
    * sec と同じく、日付が変わると 0 に戻る（あしたまで持ちこさない）
    */
   extra: number;
+  /**
+   * おしまいの画面で おうちのかたが「このまま スタート画面へ」を えらび、
+   * きょうの制限を外したか。sec・extra と同じく 日付が変わると消える
+   * （あしたは また いつもの長さ）。外していない日は キーごと持たない
+   */
+  free?: boolean;
 }
 
 /**
@@ -116,6 +122,8 @@ export interface Profile {
   hurdleBest: number;
   /** 最後に遊んだ日（YYYY-MM-DD）。きろくを選ぶ画面で出す */
   seen: string;
+  /** かかっているタイマー（いまから ○分）。null は なし */
+  timer: SessionTimer | null;
 }
 
 export interface Settings {
@@ -129,9 +137,11 @@ export interface Settings {
 /**
  * タイマー（いまから ○分）。おうちのかたが 端末を わたすときに かける。
  *
- * 1日にあそべる時間とちがい、**きろくではなく 端末に1つ**。きろくを
- * 切りかえても 逃げられない。時間は「さわっているあいだ」ではなく、
- * かけた瞬間からの実時間で減る（裏に回しても、アプリを閉じても減る）。
+ * 1日にあそべる時間と同じく **きろくごと**に持つ（かけたときの きろくのもの）。
+ * 前は端末に1つで、1人の時間が おわると きょうだいも あそべなかった。
+ * おしまいの画面から ほかの きろくへ移れるように、きろくに付けた。
+ * 時間は「さわっているあいだ」ではなく、かけた瞬間からの実時間で減る
+ * （裏に回しても、アプリを閉じても、ほかの きろくで遊んでいても減る）。
  *
  * 終わる時刻を持たずに「のこり」と「最後に減らした時刻」を持つのは、
  * 端末の時計を戻されても のこりが増えないようにするため（tickSession）。
@@ -152,8 +162,6 @@ export interface SaveData {
   players: Profile[];
   active: number;
   settings: Settings;
-  /** かかっているタイマー。null は なし */
-  timer: SessionTimer | null;
   /**
    * コインのレート版。2 になる前のセーブは 1問1枚で貯めたものなので、
    * 読みこむときに COIN_SCALE を掛けて、買えるものの数を合わせる。
@@ -203,6 +211,7 @@ function freshProfile(): Profile {
     zukanGot: 0,
     hurdleBest: 0,
     seen: '',
+    timer: null,
   };
 }
 
@@ -279,10 +288,24 @@ export function playedToday(p: Profile = profile()): number {
   return p.play.date === today() ? p.play.sec : 0;
 }
 
-/** きょう遊べる秒数（おうちのかたが足したぶんを含む）。0 は制限なし */
+/** おうちのかたが きょうの制限を外したか（おしまいの画面の「このまま スタート画面へ」） */
+export function freeToday(p: Profile = profile()): boolean {
+  return p.play.date === today() && p.play.free === true;
+}
+
+/** きょうの制限を外す／もどす。設定の分数そのものは変えない（あしたには元に戻る） */
+export function setFreeToday(on: boolean, p: Profile = profile()): void {
+  const now = today();
+  if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
+  if (on) p.play.free = true;
+  else delete p.play.free;
+  persist();
+}
+
+/** きょう遊べる秒数（おうちのかたが足したぶんを含む）。0 は制限なし（きょうだけ外した日も） */
 export function allowanceToday(p: Profile = profile()): number {
   const limit = save.settings.dailyLimitMin;
-  if (!limit) return 0;
+  if (!limit || freeToday(p)) return 0;
   const extra = p.play.date === today() ? p.play.extra : 0;
   return limit * 60 + extra;
 }
@@ -294,8 +317,8 @@ export function remainingToday(p: Profile = profile()): number {
 }
 
 /** 今日の上限に達したか（上限なしなら常に false） */
-export function overDailyLimit(): boolean {
-  return remainingToday() <= 0;
+export function overDailyLimit(p: Profile = profile()): boolean {
+  return remainingToday(p) <= 0;
 }
 
 /**
@@ -308,7 +331,8 @@ export function overDailyLimit(): boolean {
 export function extendToday(sec: number, p: Profile = profile()): void {
   const now = today();
   if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
-  const overrun = sec > 0 && save.settings.dailyLimitMin > 0
+  // 外している日は allowanceToday が 0 なので、こえたぶんを数えない
+  const overrun = sec > 0 && save.settings.dailyLimitMin > 0 && !freeToday(p)
     ? Math.max(0, playedToday(p) - allowanceToday(p))
     : 0;
   p.play.extra = Math.max(0, p.play.extra + overrun + Math.round(sec));
@@ -323,33 +347,36 @@ export function extendToday(sec: number, p: Profile = profile()): void {
  * 減らすのは「前に見た時刻から進んだぶん」だけ。時計が戻っていたら 0 として扱い、
  * 基準の時刻だけ取りなおす（のこりは増えない）。アプリを閉じているあいだの
  * ぶんも、つぎに開いたときに ここで まとめて引かれる。
+ * いま遊んでいない きろくの タイマーも 同じように減らす（実時間なので）。
  */
 export function tickSession(now: number = Date.now()): void {
-  const t = save.timer;
-  if (!t) return;
-  t.leftMs = Math.max(0, t.leftMs - Math.max(0, now - t.seenAt));
-  t.seenAt = now;
-  // 終わったまま日付が変わったら外す。おうちのかたが外し忘れても、
-  // つぎの日に開いたら ずっと「おしまい」のまま、にはしない
-  if (t.leftMs <= 0 && t.day !== today(new Date(now))) save.timer = null;
+  for (const p of save.players) {
+    const t = p.timer;
+    if (!t) continue;
+    t.leftMs = Math.max(0, t.leftMs - Math.max(0, now - t.seenAt));
+    t.seenAt = now;
+    // 終わったまま日付が変わったら外す。おうちのかたが外し忘れても、
+    // つぎの日に開いたら ずっと「おしまい」のまま、にはしない
+    if (t.leftMs <= 0 && t.day !== today(new Date(now))) p.timer = null;
+  }
 }
 
 /** タイマーの のこり（秒）。かかっていなければ Infinity */
-export function sessionLeft(now: number = Date.now()): number {
-  const t = save.timer;
+export function sessionLeft(now: number = Date.now(), p: Profile = profile()): number {
+  const t = p.timer;
   if (!t) return Infinity;
   return Math.max(0, t.leftMs - Math.max(0, now - t.seenAt)) / 1000;
 }
 
 /** タイマーが かかっていて、もう 0 になっているか */
-export function sessionOver(now: number = Date.now()): boolean {
-  return save.timer !== null && sessionLeft(now) <= 0;
+export function sessionOver(now: number = Date.now(), p: Profile = profile()): boolean {
+  return p.timer !== null && sessionLeft(now, p) <= 0;
 }
 
 /** いまから min 分のタイマーをかける（かかっていれば かけなおす） */
 export function startSession(min: number, now: number = Date.now()): void {
   const ms = Math.round(min * 60_000);
-  save.timer = { leftMs: ms, totalMs: ms, seenAt: now, day: today(new Date(now)) };
+  profile().timer = { leftMs: ms, totalMs: ms, seenAt: now, day: today(new Date(now)) };
   persist();
 }
 
@@ -359,7 +386,7 @@ export function startSession(min: number, now: number = Date.now()): void {
  * 10分もらったのに 輪が半分以下の きいろ から始まって 分かりにくい）。
  */
 export function extendSession(min: number, now: number = Date.now()): void {
-  const t = save.timer;
+  const t = profile().timer;
   if (!t) return;
   tickSession(now);
   const ms = Math.round(min * 60_000);
@@ -375,8 +402,17 @@ export function extendSession(min: number, now: number = Date.now()): void {
 
 /** タイマーを外す */
 export function clearSession(): void {
-  save.timer = null;
+  profile().timer = null;
   persist();
+}
+
+/**
+ * どこかに 時間の制限が かかっているか（1日の時間 か、どれかの きろくの タイマー）。
+ * このあいだは 新しい きろくを作るのに関門を通す。時間は きろくごとなので、
+ * 素通りだと「新しい きろくを作れば また遊べる」になる
+ */
+export function limitsOn(): boolean {
+  return save.settings.dailyLimitMin > 0 || save.players.some((p) => p.timer !== null);
 }
 
 export type LimitKind = 'daily' | 'session';
@@ -395,17 +431,18 @@ export function limitView(now: number = Date.now()): LimitView | null {
   let view: LimitView | null = null;
   const all = allowanceToday();
   if (all) view = { kind: 'daily', remain: remainingToday(), total: all };
-  if (save.timer) {
+  const t = profile().timer;
+  if (t) {
     const remain = sessionLeft(now);
     // 同じなら タイマーを見せる（わたしたときに かけた ほうが、子どもに身近）
-    if (!view || remain <= view.remain) view = { kind: 'session', remain, total: save.timer.totalMs / 1000 };
+    if (!view || remain <= view.remain) view = { kind: 'session', remain, total: t.totalMs / 1000 };
   }
   return view;
 }
 
 /** もう遊べないか（1日の時間を使いきった か タイマーが終わった） */
-export function timeUp(now: number = Date.now()): boolean {
-  return overDailyLimit() || sessionOver(now);
+export function timeUp(now: number = Date.now(), p: Profile = profile()): boolean {
+  return overDailyLimit(p) || sessionOver(now, p);
 }
 
 function freshSave(): SaveData {
@@ -414,7 +451,6 @@ function freshSave(): SaveData {
     players: Array.from({ length: SLOTS }, freshProfile),
     active: 0,
     settings: { sound: true, slow: false, leftHanded: false, dailyLimitMin: 0 },
-    timer: null,
     econ: ECON_REV,
   };
 }
@@ -437,7 +473,8 @@ function read(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return freshSave();
-    const parsed = JSON.parse(raw) as Partial<SaveData>;
+    // timer は 前の版の「端末に1つ」の タイマー（いまは きろくごと）
+    const parsed = JSON.parse(raw) as Partial<SaveData> & { timer?: unknown };
     const base = freshSave();
     if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.players) || parsed.players.length === 0) {
       return base;
@@ -475,18 +512,23 @@ function read(): SaveData {
       hurdleBest: Number.isFinite(p?.hurdleBest) ? Number(p?.hurdleBest) : 0,
       // ペットは後から足した。古いセーブには無いので必ず既定値に落とす
       pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
+      // タイマーは後から足した。古いセーブには無い
+      timer: readTimer(p?.timer),
     }));
     // 枠の数は増える方向にしか変えない。減らすと、増やしたあとで戻したときに
     // 3人目のきろくが黙って消える
     while (players.length < SLOTS) players.push(freshProfile());
 
+    const active = Math.min(Math.max(parsed.active ?? 0, 0), players.length - 1);
+    // 前の版は タイマーが端末に1つだった。そのとき遊んでいた きろくに移す
+    const old = readTimer(parsed.timer);
+    if (old && !players[active].timer) players[active].timer = old;
+
     return {
       v: 1,
       players,
-      active: Math.min(Math.max(parsed.active ?? 0, 0), players.length - 1),
+      active,
       settings: { ...base.settings, ...(parsed.settings ?? {}) },
-      // タイマーは後から足した。古いセーブには無い
-      timer: readTimer(parsed.timer),
       econ: ECON_REV,
     };
   } catch {
@@ -552,7 +594,6 @@ export function resetAll(): void {
   save.players = fresh.players;
   save.active = 0;
   save.settings = fresh.settings;
-  save.timer = null;
   save.econ = fresh.econ;
   persist();
 }
@@ -583,11 +624,12 @@ export function selectSlot(i: number): void {
 /** きろくを消す。枠は残し、中身だけまっさらにする */
 export function clearSlot(i: number): void {
   if (i < 0 || i >= save.players.length) return;
-  // きょう遊んだ時間だけは残す。ここまで消すと「けす → 同じ枠で なまえを入れなおす」で
-  // 1日にあそべる時間が まるごと戻ってしまう（関門を通らない抜け道になる）
-  const play = save.players[i].play;
+  // きょう遊んだ時間と タイマーだけは残す。ここまで消すと「けす → 同じ枠で なまえを
+  // 入れなおす」で 時間が まるごと戻ってしまう（関門を通らない抜け道になる）
+  const { play, timer } = save.players[i];
   save.players[i] = freshProfile();
   save.players[i].play = play;
+  save.players[i].timer = timer;
   // いま遊んでいるきろくを消したら、残っているきろくに移る。
   // 空の枠を選んだままにすると、ホームがいきなり「はじめる」に戻る
   if (save.active === i) {

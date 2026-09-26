@@ -44,11 +44,13 @@ import { MASTERED, easiestFacts, weakFactCount, weakFacts, weakestFacts } from '
 import { COIN_BOSS, COIN_HUNT, dailyBonus } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
+  clearSession,
   clearSlot,
   extendSession,
   extendToday,
   flushSave,
   isEmptySlot,
+  limitsOn,
   overDailyLimit,
   persist,
   profile,
@@ -58,6 +60,7 @@ import {
   save,
   selectSlot,
   sessionOver,
+  setFreeToday,
   slots,
   stageStars,
   storageWorks,
@@ -442,9 +445,9 @@ function renderRest(): void {
   $('rest-next').textContent = session
     ? 'おうちの ひとに わたしてね'
     : min ? `あしたは また ${min}${minuteWord(min)} あそべるよ` : '';
-  // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない。
-  // タイマーは端末に1つなので、きろくを かえても遊べない（出さない）
-  $('rest-slots').hidden = session || usedSlots() < 2;
+  // ほかの きろく（きょうだい）へは移れる。時間は 1日の時間も タイマーも きろくごと。
+  // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない
+  $('rest-slots').hidden = usedSlots() < 2;
   // 目ざまし時計は タイマーのときだけ。出すたびに鳴らしなおす
   const clock = screens.rest.querySelector<HTMLElement>('.rest-clock');
   clock?.classList.remove('ringing');
@@ -477,20 +480,42 @@ function leaveRest(): void {
 }
 
 /**
- * 関門を解いた。えらんだ分だけ のばして、おしまいになる前の画面へ そのまま戻す。
- * タイマーと 1日の時間の両方が 0 なら 両方のばす（片方だけだと また すぐ おしまいになる）。
+ * 関門を解いた。min は 関門で えらんだ のばす分数（「このまま スタート画面へ」なら 0）。
+ *
+ * - このまま … 0 になっている制限を外して ホーム（スタート画面）へ。外さないと、
+ *   ホームに出た瞬間に また おしまいになる。タイマーは止め、1日の時間は きょうだけ外す
+ * - のばす … えらんだ分だけ のばして、おしまいになる前の画面へ そのまま戻す
+ *
+ * タイマーと 1日の時間の両方が 0 なら 両方に効かせる（片方だけだと また すぐ おしまいになる）。
  */
 function unlockFor(min: number): void {
+  if (min <= 0) {
+    if (sessionOver()) clearSession();
+    if (overDailyLimit()) setFreeToday(true);
+    goHome();
+    return;
+  }
   if (sessionOver()) extendSession(min);
   if (overDailyLimit()) extendToday(min * 60);
   refreshPlayClock();
   leaveRest();
 }
 
+/** 「このまま スタート画面へ」で 何が起きるか（関門の おとな向けの説明に入れる） */
+function liftLead(): string {
+  const session = sessionOver();
+  const daily = overDailyLimit();
+  if (session && daily) return 'タイマーを止め、今日の時間制限も外してスタート画面に戻ります。';
+  return session
+    ? 'タイマーを止めてスタート画面に戻ります。'
+    : '今日の時間制限を外してスタート画面に戻ります（明日は元の長さです）。';
+}
+
 $('rest-parent').addEventListener('click', () => {
   sfx.tap();
-  // のばす時間を えらぶのも 関門の画面の中。解いたら もう1枚 はさまずに戻る
-  openGate(unlockFor, '', { extend: true });
+  // とおったあと どうするか（このまま／のばす）を えらぶのも 関門の画面の中。
+  // 解いたら もう1枚 はさまずに進む
+  openGate(unlockFor, '', { extend: true, homeLead: liftLead() });
 });
 
 /** オーバーレイが出ているか。ガチャや たまごの結果を見ているあいだは切りかえない */
@@ -850,15 +875,24 @@ let eraseTarget = -1;
 function renderSlots(): void {
   const list = $('slot-list');
   list.replaceChildren();
+  const now = Date.now();
 
   slots().forEach((p, i) => {
     const empty = isEmptySlot(p);
+    // 時間が 0 になっている きろく。1日の時間も タイマーも きろくごとなので、
+    // ほかの きろくは そのまま遊べる
+    const locked = !empty && timeUp(now, p);
+    // いま おしまいになっている きろく（おしまいの画面から来たときの「その子の」きろく）は
+    // えらべない。えらんでも 同じ おしまいの画面に戻るだけなので。
+    // ほかの きろくが おしまいなら えらべる（その子の おしまいの画面から おうちのかたが のばせる）
+    const stuck = locked && i === save.active;
     const card = document.createElement('div');
-    card.className = `slot${empty ? ' empty' : ''}${i === save.active && !empty ? ' current' : ''}`;
+    card.className = `slot${empty ? ' empty' : ''}${i === save.active && !empty ? ' current' : ''}${stuck ? ' stuck' : ''}`;
 
     const pick = document.createElement('button');
     pick.type = 'button';
     pick.className = 'slot-pick';
+    pick.disabled = stuck;
 
     const c = document.createElement('canvas');
     c.className = 'slot-face';
@@ -884,6 +918,13 @@ function renderSlots(): void {
       const seen = document.createElement('small');
       seen.textContent = p.seen ? `さいごに あそんだ日 ${p.seen}` : 'まだ あそんでいません';
       body.append(name, sub, seen);
+      if (locked) {
+        const session = sessionOver(now, p);
+        const tag = document.createElement('em');
+        tag.className = `slot-lock${session ? ' session' : ''}`;
+        tag.textContent = session ? '⏰ じかんに なったよ' : '🌙 きょうは おしまい';
+        body.appendChild(tag);
+      }
       pick.append(c, body);
       queueMicrotask(() => paintSkinIcon(c, { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color }, 54));
     }
@@ -895,9 +936,9 @@ function renderSlots(): void {
         goHome();
       };
       // 時間の制限をかけているあいだは、新しい きろくを作るのに関門を通す。
-      // 時間は きろくごとに数えるので、ここが素通りだと「新しい きろくを作れば
-      // また遊べる」になってしまう
-      if (empty && save.settings.dailyLimitMin > 0) {
+      // 時間は（タイマーも）きろくごとに数えるので、ここが素通りだと「新しい きろくを
+      // 作れば また遊べる」になってしまう
+      if (empty && limitsOn()) {
         openGate(go, 'あたらしい きろくは、おうちの ひとと いっしょに つくってね');
       } else {
         go();
