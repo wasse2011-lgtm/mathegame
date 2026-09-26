@@ -64,6 +64,18 @@
  *
  * 記録（★・図鑑・習熟度）は一切動かさない。出るのはコインだけ。
  * それはこのファイルの外（minigame.ts）の仕事で、ここは数えて返すところまで。
+ *
+ * ## エンドレスの節目（50・70・100本め）
+ *
+ * 拍は 100本めで いちばん速くなって止まる。それだけだと 50本を こえたあたりから
+ * 「同じ拍で跳びつづけるだけ」になるので、節目ごとに 決まりを1つずつ変える。
+ *   ・50本め  … ハードルの あいだが バラバラになる（endlessGap）。拍ではなく ハードルを見て跳ぶ
+ *   ・70本め  … ハートの上限が 3つ → 2つ
+ *   ・100本め … ハートの上限が 1つ。たかい ハードル（越えていられる時間が みじかい）が まざりはじめ、
+ *               その割合は 10本ごとに ふえる（tallChance）
+ * どれも10のもんの本数なので、変わる瞬間は かならず区切りの上に来る。
+ * 5本まえに ことばで予告し、通った瞬間に盤面へ札を出す（ENDLESS_STAGES）。
+ * どの形でも、拍に合わせて跳べば ぜんぶ越えられることを CI の G) が見ている。
  */
 
 import { sfx } from './audio';
@@ -78,6 +90,8 @@ export interface LaneItem {
   /** 何こめか。1 から始まる。これが頭の上に出る数になる */
   n: number;
   kind: LaneKind;
+  /** たかい ハードル（エンドレスの 100本め から まざる）。越えられる時間が みじかい */
+  tall?: boolean;
 }
 
 /**
@@ -102,12 +116,20 @@ export function laneFrom(start: number, total: number): LaneItem[] {
   return lane;
 }
 
-/** エンドレスの道すじ。10本ごとにアーチが来て、そこが「1たば」の区切りになる */
-export function endlessLane(from: number, count: number): LaneItem[] {
+/**
+ * エンドレスの道すじ。10本ごとにアーチが来て、そこが「1たば」の区切りになる。
+ *
+ * 100本めを こえると、ふつうのハードルの いくつかが **たかい ハードル** になる
+ * （どれが たかくなるかは rnd しだい。割合は tallChance）。
+ * 10のもんは たかくしない。区切りは ひと息つける場所のままにしておく。
+ */
+export function endlessLane(from: number, count: number, rnd: () => number = Math.random): LaneItem[] {
   const lane: LaneItem[] = [];
   for (let i = 0; i < count; i++) {
     const n = from + i;
-    lane.push({ n, kind: n % 10 === 0 ? 'gate' : 'base' });
+    const kind: LaneKind = n % 10 === 0 ? 'gate' : 'base';
+    const tall = kind === 'base' && rnd() < tallChance(n);
+    lane.push(tall ? { n, kind, tall } : { n, kind });
   }
   return lane;
 }
@@ -142,6 +164,16 @@ const CLEAR = 18;
 /** 越えられる高さを、いちばん高いところに対する割合で持つ */
 export const CLEAR_RATIO = CLEAR / APEX;
 
+/**
+ * たかい ハードルの横木。跳ぶ高さ（APEX）は変えないので、
+ * **いちばん高いところの まわりで通らないと越えられない**＝拍を合わせる はばが せまくなる。
+ * 越えていられる時間は 0.51秒 → 0.39秒。いちばん高いところを合わせれば かならず越えられる。
+ */
+const TALL_BAR = 32;
+/** ふつうと同じく、横木より 4 だけ低く取る */
+const TALL_CLEAR = 28;
+export const TALL_CLEAR_RATIO = TALL_CLEAR / APEX;
+
 const CADENCE_MAX = 1.35;
 const CADENCE_MIN = 0.95;
 /** ゆっくり設定のときの倍率 */
@@ -159,17 +191,17 @@ export function hopHeight(t: number): number {
   return 4 * u * (1 - u);
 }
 
-/** その時点で 横木より上にいるか */
-export function clearsAt(t: number): boolean {
-  return hopHeight(t) >= CLEAR_RATIO;
+/** その時点で 横木より上にいるか。tall なら たかい ハードルの横木で見る */
+export function clearsAt(t: number, tall = false): boolean {
+  return hopHeight(t) >= (tall ? TALL_CLEAR_RATIO : CLEAR_RATIO);
 }
 
 /**
  * 1回の跳躍のうち、横木を越えていられる時間（秒）。
  * 4u(1-u) = r を解くと はばは √(1-r)。連打の拍（AIRTIME + LAND_LAG）より短い。
  */
-export function clearWindow(): number {
-  return AIRTIME * Math.sqrt(1 - CLEAR_RATIO);
+export function clearWindow(tall = false): number {
+  return AIRTIME * Math.sqrt(1 - (tall ? TALL_CLEAR_RATIO : CLEAR_RATIO));
 }
 
 /**
@@ -212,6 +244,109 @@ export function endlessCadence(i: number, slow: boolean): number {
   const step = Math.floor(Math.max(i, 0) / ENDLESS_STEP);
   const base = Math.max(CADENCE_MAX - step * ENDLESS_TIGHTEN, ENDLESS_MIN);
   return slow ? base * SLOW_RATE : base;
+}
+
+// ------------------------------------------------------------------ エンドレスの節目
+
+/** エンドレスのハート。アーチを通るたび満タンに戻る（上限は endlessMaxHearts） */
+export const HEARTS = 3;
+
+/** ここから先は、ハードルの あいだが バラバラになる（本数） */
+export const ENDLESS_RANDOM_AT = 50;
+/** ここから先は、たかい ハードルが まざる（本数） */
+export const ENDLESS_TALL_AT = 100;
+/**
+ * バラバラにするときの はば。基本の拍（endlessCadence）に この範囲の倍率をかける。
+ * 短いほうは ENDLESS_MIN で止めるので、原理的に跳べない間は ぜったいに来ない。
+ */
+const JITTER_LO = 0.8;
+const JITTER_HI = 1.35;
+
+/**
+ * エンドレスの節目。ここを通るたびに 1段むずかしくなる。
+ *
+ * どれも 10のもんの本数にそろえてあるので、変わる瞬間は かならず区切りの上に来る。
+ * 何が変わったのかは、5本まえの予告（warn）と、通った瞬間の札（title / sub）の
+ * 2回 見せる。いきなり ハートが へっていると、子どもには「なぜか負けた」にしか見えない。
+ */
+export interface EndlessStage {
+  at: number;
+  /** ハートの上限を ここで いくつにするか（変えない節目は なし） */
+  hearts?: number;
+  /** 5本まえに #mini-say へ出す予告 */
+  warn: string;
+  /** 通った瞬間に 盤面に出す札 */
+  title: string;
+  sub: string;
+  /** そのあと #mini-say に のこしておく ひとこと */
+  say: string;
+}
+
+export const ENDLESS_STAGES: EndlessStage[] = [
+  {
+    at: ENDLESS_RANDOM_AT,
+    warn: 'あと 5こで ハードルが バラバラに くるよ',
+    title: 'ハードルが バラバラに くるよ！',
+    sub: 'よく みて とぼう',
+    say: 'ハードルの あいだが バラバラ！ よく みて とぼう',
+  },
+  {
+    at: 70,
+    hearts: 2,
+    warn: 'あと 5こで ハートが 2つに へるよ',
+    title: 'ハートが 2つに へった！',
+    sub: '10の もんで 2つまで もどるよ',
+    say: 'ハートは 2つまで。10の もんで もどるよ',
+  },
+  {
+    at: ENDLESS_TALL_AT,
+    hearts: 1,
+    warn: 'あと 5こで ハートが 1つに へるよ',
+    title: 'ハートが 1つに へった！',
+    sub: 'たかい ハードルも まざるよ',
+    say: 'ハートは 1つ。たかい ハードルに きをつけて！',
+  },
+];
+
+/** 予告を 何本まえに出すか */
+export const STAGE_WARN = 5;
+
+/** n 本めを通ったあとの ハートの上限。70本めで 2つ、100本めで 1つ */
+export function endlessMaxHearts(n: number): number {
+  let max = HEARTS;
+  for (const st of ENDLESS_STAGES) if (n >= st.at && st.hearts !== undefined) max = st.hearts;
+  return max;
+}
+
+/**
+ * エンドレスの i 本めと その次のあいだ（秒）。
+ *
+ * 50本めまでは endlessCadence そのまま（10本ごとに1段 速くなる、決まった拍）。
+ * そこから先は `r`（0〜1 の乱数）で JITTER_LO〜JITTER_HI 倍にばらけさせる。
+ * 同じ拍で跳びつづけられる子でも、ここからは **ハードルを見て** 跳ばないと合わない。
+ * 間は画面に見えている（キャラの前に およそ 2秒ぶん、1〜2本先まで出ている）ので、
+ * 見れば分かる ばらけかたにしてある。
+ *
+ * どれだけ短くなっても ENDLESS_MIN（0.90秒）より下にはしない。
+ * 跳んで着地して また跳べるまでが 0.82秒なので、拍に合わせれば かならず越えられる
+ * （CI の G) が 乱数の両はしと、じっさいの乱数の列の両方で見張っている）。
+ */
+export function endlessGap(i: number, slow: boolean, r: number): number {
+  const base = endlessCadence(i, false);
+  const k = i >= ENDLESS_RANDOM_AT ? JITTER_LO + (JITTER_HI - JITTER_LO) * clamp01(r) : 1;
+  const gap = Math.max(base * k, ENDLESS_MIN);
+  return slow ? gap * SLOW_RATE : gap;
+}
+
+/**
+ * n 本めが たかい ハードルになる割合。
+ * 100本めまでは 0。101本めから 20% で、10本ごとに 5% ずつふえ、50% で止まる。
+ * 100本で拍は いちばん速くなって止まるので、そこから先の「むずかしくなる」を ここが持つ。
+ */
+export function tallChance(n: number): number {
+  if (n <= ENDLESS_TALL_AT) return 0;
+  const step = Math.floor((n - ENDLESS_TALL_AT - 1) / ENDLESS_STEP);
+  return Math.min(0.2 + 0.05 * step, 0.5);
 }
 
 // ------------------------------------------------------------------ 入りの演出
@@ -259,6 +394,9 @@ const MIDORI_DARK = '#26895a';
 const BLUE = '#4aa3dd';
 const BLUE_DARK = '#2f7fb5';
 const COIN = '#ffd257';
+/** ハートと、たかい ハードルの しま。数の3色（青・きいろ・みどり）とは かぶらない */
+const HEART = '#e4675c';
+const HEART_DARK = '#b8453b';
 
 const reduced = (): boolean =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -312,10 +450,12 @@ interface Coin {
   life: number;
 }
 
-/** エンドレスのハート。アーチを通るたび満タンに戻る */
-const HEARTS = 3;
 /** アーチの前後で、走りをほんの少し止めて見せる時間 */
 const GATE_HOLD = 0.55;
+/** 節目の札を出しておく時間（秒） */
+const BANNER_HOLD = 2.8;
+/** ハートの上限が へったとき、へった1つが おちていく時間 */
+const HEART_DROP = 1.2;
 
 export class HurdleGame {
   private g: CanvasRenderingContext2D | null;
@@ -341,6 +481,13 @@ export class HurdleGame {
   /** いまの「10」の中で通った玉の色。HUD の10マスを、走った色のまま並べる */
   private ones: LaneKind[] = [];
   private hearts = HEARTS;
+  /** いまのハートの上限。エンドレスの節目（70本・100本）で へる */
+  private maxHearts = HEARTS;
+  /** 上限が へった直後、へったぶんを おとして見せる（のこり秒と、へる前の上限） */
+  private heartDrop = 0;
+  private heartDropFrom = HEARTS;
+  /** 節目の札。通った瞬間から BANNER_HOLD 秒 出す */
+  private banner: { stage: EndlessStage; t: number } | null = null;
   private coins: Coin[] = [];
   private ended = false;
   private hold = 0;
@@ -423,6 +570,10 @@ export class HurdleGame {
     this.tens = 0;
     this.ones = [];
     this.hearts = HEARTS;
+    this.maxHearts = HEARTS;
+    this.heartDrop = 0;
+    this.heartDropFrom = HEARTS;
+    this.banner = null;
     this.coins = [];
     this.lane = [];
     this.ended = false;
@@ -575,7 +726,8 @@ export class HurdleGame {
     if (!o || o.mode !== 'endless') return;
     // つぎの10本を先に積んでおく。切れめを作らない
     const from = this.placed + 1;
-    this.pushLane(endlessLane(from, ENDLESS_STEP), (i) => endlessCadence(i, o.slow));
+    // 50本めから先は 間がバラバラ、100本めから先は たかいのが まざる（endlessGap / endlessLane）
+    this.pushLane(endlessLane(from, ENDLESS_STEP), (i) => endlessGap(i, o.slow, Math.random()));
   }
 
   /**
@@ -634,8 +786,8 @@ export class HurdleGame {
   }
 
   /** 横木を越えているか。**空中にいるかどうかではない**（それだと当たり判定が無いのと同じ） */
-  private clears(): boolean {
-    return this.air && clearsAt(this.airT);
+  private clears(h: Hurdle): boolean {
+    return this.air && clearsAt(this.airT, h.tall);
   }
 
   /** ぶつかった。跳びかけていたら そこで落ちて、少しのあいだ跳べない */
@@ -697,6 +849,11 @@ export class HurdleGame {
     this.hurt = Math.max(0, this.hurt - dt);
     this.squash += (1 - this.squash) * Math.min(1, dt * 12);
     if (this.card) this.cardT += dt;
+    this.heartDrop = Math.max(0, this.heartDrop - dt);
+    if (this.banner) {
+      this.banner.t += dt;
+      if (this.banner.t >= BANNER_HOLD) this.banner = null;
+    }
     this.stepIntro(dt);
 
     // 着地の ため。ここが空くまで つぎは跳べない（連打で跳びっぱなしにさせない）
@@ -744,17 +901,21 @@ export class HurdleGame {
       }
       // ------------------------------------------------------------------
 
+      // 節目（50・70・100本め）。満タンに戻すより先に上限を下げるので、
+      // 70本めの もんを きれいに跳ぶと「2つで満タン」になる
+      if (this.opts?.mode === 'endless') this.stepStage(h.n);
+
       this.jumped++;
       // 越えたことにするのは「横木より足が上」のときだけ。
       // 地面をはなれた瞬間や 降りきる直前は まだ届いていないので ぶつかる
-      if (this.clears()) {
+      if (this.clears(h)) {
         h.clean = true;
         this.clean++;
         this.dropCoin(h);
         // 10のもんは くぐるのではなく跳ぶ。きれいに跳べたときだけ、
         // ハート満タンと べつの音で「区切りを こえた」を出す
         if (h.kind === 'gate') {
-          this.hearts = HEARTS;
+          this.hearts = this.maxHearts;
           sfx.beat();
         } else {
           sfx.coin();
@@ -842,6 +1003,30 @@ export class HurdleGame {
     }
   }
 
+  /**
+   * エンドレスで n 本めを通った。節目の予告と、節目そのもの。
+   *
+   * 予告は5本まえに #mini-say へ。節目では盤面に札を出し、#mini-say も
+   * 「いまの決まり」に書きかえて そのまま残す（札が消えたあとも読める）。
+   * ハートの上限が へったら、右上の へったぶんを おとして見せる。
+   */
+  private stepStage(n: number): void {
+    for (const st of ENDLESS_STAGES) {
+      if (n === st.at - STAGE_WARN) this.hooks.onSay(st.warn);
+      if (n !== st.at) continue;
+      this.banner = { stage: st, t: 0 };
+      this.hooks.onSay(st.say);
+      sfx.final();
+      const max = endlessMaxHearts(n);
+      if (max < this.maxHearts) {
+        this.heartDropFrom = this.maxHearts;
+        this.heartDrop = HEART_DROP;
+        this.maxHearts = max;
+        this.hearts = Math.min(this.hearts, max);
+      }
+    }
+  }
+
   private advance(): void {
     const o = this.opts;
     if (!o || o.mode !== 'facts') return;
@@ -917,6 +1102,9 @@ export class HurdleGame {
       });
     }
 
+    // エンドレスの節目の札。頭の上の数より先に描く（数が札に かくれないように）
+    this.drawBanner();
+
     // 頭の上の数。**このゲームの本体**なので、いちばん大きく出す
     this.drawCount();
 
@@ -957,13 +1145,19 @@ export class HurdleGame {
     return { x: this.playerX(), y: Math.max(footY - 40 * s, 26 * s) - 13 * s };
   }
 
-  /** ふつうのハードル。つまずいたものは たおれる */
+  /**
+   * ふつうのハードル。つまずいたものは たおれる。
+   *
+   * たかい ハードルは 支柱が のびて、いちばん上の横木が あか白の しまになる。
+   * ふつうの高さにも横木を1本のこして、「いつもより 上に もう1だん ある」を形で見せる。
+   * 支柱の色は ふつうと同じ（色は 数の意味を持っているので、飾りで変えない）。
+   */
   private drawHurdle(x: number, groundY: number, h: Hurdle): void {
     const g = this.g;
     if (!g) return;
     const s = this.s;
     const [col, edge] = this.colorOf(h.kind);
-    const hh = BAR * s;
+    const hh = (h.tall ? TALL_BAR : BAR) * s;
 
     g.save();
     g.translate(x, groundY);
@@ -974,9 +1168,24 @@ export class HurdleGame {
     // 支柱
     g.fillRect(-2 * s, -hh, 4 * s, hh);
     g.strokeRect(-2 * s, -hh, 4 * s, hh);
-    // 横木
-    g.fillRect(-9 * s, -hh, 18 * s, 6 * s);
-    g.strokeRect(-9 * s, -hh, 18 * s, 6 * s);
+    if (h.tall) {
+      // ふつうの高さの横木（下の段）
+      g.fillRect(-9 * s, -BAR * s, 18 * s, 6 * s);
+      g.strokeRect(-9 * s, -BAR * s, 18 * s, 6 * s);
+      // 上の段。あか白の しまで「たかい」を知らせる
+      const w = 22 * s;
+      const bh = 7 * s;
+      g.fillStyle = '#fff';
+      g.fillRect(-w / 2, -hh, w, bh);
+      g.fillStyle = HEART;
+      for (let k = 0; k < 4; k += 2) g.fillRect(-w / 2 + (w / 4) * k, -hh, w / 4, bh);
+      g.strokeStyle = HEART_DARK;
+      g.strokeRect(-w / 2, -hh, w, bh);
+    } else {
+      // 横木
+      g.fillRect(-9 * s, -hh, 18 * s, 6 * s);
+      g.strokeRect(-9 * s, -hh, 18 * s, 6 * s);
+    }
     g.restore();
   }
 
@@ -1352,17 +1561,117 @@ export class HurdleGame {
     g.fillText(String(this.clean), x - 18 * s, y + 8 * s);
 
     if (this.opts?.mode !== 'endless') return;
-    for (let i = 0; i < HEARTS; i++) {
-      const hx = x - 9 * s - i * 15 * s;
-      const hy = y + 28 * s;
-      g.fillStyle = i < this.hearts ? '#e4675c' : 'rgba(38,49,61,.15)';
-      g.beginPath();
-      g.moveTo(hx, hy + 5 * s);
-      g.bezierCurveTo(hx - 9 * s, hy - 2 * s, hx - 2 * s, hy - 7 * s, hx, hy - 2 * s);
-      g.bezierCurveTo(hx + 2 * s, hy - 7 * s, hx + 9 * s, hy - 2 * s, hx, hy + 5 * s);
-      g.closePath();
-      g.fill();
+    // ならべるのは いまの上限の数だけ。70本めで 2つ、100本めで 1つ になる
+    const hy = y + 28 * s;
+    for (let i = 0; i < this.maxHearts; i++) {
+      this.heart(x - 9 * s - i * 15 * s, hy, s, i < this.hearts ? HEART : 'rgba(38,49,61,.15)');
     }
+    // 上限が へった直後は、へったぶんが 灰色になって おちていく。
+    // だまって消すと、ハートが へったのか 見まちがいなのか 分からない
+    if (this.heartDrop > 0 && !reduced()) {
+      const k = 1 - this.heartDrop / HEART_DROP;
+      g.save();
+      g.globalAlpha = 1 - k;
+      for (let i = this.maxHearts; i < this.heartDropFrom; i++) {
+        const hx = x - 9 * s - i * 15 * s;
+        this.heart(hx, hy + k * k * 34 * s, s, 'rgba(38,49,61,.45)');
+        this.cross(hx, hy + k * k * 34 * s, 5 * s);
+      }
+      g.restore();
+    }
+  }
+
+  /** ハート1つ。k は大きさ（s と同じ単位） */
+  private heart(hx: number, hy: number, k: number, fill: string): void {
+    const g = this.g;
+    if (!g) return;
+    g.fillStyle = fill;
+    g.beginPath();
+    g.moveTo(hx, hy + 5 * k);
+    g.bezierCurveTo(hx - 9 * k, hy - 2 * k, hx - 2 * k, hy - 7 * k, hx, hy - 2 * k);
+    g.bezierCurveTo(hx + 2 * k, hy - 7 * k, hx + 9 * k, hy - 2 * k, hx, hy + 5 * k);
+    g.closePath();
+    g.fill();
+  }
+
+  /** へったハートに重ねる × */
+  private cross(cx: number, cy: number, r: number): void {
+    const g = this.g;
+    if (!g) return;
+    g.strokeStyle = INK;
+    g.lineWidth = Math.max(1.5, r * 0.4);
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(cx - r, cy - r);
+    g.lineTo(cx + r, cy + r);
+    g.moveTo(cx + r, cy - r);
+    g.lineTo(cx - r, cy + r);
+    g.stroke();
+    g.lineCap = 'butt';
+  }
+
+  /**
+   * エンドレスの節目の札（50・70・100本め）。
+   *
+   * 走りは止めない。上のほう（左上の10マス・右上のハートの下）に重ねて出して、
+   * BANNER_HOLD 秒で消す。ハートが へる節目では、札の中にも ハートを ならべて
+   * へったぶんに × をつける（字が読めなくても「へった」が分かる）。
+   * 頭の上の数より先に描くので、跳んで重なっても 数のほうが上に出る。
+   */
+  private drawBanner(): void {
+    const b = this.banner;
+    const g = this.g;
+    if (!b || !g) return;
+    const s = this.s;
+    const st = b.stage;
+    const inK = reduced() ? 1 : clamp01(b.t / 0.25);
+    const alpha = Math.min(inK, clamp01((BANNER_HOLD - b.t) / 0.4));
+    const e = ease(inK);
+    const font = (w: number, px: number): string => `${w} ${px}px "Hiragino Maru Gothic ProN", sans-serif`;
+
+    g.save();
+    g.font = font(900, 15 * s);
+    const tw = g.measureText(st.title).width;
+    g.font = font(700, 11 * s);
+    const sw = g.measureText(st.sub).width;
+    const hearts = st.hearts;
+    const bw = Math.max(tw, sw) + 28 * s;
+    const bh = (hearts !== undefined ? 70 : 50) * s;
+    // せまい画面では 札ごと ちぢめる（字を はみ出させない）
+    const fit = Math.min(1, (this.W - 12 * s) / bw);
+
+    g.globalAlpha = alpha;
+    g.translate(this.W / 2, 48 * s + (bh * fit) / 2);
+    g.scale(fit * (0.85 + 0.15 * e), fit * (0.85 + 0.15 * e));
+    g.fillStyle = 'rgba(255,255,255,.95)';
+    g.strokeStyle = HEART_DARK;
+    g.lineWidth = 3 * s;
+    this.round(-bw / 2, -bh / 2, bw, bh, 12 * s);
+    g.fill();
+    g.stroke();
+
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = INK;
+    g.font = font(900, 15 * s);
+    g.fillText(st.title, 0, -bh / 2 + 16 * s);
+
+    if (hearts !== undefined) {
+      // 3つ ならべて、のこる数だけ あか。へったぶんは 灰色に ×
+      const k = 1.35 * s;
+      const gap = 24 * s;
+      for (let i = 0; i < HEARTS; i++) {
+        const hx = (i - (HEARTS - 1) / 2) * gap;
+        const hy = -bh / 2 + 36 * s;
+        this.heart(hx, hy, k, i < hearts ? HEART : 'rgba(38,49,61,.2)');
+        if (i >= hearts) this.cross(hx, hy, 6 * s);
+      }
+    }
+
+    g.fillStyle = 'rgba(38,49,61,.72)';
+    g.font = font(700, 11 * s);
+    g.fillText(st.sub, 0, bh / 2 - 12 * s);
+    g.restore();
   }
 
   private round(x: number, y: number, w: number, h: number, r: number): void {
