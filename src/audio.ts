@@ -263,6 +263,20 @@ export const sfx = {
   tap(): void {
     tone(440, 0.06, { wave: 'square', vol: 0.18 });
   },
+  /** タイマーの文字盤を回したときの カチッ（5分ごと） */
+  tick(): void {
+    tone(1800, 0.025, { wave: 'square', vol: 0.08 });
+  },
+  /**
+   * 時間になった合図。目ざまし時計の ジリリ を、やわらかい ベルの2回うちで。
+   * 急かす音にはしない（おこられている感じを出さない）
+   */
+  alarm(): void {
+    for (let i = 0; i < 3; i++) {
+      tone(1318.5, 0.12, { at: i * 0.36, wave: 'triangle', vol: 0.3 });
+      tone(1046.5, 0.18, { at: i * 0.36 + 0.13, wave: 'triangle', vol: 0.26 });
+    }
+  },
   jump(): void {
     tone(320, 0.16, { wave: 'sine', vol: 0.35, to: 720 });
   },

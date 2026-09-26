@@ -703,6 +703,8 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
      export {
        save, profile, playedToday, allowanceToday, remainingToday, overDailyLimit,
        extendToday, addPlayTime, clearSlot, today,
+       startSession, extendSession, clearSession, tickSession, sessionLeft, sessionOver,
+       limitView, timeUp,
      } from './src/save';`,
   );
   const bad = [];
@@ -768,6 +770,66 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
   lim.clearSlot(lim.save.active);
   eq(lim.save.players[lim.save.active].name, '', 'けしたら名前は空');
   eq(lim.save.players[lim.save.active].play.sec, 1800, 'けしても きょうの時間は残る');
+
+  // ---- タイマー（いまから ○分）。実時間で減り、時計を戻されても増えない
+  const T0 = Date.UTC(2030, 0, 15, 3, 0, 0); // どのタイムゾーンでも 同じ日の昼
+  const MIN = 60_000;
+  lim.save.settings.dailyLimitMin = 0;
+  lim.startSession(15, T0);
+  eq(lim.sessionLeft(T0), 900, 'かけた直後');
+  eq(lim.sessionLeft(T0 + 5 * MIN), 600, '5分後');
+  lim.tickSession(T0 + 5 * MIN);
+  lim.tickSession(T0 - 60 * MIN); // 時計を 1時間 戻された
+  eq(lim.sessionLeft(T0 - 60 * MIN), 600, '時計を戻しても のこりは増えない');
+  lim.tickSession(T0 - 59 * MIN); // 戻った時計のまま 1分たった
+  eq(lim.sessionLeft(T0 - 59 * MIN), 540, '戻した時計のまま 1分');
+  // アプリを閉じていた 20分（tick が来ない）は、つぎに開いたときに まとめて引く
+  lim.tickSession(T0 - 39 * MIN);
+  eq(lim.sessionLeft(T0 - 39 * MIN), 0, '閉じていたあいだに おわる');
+  eq(lim.sessionOver(T0 - 39 * MIN), true, 'おわった');
+  eq(lim.timeUp(T0 - 39 * MIN), true, 'タイマーで もう遊べない');
+  // おわってから のばすと、のばした長さが「まるまる1本」（輪は満タンから）
+  lim.extendSession(10, T0 - 39 * MIN);
+  eq(lim.sessionLeft(T0 - 39 * MIN), 600, 'おわってから ＋10分');
+  eq(lim.save.timer.totalMs, 10 * MIN, 'おわってから のばすと 長さは のばしたぶん');
+  // 走っているときに のばすと、長さに足す
+  lim.extendSession(5, T0 - 39 * MIN);
+  eq(lim.save.timer.totalMs, 15 * MIN, '走っているときに ＋5分');
+  // おわったまま日付が変わったら 外れる
+  lim.tickSession(T0 + 24 * 60 * MIN);
+  eq(lim.save.timer, null, 'おわったまま つぎの日');
+  // 走っているあいだは 日付が変わっても 外れない（23:50 に 30分かけて 0:05 に見る）
+  const late = new Date(2030, 0, 15, 23, 50).getTime();
+  lim.startSession(30, late);
+  lim.tickSession(late + 15 * MIN);
+  eq(lim.save.timer !== null && lim.sessionLeft(late + 15 * MIN) === 900, true, '日付をまたいで 走っているタイマーは のこる');
+  // 1日の時間と両方あるときは、先に終わるほうを見せる
+  lim.save.settings.dailyLimitMin = 30;
+  lim.profile().play = { date: lim.today(), sec: 25 * 60, extra: 0 };
+  eq(lim.limitView(T0 + 10 * MIN).kind, 'daily', '1日の のこり 5分 ＜ タイマー 20分');
+  lim.profile().play = { date: lim.today(), sec: 0, extra: 0 };
+  eq(lim.limitView(T0 + 10 * MIN).kind, 'session', 'タイマー 20分 ＜ 1日の のこり 30分');
+  lim.clearSession();
+  lim.save.settings.dailyLimitMin = 0;
+  eq(lim.limitView(), null, 'どちらも なし');
+
+  // 時計の絵と、文字盤を ゆびで回したときの分数
+  eq(lim.wedgePath(32, 35, 16, 0), '', 'のこり 0 は おうぎ形なし');
+  if (!/A16\.00 16\.00 0 1 1 32\.00 51\.00/.test(lim.wedgePath(32, 35, 16, 1))) bad.push('満タンが 円になっていない');
+  if (!lim.wedgePath(32, 35, 16, 0.25).startsWith('M32.00 35.00L16.00 35.00')) {
+    bad.push(`のこり 1/4 は 9時から12時: ${lim.wedgePath(32, 35, 16, 0.25)}`);
+  }
+  eq(lim.handAngle(1), 0, '満タンの針');
+  eq(lim.handAngle(0.25), 270, 'のこり 1/4 の針');
+  eq(lim.dialMinutes(270, 15), 15, '文字盤 9時 = 15分');
+  eq(lim.dialMinutes(180, 15), 30, '文字盤 6時 = 30分');
+  eq(lim.dialMinutes(2, 55), 60, '12時の すぐ右 = 60分');
+  eq(lim.dialMinutes(358, 10), 5, '12時の すぐ左 = 5分（0 にはしない）');
+  eq(lim.dialMinutes(358, 55), 60, '60分から 12時を こえても 5分に跳ばない');
+  eq(lim.dialMinutes(3, 5), 5, '5分から 12時を こえても 60分に跳ばない');
+  for (const m of lim.TIMER_CHOICES) {
+    if (m < 5 || m > 60 || m % 5) bad.push(`タイマーの選択肢が 文字盤に のらない: ${m}`);
+  }
 
   if (bad.length) {
     failed++;
