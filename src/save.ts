@@ -300,11 +300,17 @@ export function overDailyLimit(): boolean {
 /**
  * きょうだけ遊べる時間を足す（マイナスで取り消し。0 より下にはしない）。
  * 設定の分数そのものは変えない。あしたになれば元の長さに戻る。
+ *
+ * 足すときは「いまから ○分」にする。上限を こえて ステージの終わりを待った
+ * ぶん（最長 3分）が あると、そのまま足すと ＋5分 のつもりが のこり 2分 になる。
  */
 export function extendToday(sec: number, p: Profile = profile()): void {
   const now = today();
   if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
-  p.play.extra = Math.max(0, p.play.extra + Math.round(sec));
+  const overrun = sec > 0 && save.settings.dailyLimitMin > 0
+    ? Math.max(0, playedToday(p) - allowanceToday(p))
+    : 0;
+  p.play.extra = Math.max(0, p.play.extra + overrun + Math.round(sec));
   persist();
 }
 

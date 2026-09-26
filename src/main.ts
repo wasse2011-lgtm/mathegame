@@ -36,14 +36,17 @@ import { mountTimerButton, refreshPlayClock, ringClocks, startPlayClock } from '
 import { Playground } from './playground';
 import { initRanch, onRanchChange, renderRanch, startRanchIdle } from './ranch';
 import { initShop, onShopChange, renderShop, startShopIdle } from './shop';
-import { initTimer, openTimerSheet } from './timer';
+import { initTimer } from './timer';
 import { MASTERED, easiestFacts, weakFactCount, weakFacts, weakestFacts } from './questions';
 import { COIN_BOSS, COIN_HUNT, dailyBonus } from './rewards';
 import { Runner, type RunConfig, type StageResult } from './runner';
 import {
   clearSlot,
+  extendSession,
+  extendToday,
   flushSave,
   isEmptySlot,
+  overDailyLimit,
   persist,
   profile,
   refreshDaily,
@@ -106,9 +109,26 @@ const LOCKED_WHEN_OVER: ReadonlySet<ScreenName> = new Set<ScreenName>([
   'title', 'map', 'zukan', 'shop', 'ranch', 'mini',
 ]);
 
+/**
+ * 「きょうは ここまで」に切りかわる直前に いた画面（行こうとしていた画面）。
+ * おうちのかたが 関門を解いて時間をのばしたら、ここへ そのまま戻す
+ * （ホームに飛ばすと、マップの どこを見ていたか・きせかえの どのタブだったかが消える）。
+ */
+let restFrom: ScreenName | null = null;
+/** 戻るときに 描きなおしが要るか（ステージの途中で打ち切ったときの マップ） */
+let restRedraw = false;
+
 function show(name: ScreenName): void {
-  if (LOCKED_WHEN_OVER.has(name) && timeUp()) name = 'rest';
-  if (name === 'rest') renderRest();
+  if (LOCKED_WHEN_OVER.has(name) && timeUp()) {
+    if (!restFrom) restFrom = name;
+    name = 'rest';
+  }
+  if (name === 'rest') {
+    renderRest();
+  } else {
+    restFrom = null;
+    restRedraw = false;
+  }
   // リザルトの演出は音とタイマーを持っている。画面を離れるときに必ず止める
   if (current === 'result' && name !== 'result') stopResultAnim();
   // ミニゲームも同じ。演出の途中で ← を押されても、タイマーを残さない
@@ -428,12 +448,41 @@ $('rest-slots').addEventListener('click', () => {
   showSlots();
 });
 
+/**
+ * おしまいの画面から、元の画面へ戻る。
+ * 画面は隠していただけなので、描きなおさずに出せば スクロールも タブも そのまま。
+ * ステージの途中で打ち切ったときだけ、マップを描きなおす（★が動いているかもしれない）。
+ */
+function leaveRest(): void {
+  const to = restFrom ?? 'title';
+  if (to === 'title') {
+    goHome();
+    return;
+  }
+  if (to === 'map' && restRedraw) {
+    mapView = 'stages';
+    renderMap();
+  }
+  // ミニゲームの途中で打ち切ったなら、止まった盤面ではなく 一覧に戻す
+  if (to === 'mini' && miniPlaying()) renderMiniList();
+  show(to);
+}
+
+/**
+ * 関門を解いた。えらんだ分だけ のばして、おしまいになる前の画面へ そのまま戻す。
+ * タイマーと 1日の時間の両方が 0 なら 両方のばす（片方だけだと また すぐ おしまいになる）。
+ */
+function unlockFor(min: number): void {
+  if (sessionOver()) extendSession(min);
+  if (overDailyLimit()) extendToday(min * 60);
+  refreshPlayClock();
+  leaveRest();
+}
+
 $('rest-parent').addEventListener('click', () => {
   sfx.tap();
-  // タイマーで おわったなら、関門のあとは タイマーの画面へ（のばす・止める）。
-  // 1日の時間なら おうちのかたの画面へ
-  if (sessionOver()) openGate(() => openTimerSheet('running'));
-  else openGate(openParent);
+  // のばす時間を えらぶのも 関門の画面の中。解いたら もう1枚 はさまずに戻る
+  openGate(unlockFor, '', { extend: true });
 });
 
 /** オーバーレイが出ているか。ガチャや たまごの結果を見ているあいだは切りかえない */
@@ -464,15 +513,24 @@ function onClockTick(): void {
     if (!wasOver) overAt = performance.now();
     if (midGame()) {
       if (performance.now() - overAt > GRACE_SEC * 1000) {
-        if (current === 'play') runner.stop();
+        // 打ち切ったステージには戻れないので、のばしたあとは その手前（マップ／ホーム）へ
+        if (current === 'play') {
+          runner.stop();
+          restFrom = lastRun && lastRun.stage === 0 ? 'title' : 'map';
+          restRedraw = true;
+        } else {
+          restFrom = 'mini';
+        }
         $('overlay-pause').hidden = true;
         show('rest');
       }
     } else if (current !== 'rest' && LOCKED_WHEN_OVER.has(current) && !overlayOpen()) {
+      restFrom = current;
       show('rest');
     }
   } else if (current === 'rest') {
-    goHome();
+    // 日付が変わった・ほかの画面で のばした。元の画面へ戻す
+    leaveRest();
   }
   if (over !== wasOver) {
     wasOver = over;
@@ -2309,7 +2367,7 @@ initTimer({
       goHome();
       ringClocks();
     } else if (current === 'rest') {
-      goHome();
+      leaveRest();
     }
   },
 });

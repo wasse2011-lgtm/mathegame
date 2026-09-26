@@ -646,6 +646,11 @@
           この画面と同じ かけ算の確認が要ります。上の「1日に あそべる時間」と両方かけたときは、
           先に終わるほうが お子さんの時計に出ます。
         </p>
+        <p class="p-note">
+          「じかんに なったよ」「きょうは ここまで」の画面の「おうちのかたへ」を押すと、
+          のばす時間（5〜10分、1分きざみ）を選んで かけ算を解くだけで、その分のびて
+          お子さんが見ていた画面（マップ・きせかえ など）に そのまま戻ります。
+        </p>
 
         <h3 class="p-h">きょうの ようす</h3>
         <div class="p-cards">
@@ -853,17 +858,19 @@
       <div class="sheet timer-sheet">
         <p class="sheet-head">タイマー</p>
         <p class="tm-lead" id="tm-lead">いまから なんぷん あそぶ？</p>
+        <!-- かかっているときだけ。のばす（＋5〜＋10分、timer.ts が並べる）／止める。
+             かかっているときに いちばん使うのは「のばす」なので、文字盤より上に置く -->
+        <div class="tm-run" id="tm-run" hidden>
+          <p class="tm-run-label">いまの タイマーを のばす</p>
+          <div class="tm-add" id="tm-add"></div>
+          <button class="btn btn-ghost tm-stop" id="tm-stop" type="button">タイマーを 止める</button>
+        </div>
         <div class="tm-dial-wrap">
           <svg class="tm-dial" id="tm-dial" viewBox="0 0 200 200" role="slider" aria-label="なんぷん"></svg>
           <p class="tm-big" id="tm-big" aria-live="polite">15<small>ふん</small></p>
         </div>
         <div class="tm-chips" id="tm-chips"></div>
         <button class="btn btn-primary btn-xl tm-start" id="tm-start" type="button">15ふん スタート</button>
-        <div class="tm-run" id="tm-run" hidden>
-          <button class="btn btn-ghost" id="tm-add5" type="button">＋5分</button>
-          <button class="btn btn-ghost" id="tm-add10" type="button">＋10分</button>
-          <button class="btn btn-ghost tm-stop" id="tm-stop" type="button">止める</button>
-        </div>
         <p class="tm-note">
           保護者の方へ：スタートから この時間がたつと「おしまい」の画面になります。
           のばす・止めるには かけ算の確認が要ります。
@@ -878,7 +885,13 @@
       <div class="sheet">
         <p class="sheet-head">おうちのかた だけ</p>
         <p class="gate-why" id="gate-why" hidden></p>
-        <p class="gate-lead">保護者の方へ：次のかけ算の答えを入力してください。</p>
+        <!-- おしまいの画面から開いたときだけ。のばす時間を えらんでから答えると、
+             もう1枚 はさまずに 元の画面へ戻る -->
+        <div class="gate-extend" id="gate-extend" hidden>
+          <p class="gate-extend-label">のばす じかん</p>
+          <div class="gate-chips" id="gate-chips" role="group" aria-label="のばす じかん"></div>
+        </div>
+        <p class="gate-lead" id="gate-lead">保護者の方へ：次のかけ算の答えを入力してください。</p>
         <p class="gate-q" id="gate-q">17 × 8 = ?</p>
         <input class="gate-input" id="gate-input" type="text" inputmode="numeric" autocomplete="off" aria-label="こたえ" />
         <p class="p-note" id="gate-msg" aria-live="polite"></p>

@@ -11,11 +11,13 @@
  *   子どもには させない
  *
  * かける画面の文字盤は 60分（タイムタイマーと同じ。12時が 0、反時計まわりに 5・10・15…）。
- * ボタン（5〜60分）で えらんでも、文字盤を ゆびで回しても えらべる（5分きざみ）。
+ * ボタン（5〜10分は 1分きざみ、そこから 15・20・30・45・60分）で えらんでも、
+ * 文字盤を ゆびで回しても えらべる（10分までは 1分、そこから上は 5分きざみ）。
+ * かかっているときは ＋5〜＋10分（1分きざみ）で のばせる。
  */
 
 import { sfx } from './audio';
-import { TIMER_CHOICES, dialMinutes, handAngle, minuteWord, wedgePath } from './limit';
+import { EXTEND_CHOICES, TIMER_CHOICES, dialMinutes, handAngle, minuteWord, wedgePath } from './limit';
 import { clearSession, extendSession, save, sessionLeft, startSession } from './save';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -155,7 +157,7 @@ function setPick(min: number, from: 'dial' | 'chip'): void {
   if (min === pick && pickTouched) return;
   pick = min;
   pickTouched = true;
-  // 文字盤を回したときは 5分ごとに カチッと鳴らす（ゆびの下で 何分か 見えにくいので）
+  // 文字盤を回したときは 1きざみごとに カチッと鳴らす（ゆびの下で 何分か 見えにくいので）
   if (from === 'dial') sfx.tick();
   renderSheet();
 }
@@ -285,13 +287,23 @@ export function initTimer(e: TimerEnv): void {
     closeSheet();
     env.onChange('start');
   });
-  for (const [id, min] of [['tm-add5', 5], ['tm-add10', 10]] as const) {
-    $(id).addEventListener('click', () => {
+  // のばす: ＋5〜＋10分を 1分きざみで
+  const adds = $('tm-add');
+  for (const min of EXTEND_CHOICES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tm-chip';
+    b.dataset.min = String(min);
+    // ＋ は小さく（せまい画面で「＋」と「10」が 2行に割れないように）
+    b.innerHTML = `<b><i>+</i>${min}</b><small>${minuteWord(min)}</small>`;
+    b.setAttribute('aria-label', `${min}分 のばす`);
+    b.addEventListener('click', () => {
       extendSession(min);
       sfx.tap();
       closeSheet();
       env.onChange('extend');
     });
+    adds.appendChild(b);
   }
   $('tm-stop').addEventListener('click', () => {
     clearSession();
