@@ -856,6 +856,76 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
   }
 }
 
+console.log('\nK) うらマップ（ハード・ベリーハード）');
+{
+  // むずかしさで変わるのは「助けの量」と「速さ」と「コイン」だけ。数字をいじったときに
+  // ・ふつうより やさしくなる（時間がのびる・ヒントが増える）
+  // ・ベリーハードが 3秒を切る
+  // ・★の保存キーが ふつうのキーと ぶつかる（旧セーブの★が 別のマップに化ける）
+  // が 黙って起きないようにする。
+  const cur = await load('curriculum');
+  const { starKey } = await load('save');
+  const { themeFor } = await load('theme');
+  const bad = [];
+  let shortest = { t: Infinity, where: '' };
+  for (const w of cur.WORLDS) {
+    for (let s = 1; s <= cur.bossStage(w); s++) {
+      const t0 = cur.answerTimeFor(w, s, false, 0);
+      const t1 = cur.answerTimeFor(w, s, false, 1);
+      const t2 = cur.answerTimeFor(w, s, false, 2);
+      if (Math.abs(t1 - t0 * cur.TIERS[1].timeRate) > 1e-9) bad.push(`${w.id}-${s} ハードの時間 ${t1.toFixed(2)}`);
+      if (t2 > t0 + 1e-9) bad.push(`${w.id}-${s} ベリーハードが ふつうより ながい`);
+      if (t2 < Math.min(t0, cur.TIER_TIME_FLOOR) - 1e-9) bad.push(`${w.id}-${s} ベリーハードが 下限を切る ${t2.toFixed(2)}`);
+      // ボスの終盤は さらに 1割はやい。子どもが実際に出会う いちばん短い時間はここ
+      const real = cur.isBoss(w, s) ? t2 / cur.BOSS_RUSH_RATE : t2;
+      if (real < shortest.t) shortest = { t: real, where: `${w.id}-${cur.isBoss(w, s) ? 'ボス終盤' : s}` };
+
+      // ヒントの回数: ふつうは 最後のボスだけ、ハードは どの面も、ベリーハードは 0
+      const q0 = cur.hintQuota(w, s, 0);
+      const q1 = cur.hintQuota(w, s, 1);
+      const q2 = cur.hintQuota(w, s, 2);
+      const final = cur.isFinalBoss(w, s);
+      if (final ? q0 !== cur.FINAL_BOSS_HINTS : q0 !== null) bad.push(`${w.id}-${s} ふつうのヒント ${q0}`);
+      if (!(typeof q1 === 'number' && q1 > 0)) bad.push(`${w.id}-${s} ハードのヒント ${q1}`);
+      if (q2 !== 0) bad.push(`${w.id}-${s} ベリーハードのヒント ${q2}`);
+
+      // ★のキー。ふつうは むかしのまま、3つとも ちがう
+      const keys = cur.TIER_LIST.map((t) => starKey(w.id, s, t));
+      if (keys[0] !== `${w.id}-${s}`) bad.push(`ふつうの★のキーが変わった: ${keys[0]}`);
+      if (new Set(keys).size !== 3) bad.push(`★のキーが ぶつかる: ${keys.join(' ')}`);
+    }
+    // ベリーハードの空は いつも暗い（式・コインの数字が白抜きになる）
+    for (let s = 1; s <= cur.bossStage(w); s++) {
+      if (!themeFor(w.id, s, cur.isBoss(w, s), undefined, 2).dark) bad.push(`${w.id}-${s} ベリーハードの空が明るい`);
+    }
+  }
+  // コイン: むずかしいほど多い。ただし W1 のベリーハードでも W3 の ふつうに届かない
+  // （やさしい せかいの うらを回すより、先の せかいを進めるほうが得、をくずさない）
+  const rates = cur.TIER_LIST.map((t) => cur.TIERS[t].coinRate);
+  if (!(rates[0] === 1 && rates[0] < rates[1] && rates[1] < rates[2])) bad.push(`コインの倍率の並び ${rates.join(' / ')}`);
+  const w1 = cur.worldById(1).coinRate * rates[2];
+  const w3 = cur.worldById(3).coinRate;
+  if (!(w1 < w3)) bad.push(`W1 ベリーハード（${w1}）が W3 ふつう（${w3}）以上`);
+  // 止められるのは ふつうだけ。ペットの力が消えるのは ベリーハードだけ
+  const pause = cur.TIER_LIST.map((t) => cur.TIERS[t].pause).join(',');
+  if (pause !== 'true,false,false') bad.push(`とめられるか: ${pause}`);
+  const pet = cur.TIER_LIST.map((t) => cur.TIERS[t].petHelp).join(',');
+  if (pet !== 'true,true,false') bad.push(`ペットの力: ${pet}`);
+
+  // 子どもが出会う いちばん短い時間（ボスの終盤）でも 3秒は残す
+  if (shortest.t < 3 - 1e-9) bad.push(`ベリーハードが 3秒を切る: ${shortest.t.toFixed(2)}秒 @${shortest.where}`);
+
+  if (bad.length) {
+    failed++;
+    console.log('   ' + bad.slice(0, 8).join('\n   '));
+  } else {
+    console.log(
+      `   すべて正常（ベリーハードの いちばん短い持ち時間 ${shortest.t.toFixed(2)}秒 @${shortest.where}・` +
+        `コイン ×${rates.join(' / ×')}）`,
+    );
+  }
+}
+
 console.log('\nI) 出題の例');
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {

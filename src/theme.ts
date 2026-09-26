@@ -172,7 +172,7 @@ export function timeIdFor(stage: number, boss: boolean): TimeId {
 }
 
 /** #rrggbb を混ぜる。k=0 で a のまま、k=1 で b になる */
-function mix(a: string, b: string, k: number): string {
+export function mix(a: string, b: string, k: number): string {
   if (k <= 0) return a;
   const pa = parseInt(a.slice(1), 16);
   const pb = parseInt(b.slice(1), 16);
@@ -185,25 +185,65 @@ function mix(a: string, b: string, k: number): string {
   return `#${hex(ch(16))}${hex(ch(8))}${hex(ch(0))}`;
 }
 
+/** #rrggbb の明るさ（0〜1）。白抜きの字に切りかえるかを決めるのに使う */
+function luma(c: string): number {
+  const p = parseInt(c.slice(1), 16);
+  return (0.2126 * ((p >> 16) & 255) + 0.7152 * ((p >> 8) & 255) + 0.0722 * (p & 255)) / 255;
+}
+
+/**
+ * ハード・ベリーハード（うらマップ）の空と土地に かける色。
+ *
+ * 時間帯（朝・夜…）は ふつうと同じに残して、上から もう1枚 かける。
+ * 同じステージは同じ時間帯のまま（「あのステージ」として覚えられる）で、
+ * ひと目で「いつもより あぶない場所」に見えるようにする。
+ *
+ * ハードは 夕やけの赤。ベリーハードは 夜の むらさきで、空は必ず暗くなる（dark）。
+ */
+interface TierShade {
+  sky: string;
+  skyK: number;
+  land: string;
+  landK: number;
+  dark: boolean;
+}
+
+const TIER_SHADES: Record<number, TierShade | undefined> = {
+  1: { sky: '#c9503a', skyK: 0.38, land: '#6a2c24', landK: 0.2, dark: false },
+  2: { sky: '#241036', skyK: 0.78, land: '#2a1238', landK: 0.36, dark: true },
+};
+
 /**
  * @param time 時間帯を名ざしで決める。ステージ番号を持たない走り
  *             （にがて たいじ）だけが使う。
+ * @param tier むずかしさ（0 ふつう・1 ハード・2 ベリーハード）。空と土地に もう1枚 色をかける
  */
-export function themeFor(worldId: number, stage: number, boss: boolean, time?: TimeId): Theme {
+export function themeFor(worldId: number, stage: number, boss: boolean, time?: TimeId, tier = 0): Theme {
   const land = LANDS[worldId] ?? LANDS[1];
   const timeId = time ?? timeIdFor(stage, boss);
   const def = TIMES[timeId];
-  const t = (c: string) => mix(c, def.tint, def.tintK);
+  const shade = TIER_SHADES[tier];
+  const t = (c: string) => {
+    const base = mix(c, def.tint, def.tintK);
+    return shade ? mix(base, shade.land, shade.landK) : base;
+  };
+  const sky: [string, string] = shade
+    ? [mix(def.sky[0], shade.sky, shade.skyK), mix(def.sky[1], shade.sky, shade.skyK * 0.8)]
+    : def.sky;
+  // 夕やけの赤を かけると、昼の空でも 白い字のほうが読める明るさになる
+  // （式・コインの数字の白抜きは dark で切りかわる）
+  const dark = def.dark || Boolean(shade && (shade.dark || luma(sky[0]) < 0.62));
 
   return {
     timeId,
     timeLabel: def.label,
-    sky: def.sky,
+    sky,
     sun: def.sun,
     sunColor: def.sunColor,
-    stars: def.stars,
+    // 暗い空には星を出す（ベリーハードの昼でも、空が夜の色になるので）
+    stars: def.stars || Boolean(shade?.dark),
     cloud: def.cloud,
-    dark: def.dark,
+    dark,
     hillFar: t(land.hillFar),
     hillNear: t(land.hillNear),
     grass: t(land.grass),
@@ -248,8 +288,45 @@ const MAP_LOOKS: Record<number, MapLook> = {
   8: { land: ['#eef4ff', '#c9dcff'], dot: 'rgba(255,255,255,.7)', road: '#ffffff', roadEdge: '#b5c9ee', dash: '#9fb6e6', deco: ['☁️', '⭐', '🌈', '🎈', '🕊️', '☁️', '🌟'] },
 };
 
-export function mapLook(worldId: number): MapLook {
-  return MAP_LOOKS[worldId] ?? MAP_LOOKS[1];
+/**
+ * うらマップ（ハード・ベリーハード）の地図の色と飾り。
+ *
+ * 地面は むずかしさごとの色（ハードは 夕やけの岩場、ベリーハードは 夜の火山）に、
+ * もとの せかいの色を 少しだけ残して作る。もとの色に 赤や むらさきを かけるだけだと、
+ * のはらの みどりが 泥の色になって「あぶなそう」より「よごれた」に見えた。
+ * 道の形・飾り・マスの色は もとの せかいのまま なので、どの せかいの うらなのかは読める。
+ * 飾りは もとの せかいのものを半分残し、あいだに 火・岩（ハード）、火山・かみなり・こうもり（ベリーハード）を まぜる。
+ */
+interface MapShade {
+  /** 地面（上 → 下）。ここに もとの せかいの地面を keep だけ まぜる */
+  land: [string, string];
+  keep: number;
+  road: string;
+  roadK: number;
+  deco: string[];
+}
+
+const MAP_SHADES: Record<number, MapShade | undefined> = {
+  1: { land: ['#f6cda6', '#c86e48'], keep: 0.26, road: '#7a2e1c', roadK: 0.2, deco: ['🔥', '🪨', '🌵', '🔥'] },
+  2: { land: ['#5c3474', '#2a1538'], keep: 0.16, road: '#281034', roadK: 0.42, deco: ['🌋', '⚡', '🔥', '🦇'] },
+};
+
+export function mapLook(worldId: number, tier = 0): MapLook {
+  const base = MAP_LOOKS[worldId] ?? MAP_LOOKS[1];
+  const sh = MAP_SHADES[tier];
+  if (!sh) return base;
+  const road = mix(base.road, sh.road, sh.roadK);
+  const edge = mix(base.roadEdge, sh.road, sh.roadK);
+  return {
+    land: [mix(sh.land[0], base.land[0], sh.keep), mix(sh.land[1], base.land[1], sh.keep)],
+    dot: tier >= 2 ? 'rgba(255,190,120,.16)' : 'rgba(255,220,190,.22)',
+    road,
+    roadEdge: edge,
+    // 点線は 道の明るさで 決める（暗い道に濃い点を打つと見えない）
+    dash: luma(road) < 0.55 ? 'rgba(255,255,255,.75)' : edge,
+    // もとの飾りと 交互に並べる
+    deco: base.deco.flatMap((d, i) => [d, sh.deco[i % sh.deco.length]]),
+  };
 }
 
 /** プレイ画面（canvas の外側）に敷く背景。canvas の空とつながるようにする */

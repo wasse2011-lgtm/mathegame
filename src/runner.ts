@@ -26,9 +26,14 @@
  *
  * ヒントは「呼ばれたときだけ」出す:
  *  ・こちらから勝手に出すことはしない。ボタンはいつでも押せる状態で出ている。
- *  ・回数の制限があるのは、いちばん最後のボス（さいごのワールドのボス）だけ。
+ *  ・ふつうのマップで回数の制限があるのは、いちばん最後のボス（さいごのワールドのボス）だけ。
  *    ほかの面では何回でも呼べる。分からないまま時間切れになるより、
  *    絵を見て「なぜそうなるか」を通ったほうが、次につながる。
+ *
+ * うらマップ（cfg.tier）は、助けを へらす方向にだけ ルールを変える（curriculum.ts の TIERS）:
+ *  ・ハード … どの面も ヒントの回数を数える（3回・ボス2回）。止められない（‖ が ← になる）
+ *  ・ベリーハード … ヒントなし・ペットの力なし・持ち時間 3/4。止められない
+ *  出る式は ふつうと同じ。★は別に持ち、コインは多めに払う。
  */
 
 import { sfx, startDrone, stopDrone } from './audio';
@@ -41,12 +46,14 @@ import {
   cherry,
   factKey,
   factsFor,
-  isFinalBoss,
+  hintQuota,
+  tierDef,
   type Fact,
+  type Tier,
   type World,
 } from './curriculum';
 import { drawPet, paintPetIcon } from './petart';
-import { activePet, petPower, voiceOf, type PetDef } from './pets';
+import { NO_POWER, activePet, petPower, voiceOf, type PetDef } from './pets';
 import { QuestionPicker, isWeakFact, recordAnswer, solvedParts, type Question } from './questions';
 import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
@@ -62,16 +69,6 @@ import {
   drawFinish, drawFinishCutIn, drawFinishDim, finishDim, weaponDef,
   type FinishView, type WeaponDef,
 } from './weapons';
-
-/**
- * いちばん最後のボスで押せるヒントの回数。レアなペットはここに上乗せする。
- *
- * 回数を数えるのはこの1面だけ（isFinalBoss）。ほかの面は無制限で、
- * ゲージも「あと○かい」も出さない。
- * ペットを引けていない子が 0 回だと、引きの悪さがそのまま難しさになるので、
- * ここでもペット無しで 2 回は残す（ペットは やさしくする方向にだけ効かせる）。
- */
-const FINAL_BOSS_HINTS = 2;
 
 /** ペットが つかれて画面から去るまでの秒数 */
 const PET_EXIT_SEC = 1.1;
@@ -112,6 +109,11 @@ export interface RunConfig {
   stage: number;
   /** 省略時は 'stage' */
   mode?: RunMode;
+  /**
+   * マップの むずかしさ（0 ふつう・1 ハード・2 ベリーハード）。省略時は 0。
+   * ★は むずかしさごとに別に持つ（save.ts の starKey）
+   */
+  tier?: Tier;
   total: number;
   boss: boolean;
   label: string;
@@ -143,6 +145,7 @@ export interface StageResult {
   worldId: number;
   stage: number;
   mode: RunMode;
+  tier: Tier;
   stars: number;
   correct: number;
   total: number;
@@ -290,6 +293,7 @@ export class Runner {
   private world!: World;
   private theme: Theme = themeFor(1, 1, false);
   private stage = 1;
+  private tier: Tier = 0;
   private boss = false;
   /** にがて たいじ（立ち止まって、ビームで倒す） */
   private hunt = false;
@@ -346,6 +350,8 @@ export class Runner {
   private petExit = 0;
   /** ワールドのコイン倍率だけ（「はじめて」のごほうびに使う） */
   private worldRate = 1;
+  /** 地面の流れる速さの倍率（ベリーハードで はやくなる） */
+  private speedK = 1;
   /** ワールド × 周回。ふだんのコインはこれを掛ける */
   private rate = 1;
   /** ノーミス・フィニッシュに掛ける、問題数ぶんの倍率（rewards.ts の lumpRate） */
@@ -489,7 +495,9 @@ export class Runner {
     this.world = cfg.world;
     this.mode = cfg.mode ?? 'stage';
     this.hunt = this.mode === 'hunt';
-    this.theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, this.hunt ? 'hunt' : undefined);
+    this.tier = this.mode === 'stage' ? (cfg.tier ?? 0) : 0;
+    const tier = tierDef(this.tier);
+    this.theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, this.hunt ? 'hunt' : undefined, this.tier);
     this.stage = cfg.stage;
     this.boss = cfg.boss;
     this.total = cfg.total;
@@ -505,7 +513,8 @@ export class Runner {
     this.gain = { correct: 0, combo: 0, weak: 0, perfect: 0, bonus: 0, finish: 0, first: 0, lost: 0 };
     // 周回のコイン倍率。★3 を取り終えた面をもう一度走るぶんは軽くする
     this.prevStars = cfg.prevStars ?? 0;
-    this.worldRate = cfg.world.coinRate ?? 1;
+    // うらマップは多めに払う（ハード ×1.25・ベリーハード ×1.5）。「はじめて」の上乗せにも効かせる
+    this.worldRate = (cfg.world.coinRate ?? 1) * tier.coinRate;
     this.rate = this.worldRate * (this.prevStars >= 3 ? REPLAY_RATE : 1);
     // ノーミス・フィニッシュは「1回ぶん」の額なので、問題数の少ない走りでは
     // そのぶん薄くする。満額のままだと 1問を何度も走るのが得になる（rewards.ts）。
@@ -543,7 +552,7 @@ export class Runner {
     this.finStop = 0;
     this.cut = -1;
 
-    this.bossDefn = bossDef(cfg.world.id);
+    this.bossDefn = bossDef(cfg.world.id, this.tier, tier.bossPrefix);
     this.bossState = { t: 0, mode: 'idle', hit: 0, squash: 1 };
     this.bossSquashTo = 1;
     this.shot = null;
@@ -556,15 +565,23 @@ export class Runner {
     this.rings = [];
     this.cheer = { text: '', life: 0 };
 
-    // つれているペットの力は、走り出すたびに読みなおす
+    // つれているペットの力は、走り出すたびに読みなおす。
+    // ベリーハードでは効かせない（時間のばしが「はやい」を打ち消してしまう）
     this.pet = activePet();
-    const power = petPower();
+    const power = tier.petHelp ? petPower() : NO_POWER;
     this.slow = power.slow;
     this.rescueLeft = power.rescue;
-    // 回数を数えるのは、いちばん最後のボスだけ。ほかは何回でも呼べる
-    this.hintLimited = cfg.boss && isFinalBoss(cfg.world, cfg.stage);
-    this.hintMax = FINAL_BOSS_HINTS + power.hints;
+    // 回数を数えるのは、ふつうの いちばん最後のボスと、うらマップだけ。ほかは何回でも呼べる。
+    // 0 回（ベリーハード）は、ペットの上乗せも無し
+    const quota = this.mode === 'stage' ? hintQuota(cfg.world, cfg.stage, this.tier) : null;
+    this.hintLimited = quota !== null;
+    // うらマップでは、ペットの上乗せを もとの回数までにする（でんせつの子で 3＋6＝9回 → 6回）。
+    // 10問で 9回だと、ハードの「数える」が 無いのと同じになる
+    const bonus = quota && this.tier > 0 ? Math.min(power.hints, quota) : power.hints;
+    this.hintMax = quota ? quota + bonus : 0;
     this.hintsLeft = this.hintMax;
+    // 走る速さの見た目。持ち時間を縮めたぶん、地面も速く流す
+    this.speedK = 1 / tier.timeRate;
     this.hintPaused = false;
     this.petTired = false;
     this.petExit = 0;
@@ -585,6 +602,12 @@ export class Runner {
     if (cfg.boss) {
       this.showBanner(`${this.bossDefn.name} が あらわれた！`, 2.2);
       sfx.roar();
+    } else if (this.tier > 0) {
+      // うらマップは、走り出しに ルールを ひとこと言う（ボスは名まえのほうが大事なので出さない）
+      this.showBanner(
+        this.tier === 1 ? `${tier.icon} ハード！ ヒントは ${this.hintMax}かい` : `${tier.icon} ベリーハード！ はやいぞ`,
+        1.8,
+      );
     }
     this.nextQuestion();
 
@@ -671,7 +694,7 @@ export class Runner {
     // 左に寄せすぎるとコンボのトレイルが画面外に出るので 2割ほど内側に置く。
     // にがて たいじ は走らず向かい合うので、ペットと並んでも重ならないところまで下げる
     this.playerX = this.hunt ? Math.max(70, this.W * 0.28) : Math.max(52, this.W * 0.2);
-    this.runSpeed = 130 * this.s;
+    this.runSpeed = 130 * this.s * this.speedK;
 
     // ジャンプは「頂点で障害物の上を通る」高さに合わせて逆算する
     const apex = 74 * this.s;
@@ -951,32 +974,38 @@ export class Runner {
    *   ready … 押せる（ふだんはこれ。何回でも呼べる）
    *   sleep … いまは押せない（答えたあと・止めている最中）
    *   none  … この式は絵にできない
-   *   gone  … 最後のボスで、ヒントを出しきってペットが やすみに行った
+   *   gone  … 回数を数える面で、ヒントを出しきってペットが やすみに行った
+   *   off   … はじめから ヒントの無い面（ベリーハード）
    * free（回数制限なし）のときは、体力ゲージも「あと○かい」も出さない。
    */
   private renderDock(): void {
-    const gone = this.hintLimited && this.petGone();
+    // ベリーハード。ボタンは同じ場所に残して（消すと canvas の高さが変わる）、押せない顔にする
+    const off = this.hintLimited && this.hintMax <= 0;
+    const gone = this.hintLimited && !off && this.petGone();
     // 絵にできない式（けたが大きすぎる）。ボタンはあるが、出せるものが無い
-    const none = Boolean(this.q) && !frameArt(this.q!.fact, this.q!.blank);
+    const none = !off && Boolean(this.q) && !frameArt(this.q!.fact, this.q!.blank);
     const ready = this.hintUsable();
 
     this.elHintBtn.disabled = !ready;
     this.elDock.classList.toggle('free', !this.hintLimited);
+    this.elDock.classList.toggle('off', off);
     this.elDock.classList.toggle('none', none);
     this.elDock.classList.toggle('gone', gone && !none);
     this.elDock.classList.toggle('ready', ready);
-    this.elDock.classList.toggle('sleep', !ready && !none && !gone);
+    this.elDock.classList.toggle('sleep', !ready && !none && !gone && !off);
 
-    this.elPetState.textContent = none
-      ? 'この しきは じぶんで'
-      : gone
-        ? this.pet
-          ? `${this.pet.name}は やすみちゅう`
-          : 'ヒントは おしまい'
-        : 'ヒント';
+    this.elPetState.textContent = off
+      ? 'ヒント なし'
+      : none
+        ? 'この しきは じぶんで'
+        : gone
+          ? this.pet
+            ? `${this.pet.name}は やすみちゅう`
+            : 'ヒントは おしまい'
+          : 'ヒント';
 
-    // 数字とゲージは、回数を数える面（最後のボス）だけのもの
-    this.elHintLeft.textContent = !this.hintLimited || gone ? '' : String(this.hintsLeft);
+    // 数字とゲージは、回数を数える面（最後のボス・ハード）だけのもの
+    this.elHintLeft.textContent = !this.hintLimited || gone || off ? '' : String(this.hintsLeft);
     const k = this.hintMax > 0 ? this.hintsLeft / this.hintMax : 0;
     this.elPetHp.style.width = `${Math.max(0, k) * 100}%`;
     this.elPetHp.classList.toggle('low', k > 0 && k <= 0.34);
@@ -1080,7 +1109,7 @@ export class Runner {
       this.beamHit = false;
       return;
     }
-    const time = answerTimeFor(this.world, this.stage, save.settings.slow) * (1 + this.slow) * k;
+    const time = answerTimeFor(this.world, this.stage, save.settings.slow, this.tier) * (1 + this.slow) * k;
     if (this.boss) {
       this.startBossTurn(time);
       return;
@@ -1895,13 +1924,14 @@ export class Runner {
     const coins = gainTotal(this.gain);
     const p = profile();
     p.coins += coins;
-    if (!this.failed && this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars);
+    if (!this.failed && this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars, this.tier);
     persist();
 
     this.onDone?.({
       worldId: this.world.id,
       stage: this.stage,
       mode: this.mode,
+      tier: this.tier,
       stars,
       correct: this.correct,
       total: this.total,

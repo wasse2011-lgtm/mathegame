@@ -4,6 +4,7 @@ import { applySoundSetting, installAudioWake, sfx, unlockAudio } from './audio';
 import {
   DAILY_WORLD,
   HUNT_WORLD,
+  TIER_LIST,
   WORLDS,
   allFacts,
   answerTimeFor,
@@ -15,8 +16,10 @@ import {
   questionCount,
   stageCount,
   stepOf,
+  tierDef,
   worldById,
   type Fact,
+  type Tier,
   type World,
 } from './curriculum';
 import { GACHA_COST, lockedItems } from './items';
@@ -62,7 +65,7 @@ import {
   usedSlots,
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
-import { mapLook, skyCss, themeFor, timeIdFor, type TimeId } from './theme';
+import { mapLook, skyCss, themeFor, timeIdFor, type MapLook, type TimeId } from './theme';
 import { nextTrivia, type Trivia } from './trivia';
 import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
@@ -89,6 +92,11 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 const runner = new Runner();
 let current: ScreenName = 'title';
 let mapWorld = 1;
+/**
+ * みちの地図で いま見ている むずかしさ（0 ふつう・1 ハード・2 ベリーハード）。
+ * 3つは 1枚の地図に 左から右へ 並んでいて（renderStagePath）、よこに送ると ここが変わる
+ */
+let mapTier: Tier = 0;
 /** マップは「せかい一覧」と「その せかいの みち」の2段 */
 let mapView: 'worlds' | 'stages' = 'worlds';
 let lastRun: RunConfig | null = null;
@@ -546,11 +554,11 @@ function onClockTick(): void {
 
 // ------------------------------------------------------------------ 進行状況
 
-/** ワールドの通常ステージで集めた★ */
-function normalStars(w: World): number {
+/** ワールドの通常ステージで集めた★（むずかしさごと） */
+function normalStars(w: World, tier: Tier = 0): number {
   let n = 0;
   // 「ボスの手前まで」。面数を直接書くと、ステップ数を変えたときにずれる
-  for (let s = 1; s < bossStage(w); s++) n += stageStars(w.id, s);
+  for (let s = 1; s < bossStage(w); s++) n += stageStars(w.id, s, tier);
   return n;
 }
 
@@ -559,11 +567,13 @@ function normalStars(w: World): number {
  * 通常ステージは前を1つでもクリアすれば開くが、ボスだけは★の合計で見る。
  * ★の下限は1なので、当てずっぽうで通過し続けた子はここで足が止まり、
  * 先のワールドに進めない（ゲームオーバーにはしない）。
+ * うらマップ（ハード・ベリーハード）も同じ決まりで、そのマップが開いていることが先。
  */
-function stageUnlocked(w: World, stage: number): boolean {
-  if (isBoss(w, stage)) return normalStars(w) >= bossRequirement(w);
+function stageUnlocked(w: World, stage: number, tier: Tier = 0): boolean {
+  if (tier > 0 && !tierUnlocked(w, tier)) return false;
+  if (isBoss(w, stage)) return normalStars(w, tier) >= bossRequirement(w);
   if (stage === 1) return true;
-  return stageStars(w.id, stage - 1) > 0;
+  return stageStars(w.id, stage - 1, tier) > 0;
 }
 
 function worldUnlocked(id: number): boolean {
@@ -572,17 +582,32 @@ function worldUnlocked(id: number): boolean {
   return stageStars(prev.id, bossStage(prev)) > 0;
 }
 
-function nextStageOf(worldId: number, stage: number): { world: World; stage: number } | null {
-  if (stage < 1) return null; // デイリーには「つぎ」がない
-  const w = worldById(worldId);
-  if (stage < bossStage(w)) return { world: w, stage: stage + 1 };
-  const nw = WORLDS.find((x) => x.id === worldId + 1);
-  return nw ? { world: nw, stage: 1 } : null;
+/**
+ * その せかいの うらマップが開いているか。
+ * ハードは ふつうの ボスを、ベリーハードは ハードの ボスを たおすと開く。
+ * 地図には はじめから出ている（開くまでは 🔒 の マスが並ぶ）。
+ */
+function tierUnlocked(w: World, tier: Tier): boolean {
+  if (tier === 0) return worldUnlocked(w.id);
+  return stageStars(w.id, bossStage(w), (tier - 1) as Tier) > 0;
 }
 
-function starsInWorld(w: World): number {
+/**
+ * 「つづける」の行き先。うらマップは そのマップの中だけで進み、ボスのあとは マップへ戻る
+ * （つぎの せかいの ハードは、つぎの せかいの ふつうを たおすまで開かない）。
+ */
+function nextStageOf(worldId: number, stage: number, tier: Tier = 0): { world: World; stage: number; tier: Tier } | null {
+  if (stage < 1) return null; // デイリーには「つぎ」がない
+  const w = worldById(worldId);
+  if (stage < bossStage(w)) return { world: w, stage: stage + 1, tier };
+  if (tier > 0) return null;
+  const nw = WORLDS.find((x) => x.id === worldId + 1);
+  return nw ? { world: nw, stage: 1, tier: 0 } : null;
+}
+
+function starsInWorld(w: World, tier: Tier = 0): number {
   let n = 0;
-  for (let s = 1; s <= bossStage(w); s++) n += stageStars(w.id, s);
+  for (let s = 1; s <= bossStage(w); s++) n += stageStars(w.id, s, tier);
   return n;
 }
 
@@ -1172,9 +1197,9 @@ const TIME_NAME: Record<TimeId, string> = {
 };
 
 /** そのワールドで、つぎに遊ぶステージ（ぜんぶクリア済みなら 0） */
-function nextStageIn(w: World): number {
+function nextStageIn(w: World, tier: Tier = 0): number {
   for (let s = 1; s <= bossStage(w); s++) {
-    if (stageUnlocked(w, s) && stageStars(w.id, s) === 0) return s;
+    if (stageUnlocked(w, s, tier) && stageStars(w.id, s, tier) === 0) return s;
   }
   return 0;
 }
@@ -1195,15 +1220,27 @@ function renderMap(): void {
   // となりの せかいへ うつっている途中に ← や せかいを押されたら、うつるのを先に終わらせる
   // （写しが残ったまま 別の道を描くと、写しを外したときに位置がずれる）
   endSlide?.();
+  endPan?.();
   $('map-coins').textContent = String(profile().coins);
   if (mapView === 'worlds') renderWorldList();
   else renderStagePath();
+}
+
+/** その せかいの みちを開く。tier は はじめに見せる むずかしさの列 */
+function openWorldMap(id: number, tier: Tier): void {
+  mapWorld = id;
+  mapTier = tier;
+  mapView = 'stages';
+  renderMap();
 }
 
 /**
  * せかいの一覧。
  * 「ぜんぶで いくつ あって、いま どこまで来たか」をこの画面だけで分かるようにする。
  * 鍵のかかった先も名前と面数まで見せる（次に何が待っているか分かるほうが進みたくなる）。
+ *
+ * うらマップ（ハード・ベリーハード）は、せかいの札の 右に 小さな札を2つ つなげて出す。
+ * みちの地図で 右へ並んでいるのと同じ並び。まだ開いていなくても 🔒 で はじめから出しておく。
  */
 function renderWorldList(): void {
   $('world-view').hidden = false;
@@ -1229,17 +1266,23 @@ function renderWorldList(): void {
     const full = bossStage(w) * 3;
     const done = stageStars(w.id, bossStage(w)) > 0;
 
+    const row = document.createElement('div');
+    row.className = 'world-row';
+    row.style.setProperty('--wc', w.color);
+
     const b = document.createElement('button');
     b.type = 'button';
     b.className = `world-card${open ? '' : ' locked'}${done ? ' done' : ''}${open && w.id === here ? ' here' : ''}`;
-    b.style.setProperty('--wc', w.color);
     b.disabled = !open;
+    // ★の数は 右の列（広い画面）と バーの横（せまい画面）の2か所に書いておき、CSS で どちらかを出す。
+    // せまい画面では 右に うらマップの札が2つ並ぶので、右の列ごと たたむ
     b.innerHTML =
       `<span class="wc-badge"><span class="wc-emoji">${open ? w.emoji : '🔒'}</span><b>${w.id}</b></span>` +
       `<span class="wc-main">` +
       `<b class="wc-name">${open ? w.name : '？？？'}</b>` +
       `<span class="wc-desc">${open ? w.desc : 'まえの ボスを たおすと ひらく'}</span>` +
-      `<span class="bar"><i style="width:${open ? (stars / full) * 100 : 0}%"></i></span>` +
+      `<span class="wc-barline"><span class="bar"><i style="width:${open ? (stars / full) * 100 : 0}%"></i></span>` +
+      `<span class="wc-mini">★${open ? stars : 0}</span></span>` +
       `</span>` +
       `<span class="wc-right">` +
       `<span class="wc-stars">★ ${open ? stars : 0}<small>/${full}</small></span>` +
@@ -1249,16 +1292,47 @@ function renderWorldList(): void {
 
     b.addEventListener('click', () => {
       sfx.tap();
-      mapWorld = w.id;
-      mapView = 'stages';
-      renderMap();
+      openWorldMap(w.id, 0);
     });
-    list.appendChild(b);
+    row.append(b, tierChip(w, 1, open), tierChip(w, 2, open));
+    list.appendChild(row);
   }
 
   $('map-hint').textContent = timeUp()
     ? 'きょうの ぼうけんは ここまで。また あした！'
     : `せかいを タップすると、なかの みちが みえるよ`;
+}
+
+/**
+ * せかいの札の右に つなげる、うらマップ（ハード・ベリーハード）の札。
+ * せかいそのものが まだなら押せない。せかいが開いていれば、鍵がかかっていても
+ * 押して 地図を見られる（何が待っているかが見えるほうが 進みたくなる）。
+ */
+function tierChip(w: World, tier: Tier, worldOpen: boolean): HTMLElement {
+  const def = tierDef(tier);
+  const open = tierUnlocked(w, tier);
+  const got = starsInWorld(w, tier);
+  const done = stageStars(w.id, bossStage(w), tier) > 0;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = `tier-chip t${tier}${open ? '' : ' locked'}${done ? ' done' : ''}`;
+  b.style.setProperty('--tc', def.color);
+  b.disabled = !worldOpen;
+  b.innerHTML =
+    `<span class="tc-icon" aria-hidden="true">${open ? def.icon : '🔒'}</span>` +
+    // 「ベリーハード」は はばに入らないので 2行にする
+    `<span class="tc-name">${tier === 2 ? 'ベリー<br>ハード' : def.name}</span>` +
+    (open ? `<span class="tc-stars">★${got}</span>` : '') +
+    (done ? '<span class="tc-crown" aria-hidden="true">👑</span>' : '');
+  b.setAttribute(
+    'aria-label',
+    `${w.id}. ${worldOpen ? w.name : ''} ${def.name}${open ? ` ほし ${got}` : '（まだ ひらいていない）'}`,
+  );
+  b.addEventListener('click', () => {
+    sfx.tap();
+    openWorldMap(w.id, tier);
+  });
+  return b;
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -1272,14 +1346,15 @@ function spread(n: number): number {
 /**
  * 道のわきの飾り（木・花・ビル・ヤシ…）。マスとは反対の側に置く。
  * 同じ側に置くとマスや「いま ここ」の札とかさなって、押すところが読めなくなる。
+ *
+ * @param off うらマップの列で 置き場所を ずらす（同じ並びが3列 続くと 作りものに見える）
  */
-function decoFor(w: World, i: number, k: number, far = false): HTMLElement {
-  const look = mapLook(w.id);
+function decoFor(look: MapLook, seed: number, i: number, k: number, far = false, off = 0): HTMLElement {
   const d = document.createElement('span');
   d.className = `path-deco${far ? ' far' : ''}`;
   d.setAttribute('aria-hidden', 'true');
-  d.textContent = look.deco[(i + (far ? 3 : 0)) % look.deco.length];
-  const r = spread(w.id * 31 + i + (far ? 97 : 0));
+  d.textContent = look.deco[(i + (far ? 3 : 0) + off) % look.deco.length];
+  const r = spread(seed * 31 + i + (far ? 97 : 0) + off * 50);
   // マスが右にふれていれば左、左なら右。まんなかのときは交互
   const away = k > 0.15 ? 'left' : k < -0.15 ? 'right' : i % 2 ? 'left' : 'right';
   if (far) {
@@ -1290,11 +1365,30 @@ function decoFor(w: World, i: number, k: number, far = false): HTMLElement {
   } else {
     d.style.setProperty(away, `${4 + r * 12}%`);
   }
-  d.style.setProperty('--dy', `${Math.round((spread(i + (far ? 23 : 5)) - 0.5) * 36)}px`);
-  d.style.setProperty('--ds', (0.85 + spread(i + 11) * 0.5).toFixed(2));
+  d.style.setProperty('--dy', `${Math.round((spread(i + (far ? 23 : 5) + off * 50) - 0.5) * 36)}px`);
+  d.style.setProperty('--ds', (0.85 + spread(i + 11 + off * 50) * 0.5).toFixed(2));
   d.style.setProperty('--dr', `${Math.round((r - 0.5) * 16)}deg`);
   return d;
 }
+
+/** 道の とまり（マス・札）。drawRoad が この順に つなぐ */
+interface RoadStop {
+  el: HTMLElement;
+  /** どの列の道か（道の色を 列の地面に合わせる） */
+  tier: Tier;
+  /** ここまでの道を「行ったことのある道」にするか（そのマスが開いている） */
+  walked: boolean;
+}
+
+/**
+ * 道の筋。renderStagePath が並べる。
+ *   1本目 … ふつうの一本道。スタート → 1 → … → ボス → つぎの せかい（下へ）
+ *   2本目 … ふつうの ボスから 右へ分かれて、ハードを 下から上へ のぼり、
+ *            ハードの ボスから また右へ、ベリーハードを 上から下へ。一筆書きで つながる
+ */
+let roadChains: RoadStop[][] = [];
+/** 列ごとの 道の色（その列の地面に合わせてある） */
+let roadLooks: MapLook[] = [];
 
 /**
  * 道を描く。マスを並べおわってから、マスの中心どうしを なめらかな曲線でつなぐ。
@@ -1311,54 +1405,130 @@ function drawRoad(): void {
   const svg = path.querySelector<SVGSVGElement>('svg.road');
   if (!svg || screens.map.hidden || $('stage-view').hidden) return;
   const box = path.getBoundingClientRect();
-  if (box.width < 2) return;
-  const pts = Array.from(path.querySelectorAll<HTMLElement>('[data-road]')).map((el) => {
-    const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top, walked: el.dataset.road === '1', lead: false };
-  });
-  if (!pts.length) return;
-  // となりの せかいへ続く道。上のはしから スタートへ、「つぎの せかい」から下のはしへ、
-  // まっすぐ伸ばす。せかいを たてに つないだとき、つなぎ目で道が1本につながる（slideToWorld）
-  if (path.dataset.leadIn) pts.unshift({ x: pts[0].x, y: 0, walked: true, lead: true });
-  if (path.dataset.leadOut) {
-    const last = pts[pts.length - 1];
-    pts.push({ x: last.x, y: box.height, walked: path.dataset.leadOut === '1', lead: true });
-  }
-  let all = '';
+  if (box.width < 2 || !roadChains.length) return;
+  interface Pt { x: number; y: number; walked: boolean; tier: Tier; lead: boolean }
+  const at = (s: RoadStop): Pt => {
+    const r = s.el.getBoundingClientRect();
+    return { x: r.left + r.width / 2 - box.left, y: r.top + r.height / 2 - box.top, walked: s.walked, tier: s.tier, lead: false };
+  };
+  const bed = ['', '', ''];
+  const rest = ['', '', ''];
   let lead = '';
   let walked = '';
-  let rest = '';
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1];
-    const b = pts[i];
-    const my = (a.y + b.y) / 2;
-    const seg = `M${a.x.toFixed(1)} ${a.y.toFixed(1)}C${a.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
-    if (a.lead || b.lead) lead += seg;
-    else all += seg;
-    if (b.walked) walked += seg;
-    else rest += seg;
-  }
+  roadChains.forEach((chain, ci) => {
+    const pts = chain.map(at);
+    if (!pts.length) return;
+    // となりの せかいへ続く道（ふつうの一本道だけ）。上のはしから スタートへ、「つぎの せかい」から
+    // 下のはしへ、まっすぐ伸ばす。せかいを たてに つないだとき、つなぎ目で道が1本につながる（slideToWorld）
+    if (ci === 0) {
+      if (path.dataset.leadIn) pts.unshift({ x: pts[0].x, y: 0, walked: true, tier: 0, lead: true });
+      if (path.dataset.leadOut) {
+        const last = pts[pts.length - 1];
+        pts.push({ x: last.x, y: box.height, walked: path.dataset.leadOut === '1', tier: 0, lead: true });
+      }
+    }
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1];
+      const b = pts[i];
+      const my = (a.y + b.y) / 2;
+      // 列から列へ わたる区間（ボスの横）は 同じ高さなので、ここは まっすぐの よこ線になる
+      const seg = `M${a.x.toFixed(1)} ${a.y.toFixed(1)}C${a.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${my.toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+      if (a.lead || b.lead) lead += seg;
+      else bed[b.tier] += seg;
+      if (b.walked) walked += seg;
+      else rest[b.tier] += seg;
+    }
+  });
+  // 道の色は 列ごと。変数は その path じしんに書く（ふちは ぜんぶの列を先に、道は そのあとに重ねる。
+  // 列ごとに まとめて重ねると、列のつなぎ目で となりの列の ふちが 道の上に乗る）
+  const color = (t: number) => {
+    const l = roadLooks[t] ?? roadLooks[0];
+    return l ? ` style="--road:${l.road};--road-edge:${l.roadEdge};--road-dash:${l.dash}"` : '';
+  };
+  let html = '';
+  bed.forEach((d, t) => { if (d) html += `<path class="road-edge"${color(t)} d="${d}"/>`; });
+  if (lead) html += `<path class="road-edge lead"${color(0)} d="${lead}"/>`;
+  bed.forEach((d, t) => { if (d) html += `<path class="road-bed"${color(t)} d="${d}"/>`; });
+  if (lead) html += `<path class="road-bed lead"${color(0)} d="${lead}"/>`;
+  html += `<path class="road-walked" d="${walked}"/>`;
+  rest.forEach((d, t) => { if (d) html += `<path class="road-rest"${color(t)} d="${d}"/>`; });
+
   svg.setAttribute('viewBox', `0 0 ${box.width.toFixed(0)} ${box.height.toFixed(0)}`);
   svg.setAttribute('width', box.width.toFixed(0));
   svg.setAttribute('height', box.height.toFixed(0));
   // はしへ伸ばす区間（lead）だけ、線のはしを丸めない。丸いと つなぎ目で となりの せかいの道に
   // 半円がはみ出して、道が1本に見えない
-  svg.innerHTML =
-    `<path class="road-edge" d="${all}"/><path class="road-edge lead" d="${lead}"/>` +
-    `<path class="road-bed" d="${all}"/><path class="road-bed lead" d="${lead}"/>` +
-    `<path class="road-walked" d="${walked}"/>` +
-    `<path class="road-rest" d="${rest}"/>`;
+  svg.innerHTML = html;
 }
 
 // 向きを変えた・はばが変わったときに、道をマスに合わせなおす
 if (typeof ResizeObserver === 'function') new ResizeObserver(() => drawRoad()).observe($('stage-path'));
 
+// ---------------------------------------------------------------- みちの地図（3列）
+
+/** 1列（1つの むずかしさの地図）の はば（px）。fitBoard が決める */
+let colW = 0;
+
+function pathScroller(): HTMLElement {
+  return $('stage-path').parentElement as HTMLElement;
+}
+
+/**
+ * 1列の はばを決める。画面より少し せまくして、となりの列の はしを のぞかせる。
+ * のぞいていると、よこに送らなくても「右に つづいている」が見える。
+ * 広い画面（横持ち・タブレット）では 560px までにして、となりの列を大きく見せる。
+ *
+ * @returns はばが決められたか（地図が まだ画面に出ていないと 0 になる）
+ */
+function fitBoard(): boolean {
+  const W = pathScroller().clientWidth;
+  if (W < 2) return false;
+  const next = Math.round(Math.min(W * 0.86, 560));
+  if (next !== colW) {
+    colW = next;
+    $('stage-path').style.setProperty('--colw', `${colW}px`);
+  }
+  return true;
+}
+
+/** その列を見せるときの scrollLeft。列が まんなかに来る（はしの列は はしに寄せる） */
+function tierLeft(tier: Tier): number {
+  const sc = pathScroller();
+  const max = Math.max(0, sc.scrollWidth - sc.clientWidth);
+  return Math.round(Math.min(max, Math.max(0, tier * colW + colW / 2 - sc.clientWidth / 2)));
+}
+
+/** いま まんなかに見えている列 */
+function visibleTier(): Tier {
+  const sc = pathScroller();
+  if (colW < 2) return mapTier;
+  const c = sc.scrollLeft + sc.clientWidth / 2;
+  return Math.min(2, Math.max(0, Math.floor(c / colW))) as Tier;
+}
+
+/**
+ * マスの行（1始まり）。stage は 0 = スタート、1〜ボス = マス、ボス+1 = ゴール。
+ *
+ * ハードの列だけ 下から上へ進む。ふつうの ボス（下のはし）の よこに ハードの スタートを置き、
+ * ハードの ボス（上のはし）の よこに ベリーハードの スタートを置くと、3つの地図が
+ * 一筆書きの 1本道になる（ふつう ↓ → ハード ↑ → ベリーハード ↓）。
+ * 3列とも 上から下へにすると、ボスの下から となりの列の いちばん上まで 道を戻すことになる。
+ */
+function rowOf(w: World, tier: Tier, stage: number): number {
+  return tier === 1 ? bossStage(w) + 1 - stage : stage + 1;
+}
+
 /**
  * ステージの道。ぐねぐねした一本道に、ステージが順番に並ぶ。
  * 前のマス目グリッドだと「あと何面あるのか」「いまどこか」が読み取れなかった。
  *
+ * 1枚の地図に ふつう・ハード・ベリーハードの3列を 左から右へ並べる（CSS grid）。
+ * 行の高さは3列で そろうので、ボスの よこの道が まっすぐ となりの列の スタートに入る。
+ * 列は画面より少し せまく、となりの列が はしに のぞく。よこに送るか、上の札で うつる。
+ *
  * @param focus 開いたときに どこを見せるか。
- *              'now' は「いま ここ」（無ければ いちばん上）、'end' は いちばん下、
+ *              'now' は いまの列（mapTier）の「いま ここ」（無ければ その列の スタート）、
+ *              'end' は ふつうの列の いちばん下、
  *              'keep' は動かさない（となりの せかいへ つなぐときは slideToWorld が動かす）
  */
 function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
@@ -1368,6 +1538,7 @@ function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
   screens.map.style.setProperty('--wc', w.color);
   const look = mapLook(w.id);
   const view = $('stage-view');
+  // 地図の下の余白（道が箱より短いとき）は、ふつうの地面の色でうめる
   view.style.setProperty('--land-1', look.land[0]);
   view.style.setProperty('--land-2', look.land[1]);
   view.style.setProperty('--land-dot', look.dot);
@@ -1375,17 +1546,10 @@ function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
   view.style.setProperty('--road-edge', look.roadEdge);
   view.style.setProperty('--road-dash', look.dash);
 
-  const next = nextStageIn(w);
-
-  $('map-world').textContent = `${w.emoji} ${w.id}. ${w.name}`;
-  // 「つぎに何を練習するか」を名前で見せる。ステージ番号だけだと中身が読めない
-  const nextStep = stepOf(w, next);
-  $('map-desc').textContent = nextStep
-    ? `${w.desc}　・　つぎは「${nextStep.name}」`
-    : `${w.desc}　・　${stageCount(w)}めん＋ボス`;
-
   const path = $('stage-path');
   path.replaceChildren();
+  path.style.setProperty('--rows', String(bossStage(w) + 2));
+  fitBoard();
 
   // 道は いちばん うしろ。マスと飾りを置いてから drawRoad で線を引く
   const road = document.createElementNS(SVG_NS, 'svg');
@@ -1393,156 +1557,366 @@ function renderStagePath(focus: 'now' | 'end' | 'keep' = 'now'): void {
   road.setAttribute('aria-hidden', 'true');
   path.appendChild(road);
 
-  // スタート。道の はじまりを はっきりさせる（いきなり 1 のマスから始まると、
-  // どちらが はじめで どちらが おわりか 読めない）。まえの せかいが あれば、そこへ戻れる
+  roadLooks = TIER_LIST.map((t) => mapLook(w.id, t));
+  const main: RoadStop[] = [];
+  const side: RoadStop[] = [];
+  const place = (el: HTMLElement, tier: Tier, row: number) => {
+    el.style.gridColumn = String(tier + 1);
+    el.style.gridRow = String(row);
+  };
+
   const pw = WORLDS.find((x) => x.id === w.id - 1);
-  const start = document.createElement('div');
-  start.className = 'path-start';
-  start.dataset.road = '1';
-  start.innerHTML = '<span class="ps-flag" aria-hidden="true">🚩</span><b>スタート</b>';
-  if (pw) {
-    const back = document.createElement('button');
-    back.type = 'button';
-    back.className = 'world-hop prev';
-    back.setAttribute('aria-label', `まえの せかい ${pw.id}. ${pw.name}`);
-    back.innerHTML = `<span aria-hidden="true">‹</span>${pw.emoji} ${pw.id}`;
-    back.addEventListener('click', () => {
-      sfx.tap();
-      slideToWorld(pw.id, -1);
-    });
-    start.appendChild(back);
-  }
-  path.appendChild(start);
+  for (const tier of TIER_LIST) {
+    const lookT = roadLooks[tier];
+    const def = tierDef(tier);
+    const tierOpen = tierUnlocked(w, tier);
+    const next = nextStageIn(w, tier);
+    const chain = tier === 0 ? main : side;
 
-  for (let stage = 1; stage <= bossStage(w); stage++) {
-    const boss = isBoss(w, stage);
-    const open = stageUnlocked(w, stage);
-    const got = stageStars(w.id, stage);
+    // 地面。列ごとに色を変え、となりの列とは はしを ぼかして つなぐ（CSS の .path-land）
+    const land = document.createElement('div');
+    land.className = `path-land t${tier}${tierOpen ? '' : ' locked'}`;
+    land.style.gridColumn = String(tier + 1);
+    land.style.setProperty('--land-1', lookT.land[0]);
+    land.style.setProperty('--land-2', lookT.land[1]);
+    land.style.setProperty('--land-dot', lookT.dot);
+    path.appendChild(land);
 
-    const row = document.createElement('div');
-    row.className = `node-row${boss ? ' boss-row' : ''}`;
-    // 一本道をぐねぐねさせる。sin にしておくと、面数が変わっても形が破綻しない
-    const k = Math.sin(stage * 0.9);
-    row.style.setProperty('--k', k.toFixed(3));
-
-    const b = document.createElement('button');
-    b.type = 'button';
-    const here = stage === next && open;
-    const step = stepOf(w, stage);
-    // いま挑むところはオレンジで光らせる。押す場所で迷わせない
-    b.className =
-      `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
-      `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
-    b.disabled = !open || timeUp();
-    // 道の線は、開いているマスまでを「行ったことのある道」にする
-    b.dataset.road = open ? '1' : '0';
-    // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる。
-    // 名前はマスの中に入れる。外にぶら下げると、隣のマスの「いま ここ」札とぶつかる
-    b.innerHTML =
-      `<span class="when" aria-hidden="true">${TIME_ICON[timeIdFor(stage, boss)]}</span>` +
-      `<span class="sn-label">${!open ? '🔒' : boss ? '👑' : stage}</span>` +
-      (open && step ? `<span class="sn-name">${step.name}</span>` : '') +
-      `<span class="st">${starRow(got)}</span>`;
-    b.setAttribute(
-      'aria-label',
-      `${boss ? 'ボス' : `ステージ ${stage} ${step?.name ?? ''}`}${here ? '（いま ここ）' : ''}` +
-        ` ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
-    );
-
-    b.addEventListener('click', () => {
-      unlockAudio();
-      sfx.tap();
-      startStage(w, stage);
-    });
-    // ボスのマスには 飾りを置かない（かわりに 奥に あやしい光を出す: .boss-row）
-    if (!boss) row.append(decoFor(w, stage, k), decoFor(w, stage, k, true));
-    row.appendChild(b);
-
-    // ふだ（「ボス」「いま ここ」）はマスの中に絶対配置する。
-    // 行に並べると、その行だけマスが道からずれる
-    if (boss) {
-      const tag = document.createElement('span');
-      tag.className = 'node-tag boss-tag';
-      const need = bossRequirement(w) - normalStars(w);
-      tag.textContent = open ? 'ボス' : `★あと ${need}`;
-      b.appendChild(tag);
-    }
-    if (here) {
-      const tag = document.createElement('span');
-      tag.className = 'node-tag now';
-      tag.textContent = 'いま ここ';
-      b.appendChild(tag);
-    }
-    path.appendChild(row);
-  }
-
-  // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる。
-  // もう開いていれば ボタンにして、押すと 道をたどって たてに つぎの せかいの みちへ うつる
-  // （いちど「せかい ぜんぶ」へ戻ってから選びなおす、を しなくていい）
-  const nw = WORLDS.find((x) => x.id === w.id + 1);
-  const bossDone = stageStars(w.id, bossStage(w)) > 0;
-  let goal: HTMLElement;
-  if (nw && worldUnlocked(nw.id)) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'path-goal go';
-    btn.style.setProperty('--wc', nw.color);
-    btn.innerHTML = `<span class="pg-emoji" aria-hidden="true">${nw.emoji}</span>` +
-      `<span class="pg-text"><b>つぎの せかいへ</b><span>${nw.id}. ${nw.name}</span></span>` +
-      '<span class="pg-go" aria-hidden="true">›</span>';
-    btn.addEventListener('click', () => {
-      sfx.tap();
-      slideToWorld(nw.id, 1);
-    });
-    goal = btn;
-  } else {
-    goal = document.createElement('div');
-    goal.className = 'path-goal';
-    if (nw) {
-      goal.style.setProperty('--wc', nw.color);
-      goal.innerHTML = `<span class="pg-emoji">🔒</span>` +
-        `<span class="pg-text"><b>つぎの せかい</b><span>ボスを たおすと ひらく</span></span>`;
+    // スタート。道の はじまりを はっきりさせる（いきなり 1 のマスから始まると、
+    // どちらが はじめで どちらが おわりか 読めない）
+    const start = document.createElement('div');
+    start.className = `path-start t${tier}${tierOpen ? '' : ' locked'}`;
+    start.style.setProperty('--tc', def.color);
+    place(start, tier, rowOf(w, tier, 0));
+    if (tier === 0) {
+      start.innerHTML = '<span class="ps-flag" aria-hidden="true">🚩</span><b>スタート</b>';
+      // まえの せかいが あれば、そこへ戻れる
+      if (pw) {
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'world-hop prev';
+        back.setAttribute('aria-label', `まえの せかい ${pw.id}. ${pw.name}`);
+        back.innerHTML = `<span aria-hidden="true">‹</span>${pw.emoji} ${pw.id}`;
+        back.addEventListener('click', () => {
+          sfx.tap();
+          slideToWorld(pw.id, -1);
+        });
+        start.appendChild(back);
+      }
     } else {
-      goal.innerHTML = `<span class="pg-emoji">🏁</span>` +
-        `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
+      // うらマップの入口。ルールを ひとこと そえる（遊ぶ前に「ヒントは 3かい」が分かる）
+      start.innerHTML =
+        `<span class="ps-flag" aria-hidden="true">${tierOpen ? def.icon : '🔒'}</span>` +
+        `<span class="ps-text"><b>${def.name}${tierOpen ? ' スタート' : ''}</b>` +
+        `<small>${tierOpen ? def.rule : tier === 1 ? 'ボスを たおすと ひらく' : 'ハードの ボスを たおすと ひらく'}</small></span>`;
+    }
+    path.appendChild(start);
+    chain.push({ el: start, tier, walked: tierOpen });
+
+    for (let stage = 1; stage <= bossStage(w); stage++) {
+      const boss = isBoss(w, stage);
+      const open = stageUnlocked(w, stage, tier);
+      const got = stageStars(w.id, stage, tier);
+
+      const row = document.createElement('div');
+      row.className = `node-row t${tier}${boss ? ' boss-row' : ''}`;
+      place(row, tier, rowOf(w, tier, stage));
+      // 一本道をぐねぐねさせる。sin にしておくと、面数が変わっても形が破綻しない。
+      // うらマップも同じ形（ハードは 上下を かえした形）にして、もとの地図だと分かるようにする
+      const k = Math.sin(stage * 0.9);
+      row.style.setProperty('--k', k.toFixed(3));
+
+      const b = document.createElement('button');
+      b.type = 'button';
+      const here = stage === next && open;
+      const step = stepOf(w, stage);
+      // いま挑むところはオレンジで光らせる。押す場所で迷わせない
+      b.className =
+        `stage-node${boss ? ' boss' : ''}${got > 0 ? ' cleared' : ''}` +
+        `${!open ? ' locked' : ''}${here ? ' now' : ''}`;
+      b.disabled = !open || timeUp();
+      // ステージごとに景色（時間帯）が変わることを、遊ぶ前に見せる。
+      // 名前はマスの中に入れる。外にぶら下げると、隣のマスの「いま ここ」札とぶつかる
+      b.innerHTML =
+        `<span class="when" aria-hidden="true">${TIME_ICON[timeIdFor(stage, boss)]}</span>` +
+        (tier > 0 ? `<span class="sn-tier" aria-hidden="true">${def.icon}</span>` : '') +
+        `<span class="sn-label">${!open ? '🔒' : boss ? '👑' : stage}</span>` +
+        (open && step ? `<span class="sn-name">${step.name}</span>` : '') +
+        `<span class="st">${starRow(got)}</span>`;
+      b.setAttribute(
+        'aria-label',
+        `${tier > 0 ? `${def.name} ` : ''}${boss ? 'ボス' : `ステージ ${stage} ${step?.name ?? ''}`}${here ? '（いま ここ）' : ''}` +
+          ` ${TIME_NAME[timeIdFor(stage, boss)]} ほし ${got}`,
+      );
+
+      b.addEventListener('click', () => {
+        unlockAudio();
+        sfx.tap();
+        startStage(w, stage, tier);
+      });
+      // ボスのマスには 飾りを置かない（かわりに 奥に あやしい光を出す: .boss-row）
+      if (!boss) row.append(decoFor(lookT, w.id, stage, k, false, tier), decoFor(lookT, w.id, stage, k, true, tier));
+      row.appendChild(b);
+
+      // ふだ（「ボス」「いま ここ」）はマスの中に絶対配置する。
+      // 行に並べると、その行だけマスが道からずれる
+      if (boss) {
+        const tag = document.createElement('span');
+        tag.className = 'node-tag boss-tag';
+        const need = bossRequirement(w) - normalStars(w, tier);
+        // マップそのものが まだ閉じているときは ★の話をしない（ひらいてから数える）
+        tag.textContent = open || !tierOpen ? 'ボス' : `★あと ${need}`;
+        b.appendChild(tag);
+      }
+      if (here) {
+        const tag = document.createElement('span');
+        tag.className = 'node-tag now';
+        tag.textContent = 'いま ここ';
+        b.appendChild(tag);
+      }
+      path.appendChild(row);
+      const stop = { el: b, tier, walked: open };
+      chain.push(stop);
+      // ふつうの ボスから、道が 右へ分かれて ハードの スタートへ つづく
+      if (tier === 0 && boss) side.push(stop);
+    }
+
+    if (tier === 0) {
+      // つぎの せかいへの ひきつづき。先に何があるか見せて、進みたくさせる。
+      // もう開いていれば ボタンにして、押すと 道をたどって たてに つぎの せかいの みちへ うつる
+      // （いちど「せかい ぜんぶ」へ戻ってから選びなおす、を しなくていい）
+      const nw = WORLDS.find((x) => x.id === w.id + 1);
+      const bossDone = stageStars(w.id, bossStage(w)) > 0;
+      let goal: HTMLElement;
+      if (nw && worldUnlocked(nw.id)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'path-goal go';
+        btn.style.setProperty('--wc', nw.color);
+        btn.innerHTML = `<span class="pg-emoji" aria-hidden="true">${nw.emoji}</span>` +
+          `<span class="pg-text"><b>つぎの せかいへ</b><span>${nw.id}. ${nw.name}</span></span>` +
+          '<span class="pg-go" aria-hidden="true">›</span>';
+        btn.addEventListener('click', () => {
+          sfx.tap();
+          slideToWorld(nw.id, 1);
+        });
+        goal = btn;
+      } else {
+        goal = document.createElement('div');
+        goal.className = 'path-goal';
+        if (nw) {
+          goal.style.setProperty('--wc', nw.color);
+          goal.innerHTML = `<span class="pg-emoji">🔒</span>` +
+            `<span class="pg-text"><b>つぎの せかい</b><span>ボスを たおすと ひらく</span></span>`;
+        } else {
+          goal.innerHTML = `<span class="pg-emoji">🏁</span>` +
+            `<span class="pg-text"><b>さいごの せかい</b><span>ここを クリアで ぜんぶ せいは！</span></span>`;
+        }
+      }
+      place(goal, 0, rowOf(w, 0, bossStage(w) + 1));
+      path.appendChild(goal);
+      main.push({ el: goal, tier: 0, walked: bossDone });
+      // 上と下のはしまで道を伸ばすか（drawRoad）。となりの せかいがある向きだけ伸ばす
+      if (pw) path.dataset.leadIn = '1';
+      else delete path.dataset.leadIn;
+      if (nw) path.dataset.leadOut = bossDone ? '1' : '0';
+      else delete path.dataset.leadOut;
+    } else if (tier === 2) {
+      // 道の おわり。ベリーハードの ボスまで たおすと、この せかいは かんぺき
+      const perfect = stageStars(w.id, bossStage(w), 2) > 0;
+      const goal = document.createElement('div');
+      goal.className = `path-goal final${perfect ? ' done' : ''}`;
+      goal.style.setProperty('--wc', def.color);
+      goal.innerHTML = `<span class="pg-emoji" aria-hidden="true">${perfect ? '👑' : '🏆'}</span>` +
+        `<span class="pg-text"><b>${perfect ? 'かんぺき！' : 'ベリーハードの ボスを'}</b>` +
+        `<span>${perfect ? 'この せかいを ぜんぶ クリア' : 'たおすと かんぺき！'}</span></span>`;
+      place(goal, 2, rowOf(w, 2, bossStage(w) + 1));
+      path.appendChild(goal);
+      side.push({ el: goal, tier: 2, walked: perfect });
     }
   }
-  goal.dataset.road = bossDone ? '1' : '0';
-  path.appendChild(goal);
-  // 上と下のはしまで道を伸ばすか（drawRoad）。となりの せかいがある向きだけ伸ばす
-  if (pw) path.dataset.leadIn = '1';
-  else delete path.dataset.leadIn;
-  if (nw) path.dataset.leadOut = bossDone ? '1' : '0';
-  else delete path.dataset.leadOut;
+  roadChains = [main, side];
+
+  renderTierTabs(w);
+  renderTierHead(w);
 
   // 面が増えると「いま ここ」が画面の外にいることがある。開いた時点で見えるところへ寄せる。
-  // scrollIntoView は使わない（画面ぜんたいまで動かすことがある）。道の箱だけを動かす
+  // scrollIntoView は使わない（画面ぜんたいまで動かすことがある）。道の箱だけを動かす。
+  // 列は ここで決めた mapTier に合わせる（そのあいだに よこの scroll が来て mapTier が
+  // ずれても、ここで 戻す）
+  const want = mapTier;
   requestAnimationFrame(() => {
+    fitBoard();
     drawRoad();
     if (focus === 'keep') return;
-    const scroller = path.parentElement as HTMLElement;
-    scroller.scrollTop = focus === 'end' ? scroller.scrollHeight : focusTop(path, scroller);
+    const scroller = pathScroller();
+    if (focus === 'end') {
+      mapTier = 0;
+      scroller.scrollLeft = 0;
+      scroller.scrollTop = scroller.scrollHeight;
+    } else {
+      mapTier = want;
+      scroller.scrollLeft = tierLeft(want);
+      scroller.scrollTop = focusTop(path, scroller, want);
+    }
+    renderTierHead(w);
   });
-
-  const bossNeed = bossRequirement(w) - normalStars(w);
-  $('map-hint').textContent = timeUp()
-    ? 'きょうの ぼうけんは ここまで。また あした！'
-    : bossNeed > 0
-      ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w)}）`
-      : `★ ${starsInWorld(w)} / ${bossStage(w) * 3}　ボスに いどめる！`;
 }
 
 /**
- * 道の箱（scroller）を どこまで送れば「いま ここ」が まんなかに来るか。
- * 「いま ここ」が無い（ぜんぶクリア・まだ開いていない）ときは いちばん上。
+ * 地図の上の札（ふつう／ハード／ベリーハード）。押すと その列へ よこに うつる。
+ * よこに送れることに 気づかない子のための入口で、いま どの列を見ているかの しるしも兼ねる。
  */
-function focusTop(path: HTMLElement, scroller: HTMLElement): number {
-  const now = path.querySelector<HTMLElement>('.stage-node.now');
+function renderTierTabs(w: World): void {
+  $('tier-tabs').replaceChildren(
+    ...TIER_LIST.map((t) => {
+      const def = tierDef(t);
+      const open = tierUnlocked(w, t);
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `tier-tab t${t}${open ? '' : ' locked'}`;
+      b.dataset.tier = String(t);
+      b.style.setProperty('--tc', t === 0 ? w.color : def.color);
+      b.innerHTML = `<span aria-hidden="true">${!open ? '🔒' : t === 0 ? w.emoji : def.icon}</span>${def.name}`;
+      b.addEventListener('click', () => {
+        sfx.tap();
+        panToTier(t);
+      });
+      return b;
+    }),
+  );
+}
+
+/**
+ * 見出し・下の ひとこと・上の札を、いま見ている列に合わせる。
+ * よこに送ったときは scroll から、札を押したときは panToTier から呼ぶ。
+ */
+function renderTierHead(w: World): void {
+  const t = mapTier;
+  const def = tierDef(t);
+  const open = tierUnlocked(w, t);
+  const next = nextStageIn(w, t);
+
+  $('map-world').textContent = `${w.emoji} ${w.id}. ${w.name}`;
+  // 「つぎに何を練習するか」を名前で見せる。ステージ番号だけだと中身が読めない
+  const nextStep = stepOf(w, next);
+  const head = t === 0 ? w.desc : `${def.icon} ${def.name}`;
+  $('map-desc').textContent = !open
+    ? `${head}　・　まだ ひらいていない`
+    : nextStep
+      ? `${head}　・　つぎは「${nextStep.name}」`
+      : `${head}　・　${stageCount(w)}めん＋ボス`;
+
+  for (const b of $('tier-tabs').querySelectorAll<HTMLElement>('.tier-tab')) {
+    const on = b.dataset.tier === String(t);
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+
+  const bossNeed = bossRequirement(w) - normalStars(w, t);
+  $('map-hint').textContent = timeUp()
+    ? 'きょうの ぼうけんは ここまで。また あした！'
+    : !open
+      ? t === 1
+        ? 'この せかいの ボスを たおすと ハードが ひらく'
+        : 'ハードの ボスを たおすと ベリーハードが ひらく'
+      : bossNeed > 0
+        ? `ボスまで あと ★${bossNeed}　（いま ★${starsInWorld(w, t)}）`
+        : `★ ${starsInWorld(w, t)} / ${bossStage(w) * 3}　ボスに いどめる！`;
+}
+
+/**
+ * 道の箱（scroller）を どこまで送れば その列の「いま ここ」が まんなかに来るか。
+ * 「いま ここ」が無い（ぜんぶクリア・まだ開いていない）ときは、その列の スタート
+ * （ふつうとベリーハードは上、ハードは下）。
+ */
+function focusTop(path: HTMLElement, scroller: HTMLElement, tier: Tier = 0): number {
+  const now =
+    path.querySelector<HTMLElement>(`.node-row.t${tier} .stage-node.now`) ??
+    (tier === 0 ? null : path.querySelector<HTMLElement>(`.path-start.t${tier}`));
   if (!now) return 0;
   const pr = path.getBoundingClientRect();
   const nr = now.getBoundingClientRect();
   const y = nr.top - pr.top + nr.height / 2 - scroller.clientHeight / 2;
   return Math.max(0, Math.min(y, path.offsetHeight - scroller.clientHeight));
+}
+
+/** 札を押して よこの列へ うつっている途中なら、そこで終わらせる関数 */
+let endPan: (() => void) | null = null;
+
+/**
+ * となりの列（むずかしさ）へ、道に そって うつる。よこと たてを いっしょに送り、
+ * その列の「いま ここ」（無ければ スタート）で止める。
+ * 送っているあいだは スナップを切る（1コマずつ 列の はしに 吸いつかれて、送りが止まる）。
+ */
+function panToTier(t: Tier): void {
+  if (endSlide) return;
+  endPan?.();
+  const path = $('stage-path');
+  const scroller = pathScroller();
+  const toX = tierLeft(t);
+  const toY = focusTop(path, scroller, t);
+  mapTier = t;
+  renderTierHead(worldById(mapWorld));
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fromX = scroller.scrollLeft;
+  const fromY = scroller.scrollTop;
+  if (still || (Math.abs(toX - fromX) < 2 && Math.abs(toY - fromY) < 2)) {
+    scroller.scrollLeft = toX;
+    scroller.scrollTop = toY;
+    return;
+  }
+  scroller.classList.add('moving');
+  const ms = Math.min(1100, Math.max(450, Math.hypot(toX - fromX, toY - fromY) * 0.9));
+  const t0 = performance.now();
+  let raf = 0;
+  const finish = () => {
+    cancelAnimationFrame(raf);
+    endPan = null;
+    scroller.scrollLeft = toX;
+    scroller.scrollTop = toY;
+    scroller.classList.remove('moving');
+  };
+  endPan = finish;
+  const step = (now: number) => {
+    const k = Math.min(1, (now - t0) / ms);
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    scroller.scrollLeft = fromX + (toX - fromX) * e;
+    scroller.scrollTop = fromY + (toY - fromY) * e;
+    if (k < 1) raf = requestAnimationFrame(step);
+    else finish();
+  };
+  raf = requestAnimationFrame(step);
+}
+
+// よこに送ったら、見出しと上の札を いま まんなかの列に合わせる
+{
+  const scroller = pathScroller();
+  let raf = 0;
+  scroller.addEventListener(
+    'scroll',
+    () => {
+      if (raf || endSlide || endPan) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (endSlide || endPan || $('stage-view').hidden || screens.map.hidden) return;
+        const t = visibleTier();
+        if (t === mapTier) return;
+        mapTier = t;
+        renderTierHead(worldById(mapWorld));
+      });
+    },
+    { passive: true },
+  );
+  // 向きを変えた・はばが変わったら、列の はばを決めなおし、見ていた列に 合わせなおす
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => {
+      if (screens.map.hidden || $('stage-view').hidden || endSlide || endPan) return;
+      if (!fitBoard()) return;
+      drawRoad();
+      scroller.scrollLeft = tierLeft(mapTier);
+    }).observe(scroller);
+  }
 }
 
 /** となりの せかいへ うつっている途中なら、そこで終わらせる関数。うつっていなければ null */
@@ -1556,6 +1930,7 @@ let endSlide: (() => void) | null = null;
  * 箱ごと なめらかに送る。道は せかいの はしまで伸ばしてあるので（drawRoad の lead）、
  * つなぎ目で1本につながったまま、地面の色だけが変わっていく。
  * 横に すべらせていたころは、道が画面の外で切れて「つながっている」が見えなかった。
+ * （よこは むずかしさの列に使っている。せかいは たて、むずかしさは よこ）
  *
  * しくみ: いまの道を写しとった板（ghost）を、新しい道の上（または下）に じかに並べ、
  * 押した瞬間と同じ景色になる位置へ scrollTop を合わせてから、目的の位置まで送る。
@@ -1567,6 +1942,10 @@ function slideToWorld(id: number, dir: 1 | -1): void {
   const path = $('stage-path');
   const scroller = path.parentElement as HTMLElement;
   if (endSlide) return;
+  endPan?.();
+  // せかいの つなぎ目は ふつうの列にしかない。よこに送っていたら、ふつうの列へ戻してから うつる
+  mapTier = 0;
+  scroller.scrollLeft = 0;
   // まえの せかいへ戻ったときは、つながっている下のはし（ボスと「つぎの せかいへ」）を見せる
   const focus = dir > 0 ? 'now' : 'end';
   const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1640,14 +2019,20 @@ $('map-back').addEventListener('click', () => {
 
 // ------------------------------------------------------------------ プレイ
 
-function startStage(world: World, stage: number): void {
+function startStage(world: World, stage: number, tier: Tier = 0): void {
   const boss = isBoss(world, stage);
+  // とちゅうで やめた・きょうは ここまで で マップへ戻ったとき、走っていた地図と列を出す
+  // （リザルトの「つづける」で つぎの せかいへ進んでいると、ここを合わせないと 前の せかいに戻る）
+  mapWorld = world.id;
+  mapTier = tier;
   startRun({
     world,
     stage,
+    tier,
     total: questionCount(world, stage),
     boss,
-    label: boss ? `${world.id}-ボス` : `${world.id}-${stage}`,
+    // うらマップは しるしを付ける（🔥1-3）。HUD とリザルトで どの地図の面かが分かる
+    label: `${tierDef(tier).icon}${boss ? `${world.id}-ボス` : `${world.id}-${stage}`}`,
     stepName: boss ? null : (stepOf(world, stage)?.name ?? null),
     facts: factsFor(world, stage),
     blank: blankFor(world, stage),
@@ -1668,16 +2053,23 @@ function startRun(cfg: RunConfig): void {
   if (cfg.mode === 'daily') cfg.bonusCoins = profile().daily.done ? 0 : dailyBonus(cfg.total);
   // ★も同じ理由でここで読みなおす。startStage で決め打ちにすると、
   // 同じ設定を使いまわす「もういちど」が、★3 のあとも初回レートで払い続ける。
-  cfg.prevStars = cfg.stage === 0 ? 0 : stageStars(cfg.world.id, cfg.stage);
+  cfg.prevStars = cfg.stage === 0 ? 0 : stageStars(cfg.world.id, cfg.stage, cfg.tier ?? 0);
 
   lastRun = cfg;
   screens.play.classList.toggle('lefty', save.settings.leftHanded);
   // canvas の外（式やボタンの後ろ）も、そのステージの空の色にそろえる。
   // 夜とボスは空が暗いので、式やコインの数字を白抜きに切りかえる
-  const theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, cfg.mode === 'hunt' ? 'hunt' : undefined);
+  const theme = themeFor(cfg.world.id, cfg.stage, cfg.boss, cfg.mode === 'hunt' ? 'hunt' : undefined, cfg.tier ?? 0);
   screens.play.style.background = skyCss(theme);
   screens.play.classList.toggle('dark', theme.dark);
   $('overlay-pause').hidden = true;
+  // ハード・ベリーハードは 止められない。‖ のかわりに ← を出し、押すと そのまま マップへ戻る
+  // （止めて考える、が できない。ボタンの形で 先に分かるようにする）
+  const canPause = tierDef(cfg.tier).pause;
+  const pauseBtn = $('btn-pause');
+  pauseBtn.textContent = canPause ? '‖' : '←';
+  pauseBtn.setAttribute('aria-label', canPause ? 'ポーズ' : 'やめて マップへ もどる');
+  pauseBtn.classList.toggle('quit', !canPause);
   show('play');
   // 画面を出してからレイアウトが確定するので、次のフレームで開始する
   requestAnimationFrame(() => {
@@ -1698,7 +2090,26 @@ function startRun(cfg: RunConfig): void {
   });
 }
 
+/** 走るのを やめて、マップ（デイリー・にがて たいじ は ホーム）へ戻る。コインも★も付かない */
+function quitRun(): void {
+  $('overlay-pause').hidden = true;
+  runner.stop();
+  if (lastRun && lastRun.stage === 0) {
+    goHome();
+  } else {
+    mapView = 'stages';
+    renderMap();
+    show('map');
+  }
+}
+
 $('btn-pause').addEventListener('click', () => {
+  // ハード・ベリーハード。止める画面を はさまずに、そのまま おしまいにする
+  if (lastRun && !tierDef(lastRun.tier).pause) {
+    sfx.tap();
+    quitRun();
+    return;
+  }
   runner.setPaused(true);
   // 「もどる」を押す前に、さいごまで行くと何が待っているかを1行だけ置く。
   // 途中でやめると フィニッシュも そのボーナスも手に入らない
@@ -1714,17 +2125,7 @@ $('pause-resume').addEventListener('click', () => {
   runner.setPaused(false);
 });
 
-$('pause-quit').addEventListener('click', () => {
-  $('overlay-pause').hidden = true;
-  runner.stop();
-  if (lastRun && lastRun.stage === 0) {
-    goHome();
-  } else {
-    mapView = 'stages';
-    renderMap();
-    show('map');
-  }
-});
+$('pause-quit').addEventListener('click', quitRun);
 
 // ------------------------------------------------------------------ リザルト
 
@@ -1885,13 +2286,14 @@ function renderResult(r: StageResult): void {
   const boss = onMap && isBoss(w, r.stage);
   // ワールド名はミニマップの見出しに出ているので、この行は小ステップの名まえに使う
   const step = onMap ? stepOf(w, r.stage) : null;
+  const mark = tierDef(r.tier).icon;
   $('result-stage').textContent = daily
     ? `きょうの ${r.total}もん`
     : hunt
       ? 'にがて たいじ'
       : boss
-        ? `${w.id}-ボス  ${r.bossName ?? w.name}`
-        : `${w.id}-${r.stage}  ${step?.name ?? w.name}`;
+        ? `${mark}${w.id}-ボス  ${r.bossName ?? w.name}`
+        : `${mark}${w.id}-${r.stage}  ${step?.name ?? w.name}`;
 
   // ボスに負けたときだけ、別の顔で出す（★もコインのボーナスも付かない）
   (document.querySelector('.result-card') as HTMLElement).classList.toggle('failed', r.failed);
@@ -1917,8 +2319,23 @@ function renderResult(r: StageResult): void {
   const mini = $('result-map-mini');
   mini.hidden = !onMap;
   if (onMap) {
-    const spot = currentSpot();
-    renderMiniMap(mini, r.worldId, spot.worldId === r.worldId ? spot.stage : r.stage);
+    if (r.tier === 0) {
+      const spot = currentSpot();
+      renderMiniMap(mini, r.worldId, spot.worldId === r.worldId ? spot.stage : r.stage);
+    } else {
+      // うらマップは その地図の中の「いま」。ぜんぶ★つきなら、いま走った面
+      renderMiniMap(mini, r.worldId, nextStageIn(w, r.tier) || r.stage, r.tier);
+    }
+  }
+
+  // ボスを はじめて たおして、右の地図（ハード・ベリーハード）が ひらいた
+  const opened = openedTier(r);
+  const unlock = $('result-unlock');
+  unlock.hidden = opened === null;
+  if (opened !== null) {
+    const def = tierDef(opened);
+    unlock.style.setProperty('--tc', def.color);
+    unlock.textContent = `${def.icon} ${w.name}の ${def.name}が ひらいた！ マップの みぎへ すすめるよ`;
   }
 
   // リベンジ（まちがえた式のやりなおし）。走った回だけ、1行だけ出す
@@ -2021,7 +2438,7 @@ function renderResultBtns(r: StageResult): void {
   // ボタンの行き先。「もういちど」はやめて、つづけるか、スタートへ戻る。
   // ボスに負けたときだけは、挑みなおすのが主役になる
   const over = timeUp();
-  const next = nextStageOf(r.worldId, r.stage);
+  const next = nextStageOf(r.worldId, r.stage, r.tier);
   const nextBtn = $('result-next');
   $('result-retry').hidden = r.failed ? over : true;
   nextBtn.hidden = r.failed && !over;
@@ -2041,7 +2458,7 @@ function renderResultBtns(r: StageResult): void {
 function nextLabel(): string {
   if (timeUp()) return endLabel();
   if (!lastResult) return 'スタートへ';
-  if (nextStageOf(lastResult.worldId, lastResult.stage)) return 'つづける';
+  if (nextStageOf(lastResult.worldId, lastResult.stage, lastResult.tier)) return 'つづける';
   return lastResult.stage === 0 ? 'スタートへ' : 'マップへ';
 }
 
@@ -2146,17 +2563,32 @@ function goNext(): void {
     goHome();
     return;
   }
-  const next = nextStageOf(lastResult.worldId, lastResult.stage);
+  const next = nextStageOf(lastResult.worldId, lastResult.stage, lastResult.tier);
   if (next) {
-    startStage(next.world, next.stage);
+    startStage(next.world, next.stage, next.tier);
   } else if (lastResult.stage === 0) {
     goHome();
   } else {
+    // うらマップの ボスのあと（と、さいごの せかいの ボスのあと）。
+    // ひらいたばかりの 右の列があれば、そこを見せる
     mapWorld = lastResult.worldId;
+    mapTier = openedTier(lastResult) ?? lastResult.tier;
     mapView = 'stages';
     renderMap();
     show('map');
   }
+}
+
+/**
+ * この走りで 右の地図が ひらいたか（ボスを はじめて たおした）。ひらいた むずかしさ、無ければ null。
+ * ★は リザルトより先に保存されているので、ひらいているかは firstKind で見る
+ * （tierUnlocked で見ると、2回目の勝利でも「ひらいた！」になる）。
+ */
+function openedTier(r: StageResult): Tier | null {
+  if (r.mode !== 'stage' || r.failed || r.tier >= 2) return null;
+  if (!isBoss(worldById(r.worldId), r.stage)) return null;
+  if (r.firstKind !== 'clear' && r.firstKind !== 'both') return null;
+  return (r.tier + 1) as Tier;
 }
 
 $('result-next').addEventListener('click', () => {
@@ -2167,6 +2599,8 @@ $('result-next').addEventListener('click', () => {
 $('result-map').addEventListener('click', () => {
   sfx.tap();
   mapWorld = lastResult && lastResult.stage > 0 ? lastResult.worldId : lastPlayedWorld();
+  // 走っていた列へ。ボスで 右の列が ひらいたなら、そちらを見せる
+  mapTier = lastResult && lastResult.stage > 0 ? (openedTier(lastResult) ?? lastResult.tier) : 0;
   // 走り終わった直後は、いま走っていた せかいの みちに戻す
   mapView = 'stages';
   renderMap();

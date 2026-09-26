@@ -239,7 +239,8 @@
 
     <!-- ===== ステージマップ =====
          「せかい ぜんぶ」→「その せかいの みち」の2段。
-         いま何面まで来ていて、ぜんぶで何面あるのかが、どちらの画面でも見える。 -->
+         いま何面まで来ていて、ぜんぶで何面あるのかが、どちらの画面でも見える。
+         せかいは たてに、むずかしさ（ふつう → ハード → ベリーハード）は よこに つながる。 -->
     <section class="screen" id="screen-map" data-screen="map" hidden>
       <header class="map-head">
         <button class="btn btn-icon" id="map-back" type="button" aria-label="もどる">←</button>
@@ -261,8 +262,10 @@
         <div class="world-list" id="world-list"></div>
       </div>
 
-      <!-- その せかいの みち -->
+      <!-- その せかいの みち。ふつう・ハード・ベリーハードの 3列が 左から右へ つながった 1枚の地図。
+           上の札は いま見ている列の しるしで、押すと その列へ よこに うつる -->
       <div class="stage-view" id="stage-view" hidden>
+        <div class="tier-tabs" id="tier-tabs"></div>
         <div class="path-scroll">
           <div class="stage-path" id="stage-path"></div>
         </div>
@@ -384,6 +387,8 @@
 
           <p class="revenge-note" id="result-revenge-note" hidden></p>
           <p class="replay-note" id="result-replay" hidden></p>
+          <!-- ボスを はじめて たおして、右の地図（ハード・ベリーハード）が ひらいたときだけ -->
+          <p class="unlock-note" id="result-unlock" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
           <!-- 「つづける」を押す前に、きょう あとどれだけ遊べるかを見せる -->

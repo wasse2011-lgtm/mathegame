@@ -444,9 +444,10 @@ export function isBoss(w: World, stage: number): boolean {
 /**
  * いちばん最後のボス（さいごのワールドのボス面）か。
  *
- * ヒントに回数の制限をかけるのは、ゲームじゅうでここだけ。
+ * ふつうのマップで ヒントに回数の制限をかけるのは ここだけ（hintQuota）。
  * ほかの面では、いつでも好きなだけ ヒントを呼べる（考える材料を取り上げない）。
  * 最後のボスだけは、これまで習ったことを自分の力で出す場として残す。
+ * 回数を数えたいなら、ハード・ベリーハード（うらマップ）へ行けばよい。
  */
 export function isFinalBoss(w: World, stage: number): boolean {
   return w.id === WORLDS[WORLDS.length - 1].id && isBoss(w, stage);
@@ -456,15 +457,121 @@ export function questionCount(w: World, stage: number): number {
   return isBoss(w, stage) ? QUESTIONS_PER_BOSS : QUESTIONS_PER_STAGE;
 }
 
+// ------------------------------------------------------------------ むずかしさ（うらマップ）
+
+/**
+ * マップの むずかしさ。0 = ふつう、1 = ハード、2 = ベリーハード。
+ *
+ * ハードは その せかいの ボスを たおすと、ベリーハードは ハードの ボスを たおすと ひらく。
+ * 出る式（小ステップ）は ふつうと同じ。変えるのは「助けの量」と「速さ」だけにする。
+ * 式まで変えると、まだ習っていない形が うらマップに まぎれこむ（W3 の穴埋めと同じ罠）。
+ */
+export type Tier = 0 | 1 | 2;
+
+export const TIER_LIST: readonly Tier[] = [0, 1, 2];
+
+export interface TierDef {
+  id: Tier;
+  /** マップの札・リザルトに出す名まえ */
+  name: string;
+  /** しるし。ステージ名（🔥1-3）とマップの札に付ける。ふつうは付けない */
+  icon: string;
+  /** マップの札・チップの色 */
+  color: string;
+  /** マップの スタートの札に出す、ルールの ひとこと */
+  rule: string;
+  /**
+   * コインの倍率。World.coinRate に掛ける。
+   *
+   * むずかしいぶん多めに払うが、上げすぎない。いちばん上の W1 ベリーハード
+   * （0.6 × 1.5 = 0.9）でも W3 の ふつう（1.0）に届かないので、
+   * 「先の せかいを進めるほうが得」はくずれない（README の コイン）。
+   */
+  coinRate: number;
+  /** 障害物・攻撃が届くまでの時間の倍率 */
+  timeRate: number;
+  /**
+   * 押せるヒントの回数（通常ステージ・ボス）。null は 何回でも、0 は 出さない。
+   * ふつうの いちばん最後のボスだけは FINAL_BOSS_HINTS（hintQuota を見る）
+   */
+  hints: number | null;
+  bossHints: number | null;
+  /** 左上の ‖ で止められるか。止められないときは ← になり、押すと そのまま マップへ戻る */
+  pause: boolean;
+  /**
+   * つれているペットの力（時間のばし・せなかに乗せる・ヒントの上乗せ）が効くか。
+   * ベリーハードで効かせると、でんせつの子は ×1.28 の のばしで「はやい」が ほぼ消える
+   */
+  petHelp: boolean;
+  /** ボスの名まえの前に付けることば。「つよい ドドン」 */
+  bossPrefix: string;
+}
+
+export const TIERS: Record<Tier, TierDef> = {
+  0: {
+    id: 0, name: 'ふつう', icon: '', color: '#5fb85f', rule: '',
+    coinRate: 1, timeRate: 1, hints: null, bossHints: null, pause: true, petHelp: true, bossPrefix: '',
+  },
+  // ヒントは 1ステージ10問に 3回。ペットなしでも「ここぞ」で使える数は残す。
+  // ボスは ふつうの いちばん最後のボス（FINAL_BOSS_HINTS）と同じ 2回
+  1: {
+    id: 1, name: 'ハード', icon: '🔥', color: '#e2583e', rule: 'ヒント 3かい・とちゅうで とめられない',
+    coinRate: 1.25, timeRate: 1, hints: 3, bossHints: 2, pause: false, petHelp: true, bossPrefix: 'つよい ',
+  },
+  // ヒントなし・ペットの力なし・持ち時間は 3/4。ここは「じぶんの ちから」だけで走るところ
+  2: {
+    id: 2, name: 'ベリーハード', icon: '🌋', color: '#8a3fc7', rule: 'ヒント なし・はやい・とめられない',
+    coinRate: 1.5, timeRate: 0.75, hints: 0, bossHints: 0, pause: false, petHelp: false, bossPrefix: 'さいきょう ',
+  },
+};
+
+export function tierDef(t: Tier | undefined): TierDef {
+  return TIERS[t ?? 0] ?? TIERS[0];
+}
+
+/**
+ * いちばん最後のボス（ふつう）で押せるヒントの回数。レアなペットは ここに上乗せする（runner.ts）。
+ * ペットを引けていない子が 0 回だと、引きの悪さが そのまま難しさになるので 2回は残す。
+ */
+export const FINAL_BOSS_HINTS = 2;
+
+/**
+ * そのステージで押せるヒントの回数（ペットの上乗せを入れる前）。null は 何回でも。
+ *
+ * ふつうのマップで 回数を数えるのは いちばん最後のボスだけ（isFinalBoss）。
+ * ハードは どの面も数える。ベリーハードは 0（ボタンは「ヒント なし」になる）。
+ */
+export function hintQuota(w: World, stage: number, tier: Tier = 0): number | null {
+  const def = tierDef(tier);
+  const boss = isBoss(w, stage);
+  if (tier === 0) return boss && isFinalBoss(w, stage) ? FINAL_BOSS_HINTS : null;
+  return boss ? def.bossHints : def.hints;
+}
+
+/**
+ * 持ち時間を縮める むずかしさ（ベリーハード）の下限（秒）。
+ *
+ * ボスの終盤は ここから さらに 1割はやい（BOSS_RUSH_RATE。runner.ts が掛ける）ので、
+ * 3.3秒にしておくと 子どもが出会う いちばん短い時間が ちょうど 3秒になる。
+ * いまの数字で かかるのは W4（10 と いくつ）のボスだけ（3.29秒 → 3.3秒）。
+ * 式を読む時間が無くなると「当てる」ゲームになる。
+ * （「ゆっくり」の設定は、この下限の あとで掛ける）
+ */
+export const TIER_TIME_FLOOR = 3.3;
+
 /**
  * ステージごとの制限時間（秒）。奥に進むほど少し短くなるが、
  * 短くしすぎると「考える」より「当てる」ゲームになるので下限を置く。
+ *
+ * @param tier むずかしさ。ベリーハードは 3/4 にする（TIER_TIME_FLOOR より下げない）
  */
-export function answerTimeFor(w: World, stage: number, slow: boolean): number {
+export function answerTimeFor(w: World, stage: number, slow: boolean, tier: Tier = 0): number {
   // デイリー（stage = 0）は「ステージ1と同じ」扱いにする
   const step = Math.max(stage, 1) - 1;
   const fixed = stepOf(w, stage)?.time;
-  const t = fixed ?? Math.max(w.answerTime - step * 0.14, w.answerTime * 0.62);
+  let t = fixed ?? Math.max(w.answerTime - step * 0.14, w.answerTime * 0.62);
+  const rate = tierDef(tier).timeRate;
+  if (rate < 1) t = Math.max(t * rate, Math.min(t, TIER_TIME_FLOOR));
   return slow ? t * 1.6 : t;
 }
 

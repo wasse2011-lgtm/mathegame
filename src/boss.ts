@@ -7,6 +7,7 @@
  */
 
 import { roundRect } from './sprites';
+import { mix } from './theme';
 
 export type ShotKind = 'rock' | 'beam' | 'fire';
 
@@ -22,7 +23,10 @@ export interface BossState {
 }
 
 export interface BossDef {
-  /** ワールドID (1..8)。そのまま見た目の段階になる */
+  /**
+   * 見た目の段階（1..8）。ふつうはワールドIDそのまま。
+   * うらマップでは むずかしさ1つにつき 2段上がる（8で頭打ち）
+   */
   tier: number;
   name: string;
   body: string;
@@ -49,9 +53,34 @@ const DEFS: Omit<BossDef, 'tier'>[] = [
   { name: 'ソラガミ', body: '#46506f', shade: '#2a3149', belly: '#dfe4f5', horn: '#bfe9ff', eye: '#9ef3ff', shots: ['beam', 'fire', 'beam', 'rock'] },
 ];
 
-export function bossDef(worldId: number): BossDef {
+/**
+ * うらマップ（ハード・ベリーハード）のボス。同じボスの「つよい」姿にする。
+ *
+ * 見た目の段階を 2つずつ上げ（W1 のハードで つめ・よろい、ベリーハードで 4本づの・3つ目）、
+ * からだの色を ハードは赤、ベリーハードは 夜の むらさきに寄せる。
+ * 別のボスにすると、せかいとの つながり（右に つづいている）が消える。
+ * 名まえの前のことば（つよい／さいきょう）は curriculum.ts の TierDef.bossPrefix。
+ */
+const TIER_BODY: Record<number, { toward: string; k: number } | undefined> = {
+  1: { toward: '#c23a2a', k: 0.28 },
+  2: { toward: '#3a1650', k: 0.42 },
+};
+
+export function bossDef(worldId: number, tier = 0, prefix = ''): BossDef {
   const i = Math.min(Math.max(worldId, 1), DEFS.length) - 1;
-  return { tier: i + 1, ...DEFS[i] };
+  const base = { tier: i + 1, ...DEFS[i] };
+  const tint = TIER_BODY[tier];
+  if (!tint) return base;
+  const k = (c: string) => mix(c, tint.toward, tint.k);
+  return {
+    ...base,
+    tier: Math.min(base.tier + tier * 2, DEFS.length),
+    name: `${prefix}${base.name}`,
+    body: k(base.body),
+    shade: k(base.shade),
+    // ベリーハードは 目を あやしく光らせる
+    eye: tier >= 2 ? '#ff6b6b' : base.eye,
+  };
 }
 
 /** 何問目にどの攻撃が来るか。同じ順で回るので、子どもが覚えて身構えられる */

@@ -745,6 +745,9 @@ body {
   flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
   display: flex; flex-direction: column; gap: .55rem; padding: .5rem .2rem .2rem;
 }
+/* 1行＝1つの せかい。せかいの札の右に、うらマップ（ハード・ベリーハード）の札を つなげる */
+.world-row { display: flex; align-items: stretch; gap: 10px; }
+.world-row .world-card { flex: 1 1 auto; min-width: 0; }
 .world-card {
   position: relative;
   display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .7rem;
@@ -775,6 +778,59 @@ body {
 .wc-desc { font-size: .76rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wc-main .bar { height: 8px; margin-top: .1rem; }
 .wc-main .bar i { background: var(--wc, var(--amber)); }
+.wc-barline { display: flex; align-items: center; gap: .4rem; }
+.wc-barline .bar { flex: 1 1 auto; min-width: 0; }
+/* ★の数（せまい画面だけ。広い画面では右の列に出す） */
+.wc-mini { display: none; font-size: .74rem; font-weight: 700; color: var(--amber-dark); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* スマホの縦。右に うらマップの札が2つ並ぶぶん、右の列（★・面数）を たたんで
+   ★だけ バーの横に寄せる。せかいの名まえの はばを 残すため */
+@media (max-width: 559px) {
+  .world-row { gap: 8px; }
+  .world-card { grid-template-columns: auto 1fr; gap: .55rem; padding: .6rem .55rem; }
+  .world-card .wc-right { display: none; }
+  .world-card .wc-badge { width: 48px; height: 48px; border-radius: 15px; }
+  .world-card .wc-name { font-size: .98rem; }
+  .wc-mini { display: inline; }
+  .tier-chip { flex-basis: 50px; }
+  .tier-chip::before { width: 8px; }
+}
+/* いちばん せまい端末（はば 320px）。札の字を落として しるしと★だけにし、せかいの名まえに はばを回す */
+@media (max-width: 359px) {
+  .world-row { gap: 6px; }
+  .tier-chip { flex-basis: 40px; }
+  .tier-chip::before { width: 6px; right: calc(100% + 2px); }
+  .tc-name { display: none; }
+  .world-card .wc-badge { width: 42px; height: 42px; border-radius: 13px; }
+  .world-card .wc-emoji { font-size: 1.4rem; }
+  .world-card .wc-name { font-size: .9rem; }
+}
+
+/* うらマップの札。せかいの札の右に、みじかい道で つないで並べる
+   （みちの地図で ふつう → ハード → ベリーハード と 右へ つづくのと同じ並び）。
+   鍵がかかっていても はじめから出す。せかいそのものが まだなら押せない */
+.tier-chip {
+  position: relative; flex: 0 0 52px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .18rem;
+  font-family: inherit; cursor: pointer; padding: .35rem 0; color: var(--ink);
+  background: linear-gradient(180deg, #fff4ee, #ffdccd);
+  border: 3px solid var(--tc, var(--line)); border-bottom-width: 6px; border-radius: var(--r-md);
+}
+/* ベリーハードは 夜の色。ハードより ひと目で あぶなそうに */
+.tier-chip.t2 { background: linear-gradient(180deg, #4b2a63, #26142f); color: #fff; }
+.tier-chip:active:not([disabled]) { transform: translateY(3px); border-bottom-width: 3px; }
+/* 左の札から この札への 道。ひらいていれば その色、まだなら 点線 */
+.tier-chip::before {
+  content: ''; position: absolute; right: calc(100% + 3px); top: 50%; transform: translateY(-50%);
+  width: 10px; height: 8px; border-radius: 2px; background: var(--tc, var(--line)); opacity: .6;
+}
+.tier-chip.locked { background: var(--paper-2); border-color: var(--line); color: #98a4ad; }
+.tier-chip.locked::before { background: repeating-linear-gradient(90deg, #c7d1d8 0 3px, transparent 3px 6px); opacity: 1; }
+.tier-chip[disabled] { cursor: default; opacity: .55; }
+.tc-icon { font-size: 1.35rem; line-height: 1; }
+.tc-name { font-size: .6rem; font-weight: 700; line-height: 1.1; text-align: center; }
+.tc-stars { font-size: .68rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums; }
+.tier-chip.t2 .tc-stars { color: #ffd66b; }
+.tc-crown { position: absolute; top: -11px; right: -5px; font-size: .95rem; line-height: 1; }
 .wc-right { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
 .wc-stars { font-size: .9rem; font-weight: 700; color: var(--amber-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wc-stars small { font-size: .68rem; color: var(--ink-2); }
@@ -798,28 +854,60 @@ body {
   box-shadow: 0 12px 26px -20px rgba(20,40,60,.7), inset 0 0 0 3px rgba(255,255,255,.6);
 }
 .stage-view[hidden] { display: none; }
-/* 地面は 道（.stage-path）が じぶんで持つ。となりの せかいへ うつるときは、2つの せかいの道を
-   この箱の中に たてに並べて送るので（main.ts の slideToWorld）、せかいごとに色を持たせておく。
-   道が箱より短いときに見える下の余白は、地面の下の色でうめる */
+/* 地面は 道（.stage-path）の 列ごとの板（.path-land）が じぶんで持つ。となりの せかいへ うつるときは、
+   2つの せかいの道を この箱の中に たてに並べて送るので（main.ts の slideToWorld）、せかいごとに
+   色を持たせておく。道が箱より短いときに見える下の余白は、地面の下の色でうめる。
+   よこは むずかしさの列（ふつう・ハード・ベリーハード）。列の まんなかに 吸いつく */
 .path-scroll {
-  flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;
+  flex: 1; min-height: 0; overflow: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
   background: var(--land-2, #9fd98a);
 }
-/* うつっている途中は さわれない（指で止めると、写しを外すときに位置がずれる） */
-.path-scroll.moving { pointer-events: none; }
+/* うつっている途中は さわれない（指で止めると、写しを外すときに位置がずれる）。
+   送っているあいだは 吸いつきも切る（1コマずつ 列に吸いつかれて、送りが止まる） */
+.path-scroll.moving { pointer-events: none; scroll-snap-type: none; }
+/* 3列の地図。行の高さは3列で そろうので、ボスの よこの道が まっすぐ となりの列の スタートに入る。
+   1列の はば（--colw）は main.ts の fitBoard が 画面より少し せまく決める（となりの列が のぞく） */
 .stage-path {
-  position: relative;
-  display: flex; flex-direction: column; align-items: center; gap: .8rem;
-  padding: 1.1rem 0 1.4rem;
+  --pad-t: 3.4rem;                    /* 上の札（.tier-tabs）の ぶん */
+  --pad-b: 1.4rem;
+  position: relative; isolation: isolate;
+  /* マスの行は よこに ふってある（translateX）ので、はしの列では 板の外まで はみ出す。
+     はみ出しを数えると 右のはしに 何もない すきまが 送れてしまう */
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(3, var(--colw, calc(86vw - 1.6rem)));
+  grid-template-rows: repeat(var(--rows, 11), auto);
+  row-gap: .8rem;
+  width: calc(var(--colw, calc(86vw - 1.6rem)) * 3);
+  padding: var(--pad-t) 0 var(--pad-b);
+}
+/* 列ごとの地面。上下の余白（padding）まで のばす */
+.path-land {
+  position: relative; z-index: 0;
+  grid-row: 1 / -1;
+  margin: calc(-1 * var(--pad-t)) 0 calc(-1 * var(--pad-b));
   background:
     radial-gradient(circle, var(--land-dot, rgba(255,255,255,.3)) 2.5px, transparent 3px) 0 0 / 34px 34px,
     linear-gradient(180deg, var(--land-1, #d4f1c2), var(--land-2, #9fd98a));
+  scroll-snap-align: center;
 }
+/* となりの列とは、はしを ぼかして つなぐ。左へ のばした帯を 透明から ふちどる
+   （列の板そのものは のばさない。のばすと 吸いつく位置が ずれる） */
+.path-land.t1::before, .path-land.t2::before {
+  content: ''; position: absolute; top: 0; bottom: 0; right: 100%; width: 44px;
+  background: inherit;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000);
+          mask-image: linear-gradient(90deg, transparent, #000);
+}
+/* まだ ひらいていない列は、色を ぬいて 少し 暗く */
+.path-land.locked { filter: saturate(.5) brightness(.9); }
 /* となりの せかいへ うつるときの、いまの道の写し。新しい道の上（下）に じかに並ぶ */
 .stage-path.ghost { pointer-events: none; }
 /* 道。マスの中心どうしを main.ts の drawRoad が曲線でつなぐ。
    ふち → 道 → 「行った区間」の せかいの色の線 ／「まだの区間」の点線、の順に重ねる */
-.stage-path svg.road { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
+.stage-path svg.road { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; overflow: visible; }
 .road path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .road-edge { stroke: var(--road-edge, #c69a62); stroke-width: 48; }
 .road-bed { stroke: var(--road, #efd4a4); stroke-width: 38; }
@@ -828,8 +916,8 @@ body {
 .road-walked { stroke: var(--wc, var(--amber)); stroke-width: 9; opacity: .9; }
 .road-rest { stroke: var(--road-dash, #c69a62); stroke-width: 6; stroke-dasharray: 1 14; opacity: .85; }
 .node-row {
-  position: relative; z-index: 1;
-  width: 100%; display: flex; justify-content: center;
+  position: relative; z-index: 2;
+  width: 100%; display: flex; justify-content: center; align-self: center;
   transform: translateX(calc(var(--k, 0) * 20%));
 }
 /* 道のわきの飾り。マスとは反対がわに置く（main.ts の decoFor）。押せない */
@@ -851,7 +939,7 @@ body {
 }
 /* スタートの札。道の はじまり。まえの せかいがあれば、となりに戻るボタンが付く */
 .path-start {
-  position: relative; z-index: 1;
+  position: relative; z-index: 2; justify-self: center; align-self: center;
   display: flex; align-items: center; gap: .35rem;
   background: var(--paper); border: 3px solid var(--road-edge, var(--line)); border-radius: 999px;
   padding: .3rem .8rem .3rem .55rem; font-size: .9rem;
@@ -868,7 +956,53 @@ body {
 }
 .world-hop span { font-size: 1.2rem; line-height: 1; transform: rotate(90deg); } /* まえの せかいは上。‹ を上に向ける */
 .world-hop:active { transform: translateY(calc(-50% + 2px)); }
-.path-goal { position: relative; z-index: 1; }
+.path-goal { position: relative; z-index: 2; justify-self: center; align-self: center; }
+
+/* うらマップの スタート。ルールを ひとこと そえる */
+/* 列の左に寄せる。となりの列の ボスから よこに来た道が、すぐ入れるところ
+   （まんなかに置くと、ふつうの列から のぞいたときに 札が見えない） */
+.path-start.t1, .path-start.t2 {
+  justify-self: start; margin-left: 6%;
+  border-color: var(--tc); max-width: 88%; padding-right: 1rem;
+}
+.ps-text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.ps-text b { font-size: .92rem; }
+.ps-text small { font-size: .66rem; font-weight: 700; color: var(--ink-2); }
+.path-start.locked { border-color: var(--line); background: var(--paper-2); color: #8e9aa3; }
+/* マスの左上の しるし（🔥・🌋）。右上は 時間帯 */
+.sn-tier { position: absolute; top: 5px; left: 7px; font-size: .9rem; line-height: 1; }
+.stage-node.locked .sn-tier, .stage-node[disabled] .sn-tier { opacity: .45; }
+/* うらマップの マスは ふちを その色に。クリアしても せかいの色の中に ふちが残る */
+.node-row.t1 .stage-node:not(.locked):not(.now):not([disabled]) { border-color: #e2583e; }
+.node-row.t2 .stage-node:not(.locked):not(.now):not([disabled]) { border-color: #8a3fc7; }
+.node-row.t2 .stage-node:not(.locked):not(.now):not(.cleared):not([disabled]) { background: #fbf6ff; }
+/* ボスの すみか。ハードは 赤く、ベリーハードは 夜の中で 赤むらさきに 光る */
+.node-row.t1.boss-row::before { background: radial-gradient(closest-side, rgba(190,40,20,.5), rgba(255,120,60,.22) 60%, transparent); }
+.node-row.t2.boss-row::before {
+  width: 220px; height: 200px;
+  background: radial-gradient(closest-side, rgba(255,70,110,.55), rgba(150,40,200,.28) 60%, transparent);
+}
+/* 地図の いちばん おわり（ベリーハードの ボスのあと） */
+.path-goal.final { border-color: var(--wc); }
+.path-goal.final.done { border-style: solid; background: linear-gradient(180deg, #fff, #f3e6ff); }
+
+/* 地図の上の札。いま見ている列（むずかしさ）の しるしで、押すと その列へ よこに うつる */
+.tier-tabs {
+  position: absolute; top: .5rem; left: 50%; transform: translateX(-50%); z-index: 5;
+  display: flex; gap: 3px; padding: 3px; max-width: calc(100% - 1rem);
+  background: rgba(255,255,255,.88); border-radius: 999px;
+  box-shadow: 0 6px 14px -10px rgba(20,40,60,.8);
+}
+.tier-tab {
+  font-family: inherit; font-weight: 700; font-size: .78rem; white-space: nowrap; cursor: pointer;
+  display: flex; align-items: center; gap: .2rem;
+  min-height: 36px; padding: 0 .6rem;
+  border: 0; border-radius: 999px; background: transparent; color: var(--ink-2);
+}
+.tier-tab.on { background: var(--tc); color: #fff; }
+.tier-tab.locked { color: #9aa6ae; }
+.tier-tab.locked.on { background: #8e9aa3; color: #fff; }
+@media (max-width: 360px) { .tier-tab { font-size: .7rem; padding: 0 .42rem; } }
 .stage-node {
   position: relative; width: 92px; height: 98px; border-radius: 28px;
   font-family: inherit; font-weight: 700; color: var(--ink);
@@ -948,7 +1082,7 @@ body {
 }
 .pg-emoji { font-size: 1.8rem; }
 .pg-text { display: flex; flex-direction: column; flex: 1; min-width: 0; text-align: left; }
-.pg-text b { font-size: .85rem; color: var(--ink-2); }
+.pg-text b { font-size: .85rem; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pg-text span { font-size: 1rem; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* つぎの せかいが開いているときは、押せるボタンにする。押すと 道をたどって下へ うつる。
    点線（まだ行けない）と見分けがつくよう、実線・つぎの せかいの色・下むきの ›  */
@@ -977,6 +1111,8 @@ body {
   padding: calc(var(--safe-t) + .4rem) calc(var(--safe-r) + .5rem) calc(var(--safe-b) + .5rem) calc(var(--safe-l) + .5rem);
 }
 .hud { display: flex; align-items: center; gap: .55rem; padding: 0 .2rem; flex: 0 0 auto; }
+/* ハード・ベリーハード。止められないので ‖ のかわりに ←（押すと そのまま マップへ） */
+#btn-pause.quit { color: var(--bad); font-weight: 700; }
 /* ステージ名は「きょうの 5もん」「にがて たいじ」と長いことがある。
    幅が足りないときに譲るのはこちら（3倍の速さで縮む）。「きょう…」に
    なっても困らないが、ピップ列が潰れると 何問目かが分からなくなる */
@@ -1364,6 +1500,10 @@ body {
    ふだんは体力ゲージも「あと○かい」も出さない（数えるものが無いのに
    ゲージだけ出ていると、押すのをためらう） */
 .pet-dock.free .pet-hp, .pet-dock.free .pet-left { display: none; }
+/* ベリーハード。はじめから ヒントが無い面。ボタンは残して（行の高さを変えない）、
+   ゲージは出さずに「ヒント なし」とだけ言う。ペットは おうえんに回る */
+.pet-dock.off .pet-hp, .pet-dock.off .pet-left { display: none; }
+.pet-dock.off .pet-btn { opacity: .5; border-color: var(--line); border-style: dashed; }
 /* 横持ちは縦が足りない。ヒントの絵を開くと、答えのボタンが画面の外へ出るところまで
    詰まっているので、この行はぎりぎりまで低くする（顔・ことば・ゲージは残す） */
 @media (max-height: 480px) {
@@ -1533,6 +1673,9 @@ body {
   background: var(--paper-2); border: 2px solid var(--line); border-radius: 7px; color: #b9c4cc;
 }
 .mini-cell.boss { border-radius: 50%; font-size: .58rem; }
+/* うらマップ。見出しと クリアしたマスの ふちを その色に */
+.mini-map.tier1 .mini-head, .mini-map.tier2 .mini-head { color: var(--tc); }
+.mini-map.tier1 .mini-cell.done, .mini-map.tier2 .mini-cell.done { border-color: var(--tc); }
 .mini-cell.done { background: var(--wc, var(--amber)); border-color: rgba(0,0,0,.14); color: #fff; }
 .mini-cell.now {
   background: #e7f3fb; border-color: var(--blue); color: var(--blue-dark);
@@ -1570,6 +1713,16 @@ body {
   background: #fff6de; border-radius: 12px; padding: .5rem .7rem; text-align: center; width: 100%;
 }
 .replay-note[hidden] { display: none; }
+
+/* ボスを はじめて たおして、右の地図（ハード・ベリーハード）が ひらいたとき */
+.unlock-note {
+  margin: .2rem 0 0; font-size: .9rem; font-weight: 700; color: #fff;
+  background: var(--tc, #e2583e); border-radius: 12px; padding: .5rem .7rem; text-align: center; width: 100%;
+  animation: unlock-pop .5s .9s ease-out both;
+}
+.unlock-note[hidden] { display: none; }
+@keyframes unlock-pop { from { transform: scale(.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .unlock-note { animation: none; } }
 
 /* リザルトの「たまご」カード。コインで いま なにが できるかを、その場で見せる */
 .egg-cta {
