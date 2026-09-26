@@ -13,7 +13,7 @@
  */
 
 import { WORLDS, bossStage, type Fact } from './curriculum';
-import { LIMIT_CHOICES, makeGate, toHalfWidth } from './limit';
+import { EXTEND_CHOICES, LIMIT_CHOICES, makeGate, minuteWord, toHalfWidth } from './limit';
 import { activePet, ownedPets, rarityDef } from './pets';
 import { MASTERED } from './questions';
 import { powerText } from './ranch';
@@ -287,7 +287,13 @@ let gateAnswer = 0;
 let gateMiss = 0;
 let gateLockUntil = 0;
 let gateTimer = 0;
-let gatePass: (() => void) | null = null;
+let gatePass: ((extendMin: number) => void) | null = null;
+/**
+ * のばす分数（おしまいの画面から開いたときだけ使う）。
+ * 前に えらんだ長さを おぼえておく（毎回 同じ長さを のばす家庭が多いはず）
+ */
+let gateExtend: number = EXTEND_CHOICES[0];
+let gateExtendOn = false;
 
 function newGateQuestion(): void {
   // 組は 23とおりしかないので、そのまま引くと 同じ問題が また出ることがある。
@@ -342,7 +348,7 @@ function submitGate(): void {
     gateMiss = 0;
     const pass = gatePass;
     closeGate();
-    pass?.();
+    pass?.(gateExtendOn ? gateExtend : 0);
     return;
   }
   gateMiss++;
@@ -358,12 +364,35 @@ function submitGate(): void {
   if (!input.disabled) input.focus();
 }
 
+/** のばす分数のボタンと、すすむボタンの字を合わせる */
+function renderGateExtend(): void {
+  for (const b of $('gate-chips').querySelectorAll<HTMLButtonElement>('button')) {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.min) === gateExtend));
+  }
+  $('gate-ok').textContent = gateExtendOn
+    ? `${gateExtend}${minuteWord(gateExtend)} のばして もどる`
+    : 'すすむ';
+  $('gate-lead').textContent = gateExtendOn
+    ? '保護者の方へ：のばす時間を選び、かけ算の答えを入力すると、元の画面に戻ります。'
+    : '保護者の方へ：次のかけ算の答えを入力してください。';
+}
+
 /**
  * 関門を出す。解けたら onPass を呼ぶ。
  * @param why 子どもに向けた ひとこと（なぜ ここで止まったのか）。なければ出さない
+ * @param opts.extend おしまいの画面から開いたとき。問題の上に「のばす時間（5〜10分）」を出し、
+ *   解けたら その分数を onPass に渡す。解いたあとに もう1枚 画面をはさまず、
+ *   そのまま元の画面へ戻れるようにするため
  */
-export function openGate(onPass: () => void, why = ''): void {
+export function openGate(
+  onPass: (extendMin: number) => void,
+  why = '',
+  opts: { extend?: boolean } = {},
+): void {
   gatePass = onPass;
+  gateExtendOn = Boolean(opts.extend);
+  $('gate-extend').hidden = !gateExtendOn;
+  renderGateExtend();
   newGateQuestion();
   $('gate-msg').textContent = '';
   const whyEl = $('gate-why');
@@ -377,6 +406,23 @@ export function openGate(onPass: () => void, why = ''): void {
 
 /** 関門のボタン。main.ts から1回だけ呼ぶ */
 export function initGate(): void {
+  const chips = $('gate-chips');
+  for (const min of EXTEND_CHOICES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tm-chip';
+    b.dataset.min = String(min);
+    b.innerHTML = `<b>${min}</b><small>${minuteWord(min)}</small>`;
+    b.addEventListener('click', () => {
+      gateExtend = min;
+      renderGateExtend();
+      // えらんだら、そのまま答えを打てるように 入力へ戻す
+      const input = $<HTMLInputElement>('gate-input');
+      if (!input.disabled) input.focus();
+    });
+    chips.appendChild(b);
+  }
+
   $('gate-ok').addEventListener('click', submitGate);
   $('gate-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {

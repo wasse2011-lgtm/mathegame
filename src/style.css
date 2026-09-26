@@ -2271,6 +2271,7 @@ body {
 }
 .gate-q { margin: 0; text-align: center; font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .gate-input {
+  width: 100%; min-width: 0;
   font-family: inherit; font-size: 1.3rem; text-align: center; min-height: 52px;
   border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
   -webkit-user-select: text; user-select: text;
@@ -2462,7 +2463,15 @@ body {
   white-space: nowrap;
 }
 .tm-big small { font-size: .9rem; margin-left: .15rem; color: var(--ink-2); }
-.tm-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: .25rem; margin-top: .4rem; }
+/* 5〜10分（1分きざみ）の6つで 1行め、15〜60分で 2行め。2行めは まんなかに寄せる */
+.tm-chips, .tm-add, .gate-chips {
+  --chip-gap: .25rem;
+  display: flex; flex-wrap: wrap; justify-content: center; gap: var(--chip-gap);
+}
+.tm-chips { margin-top: .4rem; }
+.tm-chips .tm-chip, .tm-add .tm-chip, .gate-chips .tm-chip {
+  flex: 0 0 calc((100% - 5 * var(--chip-gap)) / 6);
+}
 .tm-chip {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   min-height: 48px; padding: .2rem 0; font-family: inherit; cursor: pointer;
@@ -2473,10 +2482,23 @@ body {
 .tm-chip[aria-pressed="true"] { background: #ff6b5a; border-color: #d9483a; color: #fff; }
 .tm-chip[aria-pressed="true"] small { color: rgba(255,255,255,.9); }
 .tm-start { min-height: 60px; font-size: clamp(1rem, 5vw, 1.3rem); padding: .6rem .5rem; white-space: nowrap; }
-.tm-run { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .35rem; }
+.tm-run { display: flex; flex-direction: column; gap: .35rem; }
 .tm-run[hidden] { display: none; }
-.tm-run .btn { min-height: 44px; font-size: .92rem; padding: 0 .3rem; border: 2px solid var(--line); background: #fff; }
-.tm-run .tm-stop { color: var(--bad-dark); }
+.tm-run-label, .gate-extend-label {
+  margin: .2rem 0 0; text-align: center; font-size: .85rem; font-weight: 700; color: var(--ink-2);
+}
+/* のばす ボタンは 「＋」が付くぶん 字を少し詰める */
+.tm-add .tm-chip b { white-space: nowrap; letter-spacing: -.03em; }
+.tm-add .tm-chip b i { font-style: normal; font-size: .72em; margin-right: .03em; }
+.tm-run .tm-stop {
+  min-height: 44px; font-size: .92rem; padding: 0 .3rem;
+  border: 2px solid var(--line); background: #fff; color: var(--bad-dark);
+}
+
+/* 関門の「のばす じかん」。おしまいの画面から開いたときだけ出る */
+.gate-extend { display: flex; flex-direction: column; gap: .3rem; }
+.gate-extend[hidden] { display: none; }
+.gate-extend-label { margin-top: 0; }
 .tm-note {
   margin: 0; font-size: .74rem; line-height: 1.55; color: var(--ink-2);
   font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
@@ -2544,7 +2566,9 @@ body {
 .overlay {
   position: absolute; inset: 0; z-index: 10;
   background: rgba(24, 40, 52, .55);
-  display: grid; place-items: center;
+  /* 列の幅を画面に しばる。auto のままだと、中の入力欄（ふつう 20文字ぶんの幅を持つ）に
+     押されて シートが画面の右へ はみ出す（320px 幅で 14px はみ出していた） */
+  display: grid; place-items: center; grid-template-columns: minmax(0, 1fr);
   padding: calc(var(--safe-t) + 1rem) 1.2rem calc(var(--safe-b) + 1rem);
 }
 .overlay[hidden] { display: none !important; }

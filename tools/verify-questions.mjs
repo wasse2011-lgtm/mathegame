@@ -827,9 +827,26 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
   eq(lim.dialMinutes(358, 10), 5, '12時の すぐ左 = 5分（0 にはしない）');
   eq(lim.dialMinutes(358, 55), 60, '60分から 12時を こえても 5分に跳ばない');
   eq(lim.dialMinutes(3, 5), 5, '5分から 12時を こえても 60分に跳ばない');
+  // 10分までは 1分きざみ
+  eq(lim.dialMinutes(318, 5), 7, '文字盤 7分の位置 = 7分');
+  eq(lim.dialMinutes(300, 5), 10, '文字盤 10分の位置 = 10分');
+  eq(lim.dialMinutes(297, 10), 10, '10分と 11分の あいだ は 10分（そこから上は 5分きざみ）');
+  eq(lim.dialMinutes(282, 10), 15, '文字盤 13分の位置 = 15分');
+  // えらべる分数。10分までは 1分きざみ、そこから上は 文字盤の 5分の目もりに のるもの
   for (const m of lim.TIMER_CHOICES) {
-    if (m < 5 || m > 60 || m % 5) bad.push(`タイマーの選択肢が 文字盤に のらない: ${m}`);
+    if (m < 5 || m > 60 || (m > 10 && m % 5)) bad.push(`タイマーの選択肢が 文字盤に のらない: ${m}`);
   }
+  for (const n of [6, 7, 8, 9]) {
+    if (!lim.TIMER_CHOICES.includes(n)) bad.push(`タイマーに ${n}分が ない`);
+  }
+  eq(lim.EXTEND_CHOICES.join(','), '5,6,7,8,9,10', 'のばす分数は 5〜10分の 1分きざみ');
+
+  // 1日の時間を こえて ステージの終わりを待ったあとに のばすと、「いまから ○分」になる
+  lim.save.settings.dailyLimitMin = 30;
+  lim.profile().play = { date: lim.today(), sec: 32 * 60, extra: 0 };
+  lim.extendToday(5 * 60);
+  eq(lim.remainingToday(), 5 * 60, '2分 こえてから ＋5分 → のこり 5分');
+  lim.save.settings.dailyLimitMin = 0;
 
   if (bad.length) {
     failed++;
