@@ -1050,8 +1050,124 @@ function renderSpend(): void {
 
 // ---------------------------------------------------------------- たまご
 
-function showRoll(roll: PetRoll): void {
+/**
+ * たまごの色。RARITIES と同じ順（ふつう・レア・スーパーレア・でんせつ）。
+ *
+ * たまごは どれも白で出てきて、引いたレア度の段まで 1段ずつ色が変わる
+ * （レアは あお、スーパーレアは あお→むらさき、でんせつは あお→むらさき→きん）。
+ * 段の数だけ ゆれる回数も のびるので、レア度が高いほど 演出が長く・はでになる。
+ */
+const EGG_TINTS: { egg: string; hi: string; spot: string }[] = [
+  { egg: '#fff1d6', hi: '#ffffff', spot: '#f0cf92' },
+  { egg: '#8fcaf3', hi: '#ecf7ff', spot: '#4aa3dd' },
+  { egg: '#c49de6', hi: '#f8f0ff', spot: '#9a56bd' },
+  { egg: '#ffcc4a', hi: '#fff8d8', spot: '#e8912a' },
+];
+
+/** 段が上がったときの ひとこと。3段めは でんせつのときだけ出る */
+const EGG_STEP_SAY = ['', 'ひかった！', 'また かわった！', 'こ、これは…！'];
+
+/** 段の 光。ふつうの たまごは 光らせない */
+const EGG_GLOW = ['transparent', 'rgba(74,163,221,.95)', 'rgba(168,106,208,.95)', 'rgba(255,190,60,1)'];
+
+/** 演出の タイマー。とばしたとき・閉じたときに まとめて止める */
+let hatchTimers: number[] = [];
+/** たまごの演出中なら、タップで とばしたときに出す結果 */
+let skipHatch: (() => void) | null = null;
+/**
+ * 結果を出した時刻。すぐあとの タップでは「やったー！」を押させない。
+ * たまごを とばした指が そのまま ボタンの上に来て、結果を見ないまま閉じてしまう
+ */
+let revealedAt = 0;
+
+function stopHatch(): void {
+  for (const t of hatchTimers) clearTimeout(t);
+  hatchTimers = [];
+  skipHatch = null;
+}
+
+function hatchLater(fn: () => void, ms: number): void {
+  hatchTimers.push(window.setTimeout(fn, ms));
+}
+
+const stillMotion = (): boolean =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** たまご そのものの動き。重ねると あとの規則が勝つので、いつも1つだけ付ける */
+function eggMove(egg: HTMLElement, move: 'in' | 'wobble' | 'shake'): void {
+  egg.classList.remove('in', 'wobble', 'shake');
+  void egg.offsetWidth;
+  egg.classList.add(move);
+}
+
+function hatchFlash(color: string): void {
+  const f = $('hatch-flash');
+  f.style.setProperty('--flash', color);
+  f.classList.remove('on');
+  void f.offsetWidth;
+  f.classList.add('on');
+}
+
+/** きらきら（ふつうは 紙ふぶき）を とばす。数と色は レア度で変える */
+function hatchBurst(rank: number, color: string): void {
+  const top = $('hatch-top');
+  const n = [12, 16, 24, 36][rank];
+  const palette =
+    rank === 0 ? ['#ff8fa3', '#ffd257', '#8fe3a0', '#8fc8ff', '#c9a0ff'] : [color, '#ffffff', color, '#fff3b0'];
+  for (let i = 0; i < n; i++) {
+    const b = document.createElement('i');
+    b.className = rank === 0 ? 'hatch-bit paper' : 'hatch-bit';
+    if (rank > 0) b.textContent = rank === 3 && i % 3 === 0 ? '★' : '✦';
+    const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+    const dist = 90 + Math.random() * (60 + rank * 40);
+    b.style.setProperty('--dx', `${Math.round(Math.cos(a) * dist)}px`);
+    b.style.setProperty('--dy', `${Math.round(Math.sin(a) * dist)}px`);
+    b.style.setProperty('--r', `${Math.round(Math.random() * 540 - 270)}deg`);
+    b.style.setProperty('--c', palette[i % palette.length]);
+    b.style.animationDelay = `${(Math.random() * 0.12).toFixed(2)}s`;
+    top.appendChild(b);
+  }
+  // でんせつは 金の ほしが 上から ふってくる
+  if (rank === 3) {
+    for (let i = 0; i < 18; i++) {
+      const b = document.createElement('i');
+      b.className = 'hatch-bit rain';
+      b.textContent = i % 2 ? '★' : '✦';
+      b.style.setProperty('--x', `${Math.round(Math.random() * 100)}%`);
+      b.style.setProperty('--r', `${Math.round(Math.random() * 360)}deg`);
+      b.style.setProperty('--c', i % 3 ? '#ffd257' : '#ffffff');
+      b.style.animationDelay = `${(0.2 + Math.random() * 1.4).toFixed(2)}s`;
+      top.appendChild(b);
+    }
+  }
+}
+
+function clearBits(): void {
+  $('hatch-top').querySelectorAll('.hatch-bit').forEach((b) => b.remove());
+}
+
+/**
+ * たまごが かえる。レア度が高いほど 長く・はでにする。
+ *
+ * 1. 白い たまごが出て、コトコト ゆれる
+ * 2. レア度の段の数だけ、ゆれて 色が変わる（光・うしろの光のすじも 段ごとに ふえる）
+ * 3. ひびが入って われる → 結果の札。うしろの光と きらきらは レア度で変える
+ *
+ * かえった子は rollPetEgg の時点で もう記録してある。演出は見せかただけで、
+ * 途中で何が起きても なかまは なくならない。何回も割る子のために、
+ * 画面を タップすると すぐ結果へ とべる。動きを へらす設定のときは たまごを出さない。
+ *
+ * `after` は 結果を出したときに呼ぶ。牧場と一覧を 先に作りなおすと、
+ * たまごが われる前に うしろの牧場を 新しい子が歩きだして 中身が ばれる。
+ */
+function showRoll(roll: PetRoll, after: () => void): void {
+  stopHatch();
+  clearBits();
   const r = rarityDef(roll.pet.rarity);
+  const rank = Math.max(
+    RARITIES.findIndex((x) => x.id === roll.pet.rarity),
+    0,
+  );
   const badge = $('pet-rarity');
   badge.textContent = r.label;
   badge.style.setProperty('--rc', r.color);
@@ -1062,14 +1178,94 @@ function showRoll(roll: PetRoll): void {
     : `${roll.pet.note}${roll.equipped ? '' : '（つれて歩く子は そのまま）'}`;
   $('pet-result-head').textContent = roll.dup ? 'また あえたね！' : 'なかまに なった！';
 
-  $('overlay-pet').classList.toggle('legend', roll.pet.rarity === 'ur');
+  const ov = $('overlay-pet');
+  ov.classList.toggle('legend', roll.pet.rarity === 'ur');
   const c = $<HTMLCanvasElement>('pet-result-canvas');
   paintPetIcon(c, roll.pet.art, 132);
-  $('overlay-pet').hidden = false;
 
-  if (roll.pet.rarity === 'ur') sfx.legend();
-  else if (roll.pet.rarity === 'sr') sfx.fanfare();
-  else sfx.crack();
+  const sheet = $('pet-sheet');
+  const stage = $('hatch-stage');
+  const egg = $('hatch-egg');
+  const say = $('hatch-say');
+
+  /** たまごの色・光と、うしろの光（光のすじは スーパーレアの段から）を その段に そろえる */
+  const tint = (step: number): void => {
+    const t = EGG_TINTS[step];
+    egg.style.setProperty('--egg', t.egg);
+    egg.style.setProperty('--egg-hi', t.hi);
+    egg.style.setProperty('--egg-spot', t.spot);
+    egg.style.setProperty('--glow', EGG_GLOW[step]);
+    egg.style.setProperty('--glow-r', `${step * 9}px`);
+    ov.dataset.fx = RARITIES[step].id;
+    ov.style.setProperty('--fx', RARITIES[step].color);
+  };
+
+  let opened = false;
+  const reveal = (): void => {
+    stopHatch();
+    tint(rank);
+    ov.classList.remove('hatching');
+    stage.hidden = true;
+    sheet.hidden = false;
+    hatchBurst(rank, r.color);
+    revealedAt = performance.now();
+    if (rank === 3) sfx.legend();
+    else if (rank === 2) sfx.fanfare();
+    else {
+      if (!opened) sfx.crack();
+      if (rank === 1) sfx.sparkle();
+    }
+    after();
+  };
+
+  ov.hidden = false;
+  if (stillMotion()) {
+    reveal();
+    return;
+  }
+
+  ov.classList.add('hatching');
+  sheet.hidden = true;
+  stage.hidden = false;
+  egg.classList.remove('cracking', 'open');
+  tint(0);
+  eggMove(egg, 'in');
+  say.textContent = 'あれ？ たまごが…';
+  skipHatch = reveal;
+
+  let t = 450;
+  hatchLater(() => {
+    eggMove(egg, 'wobble');
+    sfx.eggWobble();
+  }, t);
+  t += 700;
+  for (let s = 1; s <= rank; s++) {
+    const step = s;
+    hatchLater(() => {
+      tint(step);
+      eggMove(egg, 'shake');
+      hatchFlash(EGG_TINTS[step].hi);
+      say.textContent = EGG_STEP_SAY[step];
+      sfx.eggGlow(step);
+    }, t);
+    // でんせつの 手前は ひと呼吸 長く ためる
+    t += step === 2 && rank === 3 ? 1150 : 850;
+  }
+  hatchLater(() => {
+    egg.classList.add('cracking');
+    eggMove(egg, 'wobble');
+    say.textContent = 'うまれる！';
+    sfx.eggWobble();
+  }, t);
+  t += 600;
+  hatchLater(() => {
+    opened = true;
+    egg.classList.add('open');
+    hatchFlash(rank === 3 ? '#fff6d0' : '#ffffff');
+    sfx.crack();
+  }, t);
+  t += 330;
+  hatchLater(reveal, t);
 }
 
 export function initRanch(): void {
@@ -1083,10 +1279,14 @@ export function initRanch(): void {
   const open = (shiny: boolean) => {
     const roll = rollPetEgg(shiny);
     if (!roll) return;
-    showRoll(roll);
-    renderRanch();
-    onChange?.();
+    showRoll(roll, () => {
+      renderRanch();
+      onChange?.();
+    });
   };
+
+  // たまごの演出中は、どこを タップしても すぐ結果へ とぶ
+  $('overlay-pet').addEventListener('pointerdown', () => skipHatch?.());
 
   $('pet-egg').addEventListener('click', () => open(false));
   $('pet-egg-shiny').addEventListener('click', () => open(true));
@@ -1136,7 +1336,10 @@ export function initRanch(): void {
     onChange?.();
   });
   $('pet-close').addEventListener('click', () => {
+    if (performance.now() - revealedAt < 600) return;
     sfx.tap();
+    stopHatch();
+    clearBits();
     $('overlay-pet').hidden = true;
   });
 

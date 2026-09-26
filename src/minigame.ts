@@ -1037,15 +1037,19 @@ export function rulerPlan(pool: Fact[], max: number, rounds = RULER_ROUNDS): Rul
 }
 
 /**
- * 置いた旗の近さ。
+ * 置いた旗の近さ。答えの右と左で 同じ幅にする。
  *
- * 「ぴったり」は、いちばん近い整数が答えになる幅（±0.5）を下限にして、
- * 0〜100 のときだけ画面の細かさに合わせて広げる。1.5px を狙わせない。
+ * 0〜10・0〜20 は 1ずつの目もりなので、「ぴったり」は いちばん近い整数が答えになる幅（±0.5）。
+ * 7 なら 6.5〜7.5 が ぴったり。はずれは 1 はなれたところから（0〜10 なら 6 以下・8 以上）で、
+ * あいだが「おしい」。0〜20 は 同じ長さの線に 倍の数が入るので、はずれは 2 はなれてから。
+ *
+ * 0〜100 は 1 が 4px ほどしかないので、ぴったりを画面の細かさに合わせて広げる
+ * （目もりは 10ずつ）。1.5px を狙わせない。
  */
 export function bandFor(guess: number, answer: number, max: number): RulerBand {
   const err = Math.abs(guess - answer);
-  if (err <= Math.max(0.5, max * 0.04)) return 'hit';
-  if (err <= Math.max(1.5, max * 0.1)) return 'near';
+  if (err <= (max > 20 ? max * 0.04 : 0.5)) return 'hit';
+  if (err < Math.max(1, max * 0.1)) return 'near';
   return 'far';
 }
 
@@ -1090,10 +1094,18 @@ function startRuler(): void {
   ticks.className = 'ruler-ticks';
   const fill = document.createElement('div');
   fill.className = 'ruler-fill';
+  // 旗は ぼう・ぬの・足もとの点を CSS で描く。ぼうの まん中が 判定に使う場所そのもの。
+  // 🚩 の絵文字は ぼうが字の左はしにあるので、まん中を合わせると ぼうが 判定の場所より
+  // 13px ほど左に出ていた（Noto Color Emoji で測った値。0〜10 で 約0.35）。子どもは ぼうを見て合わせるので、
+  // 7 に立てたつもりが 7.4 と判定され、「少し右で おしい・1 近く左でも ぴったり」になっていた
   const flag = document.createElement('div');
   flag.className = 'ruler-flag';
   flag.hidden = true;
-  flag.textContent = '🚩';
+  flag.append(
+    Object.assign(document.createElement('i'), { className: 'rf-pole' }),
+    Object.assign(document.createElement('i'), { className: 'rf-cloth' }),
+    Object.assign(document.createElement('i'), { className: 'rf-foot' }),
+  );
   const truth = document.createElement('div');
   truth.className = 'ruler-true';
   truth.hidden = true;
@@ -1141,6 +1153,8 @@ function startRuler(): void {
     guess = Math.min(Math.max(v, 0), max);
     flag.hidden = false;
     flag.style.left = `${(guess / max) * 100}%`;
+    // 右はしの近くでは ぬのを左へ なびかせる。右に出すと 線の外（画面のふち）に はみ出す
+    flag.classList.toggle('flip', guess > max * 0.8);
     // 置きなおすたびに はたが はずむ。「いま ここに置いた」を目で分かるようにする
     flag.classList.remove('drop');
     void flag.offsetWidth;

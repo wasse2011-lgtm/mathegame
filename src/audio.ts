@@ -383,6 +383,26 @@ export const sfx = {
       tone(f, 0.08, { at: 0.18 + i * 0.07, wave: 'triangle', vol: 0.12 });
     });
   },
+  /** たまごが ゆれる コトコト（かえる前） */
+  eggWobble(): void {
+    tone(330, 0.06, { wave: 'triangle', vol: 0.24, to: 250 });
+    tone(392, 0.06, { at: 0.16, wave: 'triangle', vol: 0.22, to: 290 });
+  },
+  /**
+   * たまごの色が 1段 かわった（ふつう → レア → スーパーレア → でんせつ）。
+   * 段が上がるほど 高く鳴らして、「まだ上がる」を耳でも分かるようにする
+   */
+  eggGlow(step: number): void {
+    const base = [587.33, 783.99, 1046.5][Math.min(Math.max(step, 1), 3) - 1];
+    tone(base, 0.28, { wave: 'sine', vol: 0.3, to: base * 1.5 });
+    tone(base * 2, 0.2, { at: 0.1, wave: 'triangle', vol: 0.14 });
+  },
+  /** レアの子が出た。スーパーレア（fanfare）より ひかえめな きらきら */
+  sparkle(): void {
+    [1318.5, 1760, 2093].forEach((f, i) => {
+      tone(f, 0.14, { at: 0.12 + i * 0.07, wave: 'triangle', vol: 0.22 });
+    });
+  },
   /** ガチャのたまごが割れる */
   crack(): void {
     noise(0.14, 0.26);
