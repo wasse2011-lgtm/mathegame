@@ -20,6 +20,7 @@ import { powerText } from './ranch';
 import {
   SAVE_KEY,
   extendToday,
+  freeToday,
   freezeSave,
   isEmptySlot,
   persist,
@@ -30,6 +31,7 @@ import {
   extendSession,
   save,
   sessionLeft,
+  setFreeToday,
   slots,
   stageStars,
   today,
@@ -160,10 +162,12 @@ function renderLimit(): void {
     const who = used.length > 1 ? `${q.name}：` : '';
     const played = `きょう ${minText(playedToday(q))} あそびました`;
     const extra = q.play.date === today() ? q.play.extra : 0;
-    row.textContent = limit
-      ? `${who}${played}。のこり ${leftText(remainingToday(q))}` +
-        (extra ? `（きょうだけ ＋${Math.round(extra / 60)}分）` : '')
-      : `${who}${played}。`;
+    row.textContent = !limit
+      ? `${who}${played}。`
+      : freeToday(q)
+        ? `${who}${played}。きょうは 制限なし（おしまいの画面で「このまま」を選びました）`
+        : `${who}${played}。のこり ${leftText(remainingToday(q))}` +
+          (extra ? `（きょうだけ ＋${Math.round(extra / 60)}分）` : '');
     if (limit && remainingToday(q) <= 0) row.className = 'over';
     now.appendChild(row);
   }
@@ -174,24 +178,30 @@ function renderLimit(): void {
   }
 
   const p = profile();
+  const free = freeToday(p);
   const extend = $<HTMLButtonElement>('p-extend');
-  extend.disabled = !limit;
+  // 外している日は のこりが無いので、足しても変わらない
+  extend.disabled = !limit || free;
   extend.textContent = used.length > 1
     ? `${p.name} に きょうだけ ＋${EXTEND_MIN}分`
     : `きょうだけ ＋${EXTEND_MIN}分`;
   const extra = p.play.date === today() ? p.play.extra : 0;
-  $('p-extend-undo').hidden = !limit || extra <= 0;
+  const undo = $('p-extend-undo');
+  undo.hidden = !limit || (extra <= 0 && !free);
+  undo.textContent = free ? '制限を元に戻す' : '延長を取り消す';
 }
 
-/** タイマー（いまから ○分）の いまの状態 */
+/** タイマー（いまから ○分）の いまの状態。タイマーは きろくごとなので、いま遊んでいる きろくのもの */
 function renderTimerRow(): void {
-  const t = save.timer;
+  const p = profile();
+  const t = p.timer;
   const left = sessionLeft();
-  $('p-timer-now').textContent = !t
+  const who = slots().filter((q) => !isEmptySlot(q)).length > 1 ? `${p.name}：` : '';
+  $('p-timer-now').textContent = who + (!t
     ? 'いまは かかっていません。'
     : left > 0
       ? `かかっています。のこり ${leftText(left)}（ぜんぶで ${Math.round(t.totalMs / 60_000)}分）`
-      : '時間になりました（お子さんには「じかんに なったよ」の画面が出ています）。';
+      : '時間になりました（お子さんには「じかんに なったよ」の画面が出ています）。');
   $('p-timer-set').textContent = t ? 'かけなおす' : 'タイマーを かける';
   $('p-timer-add').hidden = !t;
   $('p-timer-stop').hidden = !t;
@@ -201,7 +211,7 @@ function renderTimerRow(): void {
 export function initParent(onChange: () => void): void {
   // ここは関門の内側なので、かかっていても そのまま開く
   $('p-timer-set').addEventListener('click', () => {
-    openTimerSheet(save.timer ? 'running' : 'setup');
+    openTimerSheet(profile().timer ? 'running' : 'setup');
   });
   $('p-timer-add').addEventListener('click', () => {
     extendSession(10);
@@ -237,9 +247,11 @@ export function initParent(onChange: () => void): void {
     onChange();
   });
 
+  // きょうだけ足した時間も、「このまま」で外した制限も、まとめて元に戻す
   $('p-extend-undo').addEventListener('click', () => {
     const p = profile();
     extendToday(-(p.play.date === today() ? p.play.extra : 0));
+    if (freeToday(p)) setFreeToday(false);
     renderLimit();
     onChange();
   });
@@ -297,6 +309,14 @@ let gatePass: ((extendMin: number) => void) | null = null;
  */
 let gateExtend: number = EXTEND_CHOICES[0];
 let gateExtendOn = false;
+/**
+ * おしまいの画面から開いたときに、とおったあと どうするか。
+ * 'home' は「このまま スタート画面へ」、'extend' は「じかんを のばして もどる」。
+ * 開くたびに 'home' から（のばすかどうかは そのつど えらんでもらう）
+ */
+let gateMode: 'home' | 'extend' = 'home';
+/** 「このまま スタート画面へ」で 何が起きるか（おとな向けの説明の うしろ半分。main.ts が決める） */
+let gateHomeLead = '';
 
 function newGateQuestion(): void {
   // 組は 23とおりしかないので、そのまま引くと 同じ問題が また出ることがある。
@@ -351,7 +371,7 @@ function submitGate(): void {
     gateMiss = 0;
     const pass = gatePass;
     closeGate();
-    pass?.(gateExtendOn ? gateExtend : 0);
+    pass?.(gateExtendOn && gateMode === 'extend' ? gateExtend : 0);
     return;
   }
   gateMiss++;
@@ -367,33 +387,56 @@ function submitGate(): void {
   if (!input.disabled) input.focus();
 }
 
-/** のばす分数のボタンと、すすむボタンの字を合わせる */
+/** 2つの えらびかた・のばす分数のボタンと、すすむボタンの字を合わせる */
 function renderGateExtend(): void {
+  const ext = gateMode === 'extend';
+  $('gate-opt-home').setAttribute('aria-checked', String(!ext));
+  $('gate-opt-ext').setAttribute('aria-checked', String(ext));
+  // 「このまま」のあいだは 分数を うすく出す（押せば「のばして もどる」に切りかわる）
+  $('gate-chips').classList.toggle('off', !ext);
   for (const b of $('gate-chips').querySelectorAll<HTMLButtonElement>('button')) {
-    b.setAttribute('aria-pressed', String(Number(b.dataset.min) === gateExtend));
+    b.setAttribute('aria-pressed', String(ext && Number(b.dataset.min) === gateExtend));
   }
-  $('gate-ok').textContent = gateExtendOn
-    ? `${gateExtend}${minuteWord(gateExtend)} のばして もどる`
-    : 'すすむ';
-  $('gate-lead').textContent = gateExtendOn
-    ? '保護者の方へ：のばす時間を選び、かけ算の答えを入力すると、元の画面に戻ります。'
-    : '保護者の方へ：次のかけ算の答えを入力してください。';
+  $('gate-ok').textContent = !gateExtendOn
+    ? 'すすむ'
+    : ext
+      ? `${gateExtend}${minuteWord(gateExtend)} のばして もどる`
+      : 'スタート画面へ';
+  $('gate-lead').textContent = !gateExtendOn
+    ? '保護者の方へ：次のかけ算の答えを入力してください。'
+    : ext
+      ? '保護者の方へ：かけ算の答えを入力すると、選んだ時間だけ延ばして元の画面に戻ります。'
+      : `保護者の方へ：かけ算の答えを入力すると、${gateHomeLead || 'スタート画面に戻ります。'}`;
+}
+
+/** 2つの えらびかた・分数を押したあと。そのまま答えを打てるように 入力へ戻す */
+function pickGate(mode: 'home' | 'extend', min = gateExtend): void {
+  gateMode = mode;
+  gateExtend = min;
+  renderGateExtend();
+  const input = $<HTMLInputElement>('gate-input');
+  if (!input.disabled) input.focus();
 }
 
 /**
  * 関門を出す。解けたら onPass を呼ぶ。
  * @param why 子どもに向けた ひとこと（なぜ ここで止まったのか）。なければ出さない
- * @param opts.extend おしまいの画面から開いたとき。問題の上に「のばす時間（5〜10分）」を出し、
- *   解けたら その分数を onPass に渡す。解いたあとに もう1枚 画面をはさまず、
- *   そのまま元の画面へ戻れるようにするため
+ * @param opts.extend おしまいの画面から開いたとき。問題の上で「このまま スタート画面へ」
+ *   （ふだんは こちら）か「じかんを のばして もどる（5〜10分）」かを えらばせ、
+ *   解けたら onPass に のばす分数を渡す（このまま なら 0）。解いたあとに
+ *   もう1枚 画面をはさまないため
+ * @param opts.homeLead 「このまま」で何が起きるか（「タイマーを止めてスタート画面に戻ります。」など。
+ *   おとな向けの説明の うしろ半分に入れる）
  */
 export function openGate(
   onPass: (extendMin: number) => void,
   why = '',
-  opts: { extend?: boolean } = {},
+  opts: { extend?: boolean; homeLead?: string } = {},
 ): void {
   gatePass = onPass;
   gateExtendOn = Boolean(opts.extend);
+  gateMode = 'home';
+  gateHomeLead = opts.homeLead ?? '';
   $('gate-extend').hidden = !gateExtendOn;
   renderGateExtend();
   newGateQuestion();
@@ -416,15 +459,11 @@ export function initGate(): void {
     b.className = 'tm-chip';
     b.dataset.min = String(min);
     b.innerHTML = `<b>${min}</b><small>${minuteWord(min)}</small>`;
-    b.addEventListener('click', () => {
-      gateExtend = min;
-      renderGateExtend();
-      // えらんだら、そのまま答えを打てるように 入力へ戻す
-      const input = $<HTMLInputElement>('gate-input');
-      if (!input.disabled) input.focus();
-    });
+    b.addEventListener('click', () => pickGate('extend', min));
     chips.appendChild(b);
   }
+  $('gate-opt-home').addEventListener('click', () => pickGate('home'));
+  $('gate-opt-ext').addEventListener('click', () => pickGate('extend'));
 
   $('gate-ok').addEventListener('click', submitGate);
   $('gate-input').addEventListener('keydown', (e) => {

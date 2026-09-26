@@ -702,9 +702,9 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
     `export * from './src/limit';
      export {
        save, profile, playedToday, allowanceToday, remainingToday, overDailyLimit,
-       extendToday, addPlayTime, clearSlot, today,
+       extendToday, addPlayTime, clearSlot, today, freeToday, setFreeToday,
        startSession, extendSession, clearSession, tickSession, sessionLeft, sessionOver,
-       limitView, timeUp,
+       limitView, timeUp, limitsOn,
      } from './src/save';`,
   );
   const bad = [];
@@ -791,18 +791,18 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
   // おわってから のばすと、のばした長さが「まるまる1本」（輪は満タンから）
   lim.extendSession(10, T0 - 39 * MIN);
   eq(lim.sessionLeft(T0 - 39 * MIN), 600, 'おわってから ＋10分');
-  eq(lim.save.timer.totalMs, 10 * MIN, 'おわってから のばすと 長さは のばしたぶん');
+  eq(lim.profile().timer.totalMs, 10 * MIN, 'おわってから のばすと 長さは のばしたぶん');
   // 走っているときに のばすと、長さに足す
   lim.extendSession(5, T0 - 39 * MIN);
-  eq(lim.save.timer.totalMs, 15 * MIN, '走っているときに ＋5分');
+  eq(lim.profile().timer.totalMs, 15 * MIN, '走っているときに ＋5分');
   // おわったまま日付が変わったら 外れる
   lim.tickSession(T0 + 24 * 60 * MIN);
-  eq(lim.save.timer, null, 'おわったまま つぎの日');
+  eq(lim.profile().timer, null, 'おわったまま つぎの日');
   // 走っているあいだは 日付が変わっても 外れない（23:50 に 30分かけて 0:05 に見る）
   const late = new Date(2030, 0, 15, 23, 50).getTime();
   lim.startSession(30, late);
   lim.tickSession(late + 15 * MIN);
-  eq(lim.save.timer !== null && lim.sessionLeft(late + 15 * MIN) === 900, true, '日付をまたいで 走っているタイマーは のこる');
+  eq(lim.profile().timer !== null && lim.sessionLeft(late + 15 * MIN) === 900, true, '日付をまたいで 走っているタイマーは のこる');
   // 1日の時間と両方あるときは、先に終わるほうを見せる
   lim.save.settings.dailyLimitMin = 30;
   lim.profile().play = { date: lim.today(), sec: 25 * 60, extra: 0 };
@@ -847,6 +847,61 @@ console.log('\nJ) 1日に あそべる時間と、おうちのかたの関門');
   lim.extendToday(5 * 60);
   eq(lim.remainingToday(), 5 * 60, '2分 こえてから ＋5分 → のこり 5分');
   lim.save.settings.dailyLimitMin = 0;
+
+  // おしまいの画面の「このまま スタート画面へ」。1日の時間は きょうだけ外す（あしたは元どおり）
+  lim.save.settings.dailyLimitMin = 30;
+  lim.profile().play = { date: lim.today(), sec: 31 * 60, extra: 0 };
+  eq(lim.overDailyLimit(), true, '外す前は おしまい');
+  lim.setFreeToday(true);
+  eq(lim.overDailyLimit(), false, 'このまま → おしまいで なくなる');
+  eq(lim.remainingToday(), Infinity, 'このまま → のこりは 制限なし');
+  eq(lim.limitView(), null, 'このまま → 1日の時計を出さない');
+  lim.extendToday(5 * 60);
+  eq(lim.profile().play.extra, 5 * 60, '外している日に のばしても こえたぶんを足さない');
+  lim.setFreeToday(false);
+  lim.extendToday(-99999);
+  eq(lim.overDailyLimit(), true, 'もどすと また おしまい');
+  lim.setFreeToday(true);
+  lim.profile().play.date = '2000-01-01';
+  eq(lim.freeToday(), false, '外したのは その日だけ');
+  eq(lim.allowanceToday(), 1800, 'つぎの日は 元の長さ');
+  lim.addPlayTime(1);
+  eq(lim.profile().play.free, undefined, '日付が変わったら 印は消える');
+  lim.save.settings.dailyLimitMin = 0;
+
+  // タイマーは きろくごと。おわっても ほかの きろく（きょうだい）は 遊べる
+  lim.save.players[0].name = 'あに';
+  lim.save.players[1].name = 'いもうと';
+  lim.save.active = 0;
+  lim.startSession(10, T0);
+  lim.save.active = 1;
+  eq(lim.sessionLeft(T0), Infinity, 'ほかの きろくには かかっていない');
+  eq(lim.limitView(T0), null, 'ほかの きろくには 時計を出さない');
+  // いもうとが遊んでいるあいだも、あにの タイマーは 実時間で減る
+  lim.tickSession(T0 + 11 * MIN);
+  eq(lim.timeUp(T0 + 11 * MIN), false, 'ほかの きろくは 遊べる');
+  eq(lim.timeUp(T0 + 11 * MIN, lim.save.players[0]), true, 'あにの きろくは おわっている');
+  lim.save.active = 0;
+  eq(lim.timeUp(T0 + 11 * MIN), true, 'あにに もどると おしまい');
+  eq(lim.limitsOn(), true, 'タイマーが のこっているあいだは 新しい きろくに関門');
+  // けしても タイマーは残す（けして 同じ枠で作りなおす、を防ぐ）
+  lim.clearSlot(0);
+  eq(lim.save.players[0].timer !== null, true, 'けしても タイマーは残る');
+  eq(lim.save.active, 1, 'けしたら のこっている きろくへ');
+  lim.save.players[0].timer = null;
+  eq(lim.limitsOn(), false, 'どこにも 制限が なければ 新しい きろくに関門なし');
+
+  // 前の版の「端末に1つ」の タイマーは、そのとき遊んでいた きろくに移る
+  const getItem = globalThis.localStorage.getItem;
+  globalThis.localStorage.getItem = () => JSON.stringify({
+    v: 1, active: 1, players: [{ name: 'あ' }, { name: 'い' }], settings: {}, econ: 2,
+    timer: { leftMs: 60_000, totalMs: 600_000, seenAt: T0, day: '2030-01-15' },
+  });
+  const mig = await loadTogether('limit-migrate', `export { save } from './src/save';`);
+  globalThis.localStorage.getItem = getItem;
+  eq(mig.save.players[1].timer?.totalMs, 600_000, '前の版の タイマーは 遊んでいた きろくへ');
+  eq(mig.save.players[0].timer, null, 'ほかの きろくには 移さない');
+  eq('timer' in mig.save, false, '端末の タイマーは もう持たない');
 
   if (bad.length) {
     failed++;

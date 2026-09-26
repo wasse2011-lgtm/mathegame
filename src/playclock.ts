@@ -19,7 +19,7 @@
  */
 
 import { handAngle, minutesLeft, remainText, timeLevel, wedgePath } from './limit';
-import { addPlayTime, limitView, persist, save, sessionLeft, tickSession } from './save';
+import { addPlayTime, limitView, persist, profile, save, sessionLeft, tickSession } from './save';
 
 /** さわらないまま これだけ たったら数えるのをやめる */
 const IDLE_MS = 90_000;
@@ -188,7 +188,7 @@ export function renderTimeBadges(): void {
 
   if (paintButton) {
     const btn = document.getElementById('btn-timer');
-    const t = save.timer;
+    const t = profile().timer;
     const p = t ? Math.min(1, sessionLeft() / (t.totalMs / 1000)) : 0;
     if (btn) {
       btn.dataset.level = t ? timeLevel(sessionLeft(), p) : 'idle';
@@ -233,7 +233,7 @@ function tick(): void {
     }
   }
   // タイマーは のこりと時刻を組で持っているので、書くのが遅れても ずれない
-  if ((dirty || save.timer) && now - lastSave >= SAVE_EVERY_MS) {
+  if ((dirty || save.players.some((q) => q.timer)) && now - lastSave >= SAVE_EVERY_MS) {
     lastSave = now;
     dirty = false;
     persist();
