@@ -1468,22 +1468,28 @@ if (typeof ResizeObserver === 'function') new ResizeObserver(() => drawRoad()).o
 
 /** 1列（1つの むずかしさの地図）の はば（px）。fitBoard が決める */
 let colW = 0;
+/** 1列の はばの上限（px）。iPad Pro 12.9 の横持ちまでは 画面の 86% のまま */
+const BOARD_COL_MAX = 1200;
 
 function pathScroller(): HTMLElement {
   return $('stage-path').parentElement as HTMLElement;
 }
 
 /**
- * 1列の はばを決める。画面より少し せまくして、となりの列の はしを のぞかせる。
+ * 1列の はばを決める。画面より少し せまくして（86%）、となりの列の はしを のぞかせる。
  * のぞいていると、よこに送らなくても「右に つづいている」が見える。
- * 広い画面（横持ち・タブレット）では 560px までにして、となりの列を大きく見せる。
+ *
+ * iPad の横持ちでも 画面の 86% にする。以前は 560px で頭打ちにしていたので、
+ * 1180px の画面では 1列が 半分以下になり、地図が せまく、となりの列ばかり大きく見えた。
+ * 上限は iPad Pro 12.9 の横持ち（1列 約1150px）が入る 1200px。それより広い画面では
+ * 道の ぐねぐね（はばの ±20%）が 間のびするので そこで止める。
  *
  * @returns はばが決められたか（地図が まだ画面に出ていないと 0 になる）
  */
 function fitBoard(): boolean {
   const W = pathScroller().clientWidth;
   if (W < 2) return false;
-  const next = Math.round(Math.min(W * 0.86, 560));
+  const next = Math.round(Math.min(W * 0.86, BOARD_COL_MAX));
   if (next !== colW) {
     colW = next;
     $('stage-path').style.setProperty('--colw', `${colW}px`);
