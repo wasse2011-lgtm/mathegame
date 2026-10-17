@@ -703,6 +703,14 @@ body {
   .card-row .hunt-face { display: none; }
   .card-row .daily-title { font-size: .94rem; }
   .card-row .daily-state { font-size: .7rem; }
+  /* 広場（じぶんの子と ペット）。縦の短い端末では消している（max-height: 540px）が、
+     それが横持ちにも当たって、キャラも ペットも 1ぴきも見えなくなっていた。
+     横持ちは左の列の下が空いているので、ロゴを ひとまわり小さくして 低い広場として戻す。
+     高さは画面の縦に合わせる（Safari の横持ちは つまみの帯で 340px ほどまで減る） */
+  .logo { font-size: clamp(1.5rem, min(4.6vw, 8vh), 2.5rem); }
+  #btn-start { min-height: 60px; }
+  .yard { display: block; }
+  #home-char { height: clamp(64px, 26vh, 104px); }
 }
 
 /* ---------------- きろく（セーブデータ） ---------------- */
@@ -2132,6 +2140,23 @@ body {
   100% { transform: translateX(130%); }
 }
 @media (prefers-reduced-motion: reduce) { .pet-cell.r-ur:not(.locked)::after { display: none; } }
+/* ゴッドの子の わく。でんせつの金より上だと分かるよう、ふちを にじいろにする
+   （ふちに グラデーションは かけられないので、border-box の背景を ふちに見せる） */
+.pet-cell.r-god:not(.locked) {
+  overflow: hidden;
+  border-color: transparent;
+  background:
+    radial-gradient(circle at 50% 36%, #fff 0 30%, var(--rs) 74%) padding-box,
+    linear-gradient(135deg, #ff8fa3, #ffd257, #8fe3a0, #8fc8ff, #c9a0ff) border-box;
+  box-shadow: 0 0 0 2px rgba(255,143,214,.45), 0 3px 12px rgba(208,64,156,.35);
+}
+.pet-cell.r-god:not(.locked)::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,.85) 50%, transparent 62%);
+  transform: translateX(-130%);
+  animation: legend-shine 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .pet-cell.r-god:not(.locked)::after { display: none; } }
 .hearts { color: #e4675c; font-size: .68rem; letter-spacing: -1px; line-height: 1; }
 
 .rarity-badge {
@@ -2147,6 +2172,13 @@ body {
   box-shadow: 0 0 14px rgba(255,190,60,.75);
 }
 #overlay-pet.legend #pet-result-canvas { filter: drop-shadow(0 0 12px rgba(255,200,80,.85)); }
+/* ゴッドの子。札も 光も にじいろ（.legend も いっしょに付いているので、あとに書いて上書きする） */
+#overlay-pet.god .rarity-badge {
+  background: linear-gradient(90deg, #ff8fa3, #ffd257, #8fe3a0, #8fc8ff, #c9a0ff);
+  color: #fff; border-color: #fff; text-shadow: 0 1px 2px rgba(80,20,60,.6);
+  box-shadow: 0 0 16px rgba(255,120,210,.8);
+}
+#overlay-pet.god #pet-result-canvas { filter: drop-shadow(0 0 14px rgba(255,140,220,.9)); }
 @media (prefers-reduced-motion: reduce) { #pet-result-canvas { animation: none; } }
 
 /* たまごが かえる演出（ranch.ts の showRoll）。
@@ -2170,6 +2202,7 @@ body {
 #overlay-pet[data-fx="r"] .hatch-glow { opacity: .5; }
 #overlay-pet[data-fx="sr"] .hatch-glow { opacity: .65; }
 #overlay-pet[data-fx="ur"] .hatch-glow { opacity: .85; }
+#overlay-pet[data-fx="god"] .hatch-glow { opacity: .95; }
 .hatch-rays {
   width: 60rem; height: 60rem; margin: -30rem 0 0 -30rem;
   background: repeating-conic-gradient(from 0deg, var(--fx) 0 9deg, transparent 9deg 24deg);
@@ -2178,11 +2211,20 @@ body {
 }
 #overlay-pet[data-fx="sr"] .hatch-rays { opacity: .4; animation: hatch-spin 14s linear infinite; }
 #overlay-pet[data-fx="ur"] .hatch-rays { opacity: .7; animation: hatch-spin 7s linear infinite; }
+/* ゴッドは 光の すじが にじいろで、まわるのも はやい */
+#overlay-pet[data-fx="god"] .hatch-rays {
+  opacity: .8; animation: hatch-spin 5s linear infinite;
+  background: repeating-conic-gradient(from 0deg,
+    #ff8fa3 0 8deg, transparent 8deg 18deg, #ffd257 18deg 26deg, transparent 26deg 36deg,
+    #8fe3a0 36deg 44deg, transparent 44deg 54deg, #8fc8ff 54deg 62deg, transparent 62deg 72deg,
+    #c9a0ff 72deg 80deg, transparent 80deg 90deg);
+}
 @keyframes hatch-spin { to { transform: rotate(360deg); } }
 /* 結果の札の ふち。レア からは その色で光らせる */
 #overlay-pet[data-fx="r"] .egg-sheet,
 #overlay-pet[data-fx="sr"] .egg-sheet,
-#overlay-pet[data-fx="ur"] .egg-sheet { box-shadow: 0 0 0 4px var(--fx), 0 0 30px var(--fx); }
+#overlay-pet[data-fx="ur"] .egg-sheet,
+#overlay-pet[data-fx="god"] .egg-sheet { box-shadow: 0 0 0 4px var(--fx), 0 0 30px var(--fx); }
 #pet-sheet .rarity-badge { animation: badge-pop .45s .12s cubic-bezier(.2,1.6,.4,1) both; }
 @keyframes badge-pop { from { transform: scale(.2); opacity: 0; } to { transform: none; opacity: 1; } }
 
@@ -2614,6 +2656,48 @@ body {
   font-size: 1.1rem; font-weight: 700; color: var(--good-dark);
   background: #eafaf1; border: 2px solid var(--good); border-radius: 999px;
   padding: .15rem .6rem; font-variant-numeric: tabular-nums;
+}
+
+/* ---- ミニゲームの 横持ち（スマホ） ----
+   縦に1列で積むと、レベル・式・盤・ことば・ボタンで 400px を こえる。
+   スマホの横持ちは縦が 330〜390px しかないので、こたえの ボタンが画面の下に はみ出し、
+   さくらんぼ わけ では 盤が上下に あふれて 式と 10マスに かさなっていた。
+   横は あまっているので、盤（絵）を左、式・ことば・ボタンを右の2列に分ける。
+   盤は上から下まで1枚で使う（ハードルの canvas も 縦いっぱいに のびる）。
+   右の列は 上下の 1fr で まんなかに寄せる。行の番号を id で決めておくのは、
+   ゲームによって レベルの札や ボタンが無く、つめて並べると 行がずれるため。
+   ここは上の .mini-* を上書きするので、かならず ミニゲームの節のあとに置くこと。 */
+@media (orientation: landscape) and (max-height: 30rem) {
+  .mini-list:not([hidden]) { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .mini-card { min-height: 72px; padding: .55rem .8rem; }
+
+  .mini-play:not([hidden]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    grid-template-rows: 1fr repeat(7, auto) 1fr;
+    column-gap: 1rem; row-gap: .4rem;
+    justify-items: center; align-items: center;
+  }
+  .mini-play > * { grid-column: 2; }
+  #mini-body { grid-column: 1; grid-row: 1 / -1; align-self: stretch; height: auto; min-height: 0; }
+  #mini-levels { grid-row: 2; flex-wrap: wrap; justify-content: center; max-width: 100%; }
+  #mini-pips { grid-row: 3; }
+  #mini-goal { grid-row: 4; }
+  #mini-say { grid-row: 5; margin: 0; min-height: 0; }
+  #mini-choices { grid-row: 6; }
+  #mini-hint { grid-row: 7; }
+  #mini-hint-btn { grid-row: 8; margin-bottom: 0; }
+
+  .mini-goal { font-size: clamp(1.5rem, 9vh, 2.2rem); }
+  .mchoice { min-height: 3.6rem; }
+  /* ハードルは 縦の上限（44vh）を外し、左の列の高さいっぱいに走らせる */
+  .mini-body.hurdle { max-height: none; min-height: 0; }
+  .mini-body.ruler { padding: .4rem .2rem; }
+  /* いくつ？ の玉は、ぱっと見て かたまりで つかむ絵。左の列いっぱいに大きく出す */
+  .mini-dots { max-height: 62vh; }
+  /* さくらんぼと 10マスは 左の列の高さに合わせる。式は右の列に大きく出ている */
+  .mini-cherry { max-width: 13rem; max-height: 58vh; }
+  .cherry-frame { max-height: 26vh; }
 }
 
 /* ---------------- おうちのかた ---------------- */

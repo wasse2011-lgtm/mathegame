@@ -985,7 +985,9 @@ export class Runner {
    * （まちがえても負けないのに「おしまい」と書いてあると、うそになる）
    */
   private renderBossWarn(): void {
-    this.elBossWarn.textContent = this.guardLeft > 0 && this.pet ? `${this.pet.name}が 1かい まもる` : '1ミスで おしまい';
+    // ゴッドの子は 2かい まもるので、のこりの回数を そのまま出す
+    this.elBossWarn.textContent =
+      this.guardLeft > 0 && this.pet ? `${this.pet.name}が ${this.guardLeft}かい まもる` : '1ミスで おしまい';
   }
 
   /** ヒントボタンのペットの顔。走りはじめと、いなくなったときだけ描きなおす */

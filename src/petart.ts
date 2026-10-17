@@ -818,6 +818,9 @@ export interface PetDrawOpts {
  * 半径は からだの 0.8 倍まで。走っているときは主人公が 36*s うしろにいるので、
  * これより広げると 主人公まで光に のまれる。
  */
+/** ゴッドの子の にじいろ。後光の すじ・きらきら・光の わ に 順に使う */
+const GOD_RAINBOW = ['#ff8fa3', '#ffd257', '#8fe3a0', '#8fc8ff', '#c9a0ff'];
+
 function drawLegendHalo(
   g: CanvasRenderingContext2D,
   color: string,
@@ -826,27 +829,53 @@ function drawLegendHalo(
   s: number,
   t: number,
   reach = 1,
+  god = false,
 ): void {
   const pulse = 1 + Math.sin(t * 3) * 0.05;
   const R = s * 0.8 * pulse * reach;
 
-  // 光の すじ。12本を ゆっくり回す
+  // 光の すじ。12本を ゆっくり回す。ゴッドは 1本ずつ にじの色にして、すこし はやく回す
   g.save();
-  const rays = g.createRadialGradient(cx, cy, s * 0.12, cx, cy, R);
-  rays.addColorStop(0, alpha(color, 0.55));
-  rays.addColorStop(1, alpha(color, 0));
-  g.fillStyle = rays;
-  g.beginPath();
   const n = 12;
-  const spin = t * 0.5;
-  for (let i = 0; i < n; i++) {
-    const a = spin + (Math.PI * 2 * i) / n;
+  const spin = t * (god ? 0.8 : 0.5);
+  const fan = (a: number): void => {
     const w = Math.PI / n / 1.6;
     g.moveTo(cx, cy);
     g.arc(cx, cy, R, a - w, a + w);
     g.closePath();
+  };
+  if (god) {
+    for (let i = 0; i < n; i++) {
+      const c = GOD_RAINBOW[i % GOD_RAINBOW.length];
+      const ray = g.createRadialGradient(cx, cy, s * 0.12, cx, cy, R);
+      ray.addColorStop(0, alpha(c, 0.7));
+      ray.addColorStop(1, alpha(c, 0));
+      g.fillStyle = ray;
+      g.beginPath();
+      fan(spin + (Math.PI * 2 * i) / n);
+      g.fill();
+    }
+  } else {
+    const rays = g.createRadialGradient(cx, cy, s * 0.12, cx, cy, R);
+    rays.addColorStop(0, alpha(color, 0.55));
+    rays.addColorStop(1, alpha(color, 0));
+    g.fillStyle = rays;
+    g.beginPath();
+    for (let i = 0; i < n; i++) fan(spin + (Math.PI * 2 * i) / n);
+    g.fill();
   }
-  g.fill();
+
+  // ゴッドは 光の わを 2重に。外の わは ゆっくり ふくらんで、色が めぐる
+  if (god) {
+    g.lineWidth = Math.max(1.5, s * 0.03);
+    for (let k = 0; k < 2; k++) {
+      const rr = R * (0.72 + k * 0.2) * (1 + Math.sin(t * 2 + k) * 0.03);
+      g.strokeStyle = alpha(GOD_RAINBOW[(Math.floor(t * 2) + k * 2) % GOD_RAINBOW.length], 0.55 - k * 0.15);
+      g.beginPath();
+      g.arc(cx, cy, rr, 0, Math.PI * 2);
+      g.stroke();
+    }
+  }
 
   // まんなかの ふくらむ光
   const gr = s * 0.6 * pulse * reach;
@@ -859,20 +888,60 @@ function drawLegendHalo(
   g.restore();
 }
 
-/** でんせつの子の まわりを まわる きらきら。からだより手前に描く */
-function drawLegendSparkles(g: CanvasRenderingContext2D, color: string, cx: number, cy: number, s: number, t: number): void {
+/** でんせつの子の まわりを まわる きらきら。からだより手前に描く。ゴッドは 8つで にじいろ */
+function drawLegendSparkles(
+  g: CanvasRenderingContext2D,
+  color: string,
+  cx: number,
+  cy: number,
+  s: number,
+  t: number,
+  god = false,
+): void {
   g.save();
-  for (let i = 0; i < 5; i++) {
-    const a = t * 0.9 + (Math.PI * 2 * i) / 5;
+  const n = god ? 8 : 5;
+  for (let i = 0; i < n; i++) {
+    const a = t * 0.9 + (Math.PI * 2 * i) / n;
     // よこ長の わ。奥（上半分）の きらきらは 小さく うすくして、からだの まわりを回って見せる
     const depth = (Math.sin(a) + 1) / 2;
     const x = cx + Math.cos(a) * s * 0.62;
     const y = cy + Math.sin(a) * s * 0.2 - s * 0.05;
     const tw = 0.55 + 0.45 * Math.sin(t * 6 + i * 1.7);
     g.globalAlpha = (0.35 + depth * 0.65) * tw;
-    g.fillStyle = i % 2 ? '#ffffff' : color;
+    g.fillStyle = god ? GOD_RAINBOW[i % GOD_RAINBOW.length] : i % 2 ? '#ffffff' : color;
     sparkle(g, x, y, s * (0.05 + depth * 0.05) * (0.7 + tw * 0.3));
   }
+  g.restore();
+}
+
+/**
+ * ゴッドの子の あたまの 小さな おうかん。
+ * でんせつと同じ大きさのままで「その上」だと分かる、いちばん読みやすい しるし
+ */
+function drawGodCrown(g: CanvasRenderingContext2D, h: Head, t: number): void {
+  const w = h.r * 0.95;
+  const ht = h.r * 0.55;
+  const bx = h.x - w / 2;
+  const by = h.y - h.r * 0.92 + Math.sin(t * 3) * h.r * 0.04;
+  g.save();
+  g.fillStyle = '#ffd24a';
+  g.strokeStyle = '#c98a12';
+  g.lineWidth = Math.max(1, h.r * 0.07);
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(bx, by);
+  g.lineTo(bx, by - ht * 0.75);
+  g.lineTo(bx + w * 0.25, by - ht * 0.35);
+  g.lineTo(bx + w * 0.5, by - ht);
+  g.lineTo(bx + w * 0.75, by - ht * 0.35);
+  g.lineTo(bx + w, by - ht * 0.75);
+  g.lineTo(bx + w, by);
+  g.closePath();
+  g.fill();
+  g.stroke();
+  // まんなかの 宝石は 色が めぐる
+  g.fillStyle = GOD_RAINBOW[Math.floor(t * 2) % GOD_RAINBOW.length];
+  circle(g, h.x, by - ht * 0.32, h.r * 0.11);
   g.restore();
 }
 
@@ -914,7 +983,8 @@ export function drawPet(
 
   // でんせつの子の 後光は さらに奥。アイコンでは 枠の中で消えきる長さにする
   // （そのままだと 光の すじが 枠の四角で切れて、白い画面の上で 箱に見える）
-  if (legend) drawLegendHalo(g, legend, cx, y - s * 0.38, s, t, opts.fit ? 0.72 : 1);
+  const god = Boolean(legend && art.god);
+  if (legend) drawLegendHalo(g, legend, cx, y - s * 0.38, s, t, opts.fit ? 0.72 : 1, god);
 
   // はねは からだの うしろ
   drawWing(g, art, cx, y - s * 0.34, s, t, sil);
@@ -938,9 +1008,10 @@ export function drawPet(
     g.fillText('？', head.x, head.y);
   } else {
     drawFace(g, head, art, t);
+    if (god) drawGodCrown(g, head, t);
   }
 
-  if (legend) drawLegendSparkles(g, legend, cx, y - s * 0.38, s, t);
+  if (legend) drawLegendSparkles(g, legend, cx, y - s * 0.38, s, t, god);
 
   g.restore();
 }

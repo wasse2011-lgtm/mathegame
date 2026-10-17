@@ -393,7 +393,8 @@ export const sfx = {
    * 段が上がるほど 高く鳴らして、「まだ上がる」を耳でも分かるようにする
    */
   eggGlow(step: number): void {
-    const base = [587.33, 783.99, 1046.5][Math.min(Math.max(step, 1), 3) - 1];
+    // 4段め（ゴッド）は もう1段 高い音（ファ）
+    const base = [587.33, 783.99, 1046.5, 1396.9][Math.min(Math.max(step, 1), 4) - 1];
     tone(base, 0.28, { wave: 'sine', vol: 0.3, to: base * 1.5 });
     tone(base * 2, 0.2, { at: 0.1, wave: 'triangle', vol: 0.14 });
   },

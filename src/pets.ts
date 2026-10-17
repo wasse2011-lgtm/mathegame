@@ -12,7 +12,8 @@
 
 import { persist, profile } from './save';
 
-export type Rarity = 'n' | 'r' | 'sr' | 'ur';
+/** 'god' は でんせつの さらに上（ゴッド）。キラたまごからしか出ない */
+export type Rarity = 'n' | 'r' | 'sr' | 'ur' | 'god';
 
 export interface RarityDef {
   id: Rarity;
@@ -43,6 +44,9 @@ export const RARITIES: RarityDef[] = [
   { id: 'r', label: 'レア', color: '#4aa3dd', soft: '#e8f4fd', slow: 0.08, rescue: 0, guard: 0, hints: 1 },
   { id: 'sr', label: 'スーパーレア', color: '#a86ad0', soft: '#f4ecfb', slow: 0.14, rescue: 0, guard: 0, hints: 2 },
   { id: 'ur', label: 'でんせつ', color: '#e8912a', soft: '#fff3df', slow: 0.2, rescue: 1, guard: 1, hints: 4 },
+  // でんせつより ひとつ上。力も ひとまわりだけ上げる（助けてくれる回数が 2回ずつ）。
+  // やさしくする方向にだけ効くのは ほかと同じで、★・図鑑は ちゃんと正解したぶんしか進まない
+  { id: 'god', label: 'ゴッド', color: '#d0409c', soft: '#fdeaf6', slow: 0.25, rescue: 2, guard: 2, hints: 5 },
 ];
 
 /**
@@ -98,6 +102,12 @@ export interface PetArt {
    * でんせつの子には必ず付ける。ふつうの子と並んだときに「格」が違って見えるように。
    */
   legend?: string;
+  /**
+   * ゴッドの子。legend に くわえて、後光が にじいろになり、光の わが 2重になり、
+   * あたまに 小さな おうかんが のる（petart.ts）。大きさは でんせつと同じ
+   * （これより大きくすると 走るときに主人公と重なる。LEGEND_SCALE のところ）
+   */
+  god?: boolean;
   /** たてがみの色。2色以上で にじいろの すじになる（ユニコーン） */
   mane?: string[];
   /** せなかの とげ（ドラゴン） */
@@ -127,10 +137,12 @@ export interface PetDef {
 }
 
 /**
- * 40 ぴき。ふつう 16・レア 12・スーパーレア 7・でんせつ 5。
+ * 46 ぴき。ふつう 16・レア 12・スーパーレア 7・でんせつ 8・ゴッド 3。
  * 数を増やすときは、レア度ごとの比率を大きく崩さないこと
  * （でんせつが増えるほど、ふつうのたまごの当たりが薄まる）。
  * 30 → 40 のときは 4:3:2:1 で足して、比率（およそ 40:30:17:13）を保った。
+ * 40 → 46 は でんせつ 3 と ゴッド 3。でんせつの出る率（NORMAL_ODDS / SHINY_ODDS）は
+ * 変えていないので、でんせつを引いたときに どの子になるかが 5 → 8 に分かれるだけ。
  */
 export const PETS: PetDef[] = [
   // ---- ふつう (16) ----
@@ -279,7 +291,7 @@ export const PETS: PetDef[] = [
     art: { shape: 'star', body: '#ffe45e', shade: '#e8b81f', aura: 'rgba(255,236,140,.75)', fly: true, face: 'big' },
   },
 
-  // ---- でんせつ (5) ----
+  // ---- でんせつ (8) ----
   {
     id: 'dragon', name: 'ドラゴン', rarity: 'ur', note: 'そらを とび、せなかに のせてくれる',
     art: { shape: 'beast', body: '#4fb3a3', shade: '#2f8a7c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot', legend: '#ffd257', ridge: '#ffd257' },
@@ -299,6 +311,32 @@ export const PETS: PetDef[] = [
   {
     id: 'sorakujira', name: 'そらくじら', rarity: 'ur', note: 'せなかに のせて そらを およぐ',
     art: { shape: 'fish', body: '#6fa8dc', shade: '#4a86bd', belly: true, spout: true, fly: true, face: 'dot', legend: '#bfe4ff', stars: '#fff3b0' },
+  },
+  {
+    id: 'koorinoryu', name: 'こおりのりゅう', rarity: 'ur', note: 'いきを ふくと まわりが きらきら こおる',
+    art: { shape: 'beast', body: '#c4e8f8', shade: '#86bfdd', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot', legend: '#bdf0ff', ridge: '#ffffff' },
+  },
+  {
+    id: 'byakko', name: 'びゃっこ', rarity: 'ur', note: 'しろい とらの まもりがみ。かぜより はやい',
+    art: { shape: 'beast', body: '#f7f8fc', shade: '#9aa8c4', ear: 'cat', tail: 'long', legs: 4, face: 'dot', legend: '#8fd3ff', ridge: '#5d6f92' },
+  },
+  {
+    id: 'kaminaridori', name: 'かみなりどり', rarity: 'ur', note: 'はばたくと そらに いなずまが はしる',
+    art: { shape: 'bird', body: '#5d6fe0', shade: '#3a46a8', wing: 'big', tail: 'glow', beak: 'small', ear: 'crest', fly: true, face: 'dot', legend: '#fff07a' },
+  },
+  // ---- ゴッド (3) ----
+  // でんせつの さらに上。キラたまごの 2% からしか出ない（SHINY_ODDS）
+  {
+    id: 'ryuou', name: 'りゅうおう', rarity: 'god', note: 'りゅうの なかの おうさま。きんいろに かがやく',
+    art: { shape: 'beast', body: '#ffd45a', shade: '#d9a21c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot', legend: '#ffe27a', ridge: '#ff8fa3', god: true },
+  },
+  {
+    id: 'houou', name: 'ほうおう', rarity: 'god', note: 'にじいろの ほのおで そらを そめる',
+    art: { shape: 'bird', body: '#ff7f9a', shade: '#d9506e', wing: 'fire', tail: 'fire', beak: 'small', ear: 'crest', fly: true, face: 'dot', legend: '#ffb3e6', god: true },
+  },
+  {
+    id: 'gingakujira', name: 'ぎんがくじら', rarity: 'god', note: 'せなかに ほしぞらを のせて うちゅうを およぐ',
+    art: { shape: 'fish', body: '#3d4b9a', shade: '#29336e', belly: true, spout: true, fly: true, face: 'dot', legend: '#c9a8ff', stars: '#fff3b0', god: true },
   },
 ];
 
@@ -387,9 +425,13 @@ export const PET_EGG_SHINY_COST = 200;
 /** おなじ子が出たときに もどってくるコイン */
 export const DUP_REFUND = 24;
 
-/** レア度の出かた。合計 1 になるように書く */
-const NORMAL_ODDS: Record<Rarity, number> = { n: 0.66, r: 0.26, sr: 0.07, ur: 0.01 };
-const SHINY_ODDS: Record<Rarity, number> = { n: 0.25, r: 0.4, sr: 0.27, ur: 0.08 };
+/**
+ * レア度の出かた。合計 1 になるように書く。
+ * ゴッドは キラたまごだけ 2%。そのぶんは スーパーレアと でんせつから 1% ずつ もらった
+ * （ふつう・レアの率を けずると、キラたまごを買う理由＝「いい子が出やすい」が うすれる）
+ */
+const NORMAL_ODDS: Record<Rarity, number> = { n: 0.66, r: 0.26, sr: 0.07, ur: 0.01, god: 0 };
+const SHINY_ODDS: Record<Rarity, number> = { n: 0.25, r: 0.4, sr: 0.26, ur: 0.07, god: 0.02 };
 
 export function eggOdds(shiny: boolean): Record<Rarity, number> {
   return shiny ? SHINY_ODDS : NORMAL_ODDS;

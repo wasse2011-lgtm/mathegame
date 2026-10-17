@@ -26,7 +26,10 @@ export type SkinId =
   | 'hero'
   | 'kaiju'
   | 'magi'
-  | 'yousei';
+  | 'yousei'
+  | 'pan'
+  | 'biri'
+  | 'aowan';
 
 /** きろくの枠の数 */
 export const SLOTS = 3;

@@ -49,7 +49,7 @@ export const KIND_LABEL: Record<ItemKind, string> = {
 export const GACHA_COST = 90;
 
 export const ITEMS: Item[] = [
-  // ---- キャラ 16 ----
+  // ---- キャラ 19 ----
   { id: 'cat', kind: 'skin', label: 'ねこ', free: true },
   { id: 'dog', kind: 'skin', label: 'いぬ', free: true },
   { id: 'robo', kind: 'skin', label: 'ロボ', free: true },
@@ -69,6 +69,11 @@ export const ITEMS: Item[] = [
   { id: 'kaiju', kind: 'skin', label: 'かいじゅうっこ' },
   { id: 'magi', kind: 'skin', label: 'まほうたんてい' },
   { id: 'yousei', kind: 'skin', label: 'ようせい' },
+  // コラボふうの3体。すきな おはなし・ゲーム・アニメに にせて こちらで描いた子で、
+  // 名前も絵も 本物ではない（sprites.ts の SKINS のところに理由）
+  { id: 'pan', kind: 'skin', label: 'パンの かいとう' },
+  { id: 'biri', kind: 'skin', label: 'ビリビリねずみ' },
+  { id: 'aowan', kind: 'skin', label: 'あおワンコ' },
 
   // ---- ぼうし 22 ----
   { id: 'hat-cap', kind: 'hat', label: 'キャップ' },
