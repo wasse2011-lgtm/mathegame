@@ -116,11 +116,26 @@ let shopFrom: 'home' | 'result' = 'home';
  * 終わった結果までは見せる（新しいステージは startRun が止める）。
  * きろく えらび（slots）も入れない。きょうだいが 1台を使っているとき、
  * つぎの子に かわれなくなる（時間は きろくごとに数えている）。
+ * ただし タイマーで おわったときだけは、きろく えらびも閉じる（lockedNow）。
  * ミニゲームは、1回ぶんを遊んでいる途中だけ見のがす（onClockTick を見る）。
  */
 const LOCKED_WHEN_OVER: ReadonlySet<ScreenName> = new Set<ScreenName>([
   'title', 'map', 'zukan', 'shop', 'ranch', 'mini',
 ]);
+
+/**
+ * いま その画面へ行かせず「きょうは ここまで」にするか。
+ *
+ * タイマーは「いまから ○分で おしまい」と おとなが決めて わたしたもの。おわったあとに
+ * ほかの きろくへ移れると、その場で また遊べてしまう。なので タイマーで おわったときは
+ * きろく えらびにも行かせない（アプリを開きなおすと まず きろく えらびが出るので、
+ * おしまいの画面のボタンを消すだけでは足りない）。
+ * 1日の時間で おわったときは、いままでどおり きょうだいに かわれる。
+ */
+function lockedNow(name: ScreenName): boolean {
+  if (LOCKED_WHEN_OVER.has(name)) return timeUp();
+  return name === 'slots' && sessionOver();
+}
 
 /**
  * 「きょうは ここまで」に切りかわる直前に いた画面（行こうとしていた画面）。
@@ -132,7 +147,7 @@ let restFrom: ScreenName | null = null;
 let restRedraw = false;
 
 function show(name: ScreenName): void {
-  if (LOCKED_WHEN_OVER.has(name) && timeUp()) {
+  if (lockedNow(name)) {
     if (!restFrom) restFrom = name;
     name = 'rest';
   }
@@ -503,9 +518,10 @@ function renderRest(): void {
   $('rest-next').textContent = session
     ? 'おうちの ひとに わたしてね'
     : min ? `あしたは また ${min}${minuteWord(min)} あそべるよ` : '';
-  // ほかの きろく（きょうだい）へは移れる。時間は 1日の時間も タイマーも きろくごと。
+  // 1日の時間で おわったときは、ほかの きろく（きょうだい）へ移れる。時間は きろくごと。
+  // タイマーで おわったときは移れない（lockedNow）。わたした おとなが関門から解くまで おしまい。
   // きろくが1つだけなら出さない。新しい きろくは関門の向こうなので、押しても行き場がない
-  $('rest-slots').hidden = usedSlots() < 2;
+  $('rest-slots').hidden = session || usedSlots() < 2;
   // 目ざまし時計は タイマーのときだけ。出すたびに鳴らしなおす
   const clock = screens.rest.querySelector<HTMLElement>('.rest-clock');
   clock?.classList.remove('ringing');
@@ -534,6 +550,9 @@ function leaveRest(): void {
   }
   // ミニゲームの途中で打ち切ったなら、止まった盤面ではなく 一覧に戻す
   if (to === 'mini' && miniPlaying()) renderMiniList();
+  // 開きなおしで きろく えらびへ行こうとしていたとき（タイマーで おわっていた）。
+  // のばしたので「おしまい」の しるしを付けなおす
+  if (to === 'slots') renderSlots();
   show(to);
 }
 
@@ -615,7 +634,7 @@ function onClockTick(): void {
         $('overlay-pause').hidden = true;
         show('rest');
       }
-    } else if (current !== 'rest' && LOCKED_WHEN_OVER.has(current) && !overlayOpen()) {
+    } else if (current !== 'rest' && lockedNow(current) && !overlayOpen()) {
       restFrom = current;
       show('rest');
     }

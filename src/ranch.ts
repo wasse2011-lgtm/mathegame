@@ -66,8 +66,9 @@ export function powerText(pet: PetDef): string {
   if (pw.slow > 0) parts.push(`しょうがいぶつが ${Math.round(pw.slow * 100)}％ ゆっくり`);
   // ヒントに回数があるのは さいごのボスだけ。そこだけの力だと分かる言いかたにする
   if (pw.hints > 0) parts.push(`さいごの ボスで ヒントを ${pw.hints}かい ふやす`);
-  if (pw.rescue > 0) parts.push('じかんぎれのとき 1かい せなかに のせてくれる');
-  if (pw.guard > 0) parts.push('まちがえたとき 1かい まもってくれる');
+  // 回数は レア度で ちがう（でんせつ 1かい、ゴッド 2かい）
+  if (pw.rescue > 0) parts.push(`じかんぎれのとき ${pw.rescue}かい せなかに のせてくれる`);
+  if (pw.guard > 0) parts.push(`まちがえたとき ${pw.guard}かい まもってくれる`);
   return parts.length ? parts.join('・') : 'いっしょに はしってくれる';
 }
 
@@ -1051,10 +1052,11 @@ function renderSpend(): void {
 // ---------------------------------------------------------------- たまご
 
 /**
- * たまごの色。RARITIES と同じ順（ふつう・レア・スーパーレア・でんせつ）。
+ * たまごの色。RARITIES と同じ順（ふつう・レア・スーパーレア・でんせつ・ゴッド）。
  *
  * たまごは どれも白で出てきて、引いたレア度の段まで 1段ずつ色が変わる
- * （レアは あお、スーパーレアは あお→むらさき、でんせつは あお→むらさき→きん）。
+ * （レアは あお、スーパーレアは あお→むらさき、でんせつは あお→むらさき→きん、
+ * ゴッドは きんの あと もう1段 にじいろに）。
  * 段の数だけ ゆれる回数も のびるので、レア度が高いほど 演出が長く・はでになる。
  */
 const EGG_TINTS: { egg: string; hi: string; spot: string }[] = [
@@ -1062,13 +1064,19 @@ const EGG_TINTS: { egg: string; hi: string; spot: string }[] = [
   { egg: '#8fcaf3', hi: '#ecf7ff', spot: '#4aa3dd' },
   { egg: '#c49de6', hi: '#f8f0ff', spot: '#9a56bd' },
   { egg: '#ffcc4a', hi: '#fff8d8', spot: '#e8912a' },
+  { egg: '#ff9ad2', hi: '#fff0fa', spot: '#8f6bff' },
 ];
 
-/** 段が上がったときの ひとこと。3段めは でんせつのときだけ出る */
-const EGG_STEP_SAY = ['', 'ひかった！', 'また かわった！', 'こ、これは…！'];
+/** 段が上がったときの ひとこと。3段めは でんせつ以上、4段めは ゴッドのときだけ出る */
+const EGG_STEP_SAY = ['', 'ひかった！', 'また かわった！', 'こ、これは…！', 'ま、まだ かわる…！？'];
 
 /** 段の 光。ふつうの たまごは 光らせない */
-const EGG_GLOW = ['transparent', 'rgba(74,163,221,.95)', 'rgba(168,106,208,.95)', 'rgba(255,190,60,1)'];
+const EGG_GLOW = [
+  'transparent', 'rgba(74,163,221,.95)', 'rgba(168,106,208,.95)', 'rgba(255,190,60,1)', 'rgba(255,110,210,1)',
+];
+
+/** でんせつ（3）から上。金の ほしが ふる・とくべつな音が鳴る */
+const LEGEND_RANK = 3;
 
 /** 演出の タイマー。とばしたとき・閉じたときに まとめて止める */
 let hatchTimers: number[] = [];
@@ -1111,13 +1119,14 @@ function hatchFlash(color: string): void {
 /** きらきら（ふつうは 紙ふぶき）を とばす。数と色は レア度で変える */
 function hatchBurst(rank: number, color: string): void {
   const top = $('hatch-top');
-  const n = [12, 16, 24, 36][rank];
-  const palette =
-    rank === 0 ? ['#ff8fa3', '#ffd257', '#8fe3a0', '#8fc8ff', '#c9a0ff'] : [color, '#ffffff', color, '#fff3b0'];
+  const n = [12, 16, 24, 36, 48][rank];
+  const rainbow = ['#ff8fa3', '#ffd257', '#8fe3a0', '#8fc8ff', '#c9a0ff'];
+  // ゴッドは きらきらも にじいろ
+  const palette = rank === 0 || rank > LEGEND_RANK ? rainbow : [color, '#ffffff', color, '#fff3b0'];
   for (let i = 0; i < n; i++) {
     const b = document.createElement('i');
     b.className = rank === 0 ? 'hatch-bit paper' : 'hatch-bit';
-    if (rank > 0) b.textContent = rank === 3 && i % 3 === 0 ? '★' : '✦';
+    if (rank > 0) b.textContent = rank >= LEGEND_RANK && i % 3 === 0 ? '★' : '✦';
     const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
     const dist = 90 + Math.random() * (60 + rank * 40);
     b.style.setProperty('--dx', `${Math.round(Math.cos(a) * dist)}px`);
@@ -1127,15 +1136,16 @@ function hatchBurst(rank: number, color: string): void {
     b.style.animationDelay = `${(Math.random() * 0.12).toFixed(2)}s`;
     top.appendChild(b);
   }
-  // でんせつは 金の ほしが 上から ふってくる
-  if (rank === 3) {
-    for (let i = 0; i < 18; i++) {
+  // でんせつは 金の ほしが 上から ふってくる。ゴッドは 数を ふやして にじいろで
+  if (rank >= LEGEND_RANK) {
+    const god = rank > LEGEND_RANK;
+    for (let i = 0; i < (god ? 30 : 18); i++) {
       const b = document.createElement('i');
       b.className = 'hatch-bit rain';
       b.textContent = i % 2 ? '★' : '✦';
       b.style.setProperty('--x', `${Math.round(Math.random() * 100)}%`);
       b.style.setProperty('--r', `${Math.round(Math.random() * 360)}deg`);
-      b.style.setProperty('--c', i % 3 ? '#ffd257' : '#ffffff');
+      b.style.setProperty('--c', god ? rainbow[i % rainbow.length] : i % 3 ? '#ffd257' : '#ffffff');
       b.style.animationDelay = `${(0.2 + Math.random() * 1.4).toFixed(2)}s`;
       top.appendChild(b);
     }
@@ -1179,7 +1189,8 @@ function showRoll(roll: PetRoll, after: () => void): void {
   $('pet-result-head').textContent = roll.dup ? 'また あえたね！' : 'なかまに なった！';
 
   const ov = $('overlay-pet');
-  ov.classList.toggle('legend', roll.pet.rarity === 'ur');
+  ov.classList.toggle('legend', rank >= LEGEND_RANK);
+  ov.classList.toggle('god', roll.pet.rarity === 'god');
   const c = $<HTMLCanvasElement>('pet-result-canvas');
   paintPetIcon(c, roll.pet.art, 132);
 
@@ -1209,7 +1220,7 @@ function showRoll(roll: PetRoll, after: () => void): void {
     sheet.hidden = false;
     hatchBurst(rank, r.color);
     revealedAt = performance.now();
-    if (rank === 3) sfx.legend();
+    if (rank >= LEGEND_RANK) sfx.legend();
     else if (rank === 2) sfx.fanfare();
     else {
       if (!opened) sfx.crack();
@@ -1248,8 +1259,8 @@ function showRoll(roll: PetRoll, after: () => void): void {
       say.textContent = EGG_STEP_SAY[step];
       sfx.eggGlow(step);
     }, t);
-    // でんせつの 手前は ひと呼吸 長く ためる
-    t += step === 2 && rank === 3 ? 1150 : 850;
+    // でんせつ・ゴッドの 手前は ひと呼吸 長く ためる
+    t += step === rank - 1 && rank >= LEGEND_RANK ? 1150 : 850;
   }
   hatchLater(() => {
     egg.classList.add('cracking');
@@ -1261,7 +1272,7 @@ function showRoll(roll: PetRoll, after: () => void): void {
   hatchLater(() => {
     opened = true;
     egg.classList.add('open');
-    hatchFlash(rank === 3 ? '#fff6d0' : '#ffffff');
+    hatchFlash(rank > LEGEND_RANK ? '#ffe6f8' : rank === LEGEND_RANK ? '#fff6d0' : '#ffffff');
     sfx.crack();
   }, t);
   t += 330;

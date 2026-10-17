@@ -17,7 +17,11 @@ export interface SkinDef {
     /** ツインテール */
     | 'twin'
     /** ようせいの しょっかく */
-    | 'antenna';
+    | 'antenna'
+    /** ビリビリねずみの ながい みみ（さきが くろい） */
+    | 'tall'
+    /** あおワンコの とがった みみ（うちがわが うすちゃ） */
+    | 'pointy';
   /** おなかの白い部分（ぺんぎん・あざらし） */
   belly?: boolean;
   /** とらの しま模様 */
@@ -32,6 +36,27 @@ export interface SkinDef {
   spike?: boolean;
   /** まほうたんてい の えりの フリル */
   frill?: boolean;
+  /**
+   * コラボふうの3体（すきな おはなし・ゲーム・アニメに にせた子）。
+   * 名前も絵も こちらで つくったもの。本物の名前と絵は使わない
+   * （このアプリは GitHub Pages で だれでも開ける。ヒカリヒーローと同じ考え）。
+   */
+  /** パンの かいとう: からだが 山がたの しょくパン（まわりが みみ＝shade） */
+  bread?: boolean;
+  /** パンの かいとう: せなかの からくさの ふろしき と、あごの下の むすび目 */
+  furoshiki?: boolean;
+  /** ほっぺの色。ふつうの子は うすい ももいろ。ビリビリねずみは あかい でんきぶくろ */
+  cheek?: string;
+  /** はなの色（ないときは 描かない） */
+  nose?: string;
+  /** ねずみの ひげ */
+  whisker?: boolean;
+  /** ビリビリねずみの いなずま しっぽ。ときどき ほっぺから ぱちっと 火花 */
+  bolt?: boolean;
+  /** あおワンコの くちもと（白っぽい ところ）の色 */
+  muzzle?: string;
+  /** あおワンコの あたまの上の こい もよう */
+  cap?: boolean;
 }
 
 export const SKINS: SkinDef[] = [
@@ -51,6 +76,12 @@ export const SKINS: SkinDef[] = [
   { id: 'kaiju', label: 'かいじゅうっこ', body: '#7fb36b', shade: '#4f8b45', ear: 'horn', spike: true, belly: true },
   { id: 'magi', label: 'まほうたんてい', body: '#f8bcd4', shade: '#e07ba4', ear: 'twin', frill: true },
   { id: 'yousei', label: 'ようせい', body: '#cbe8ff', shade: '#89bfe8', ear: 'antenna', wing: true },
+  // ---- コラボふう ----
+  // パンを ぬすむ おはなしの どろぼう／きいろい でんきの ねずみ／あおい いぬの 家族の アニメ。
+  // どれも「それっぽい」ところだけ借りて、名前と絵は べつものにしてある
+  { id: 'pan', label: 'パンの かいとう', body: '#fff3d9', shade: '#d39143', ear: 'none', bread: true, furoshiki: true, whisker: true, nose: '#f08a9a' },
+  { id: 'biri', label: 'ビリビリねずみ', body: '#fad648', shade: '#d9a21c', ear: 'tall', bolt: true, cheek: '#f0584a', nose: '#3a2f2a' },
+  { id: 'aowan', label: 'あおワンコ', body: '#7fb1e6', shade: '#3e5f9f', ear: 'pointy', muzzle: '#e3eef8', cap: true, nose: '#2b3440' },
 ];
 
 export function skinDef(id: SkinId): SkinDef {
@@ -1027,6 +1058,68 @@ export function drawChar(
 
   if (look.acc) drawAccBack(g, look.acc, x, y, s, st.t);
 
+  // ビリビリねずみの いなずま しっぽ。からだの うしろから 右上へ ぎざぎざに のびる。
+  // 走ると すこし ゆれる
+  if (def.bolt) {
+    const wag = st.air ? -0.12 : Math.sin(st.t * 10) * 0.08;
+    g.save();
+    g.translate(x + s * 0.86, y + s * 0.78);
+    g.rotate(wag);
+    g.fillStyle = body;
+    g.strokeStyle = shade;
+    g.lineWidth = Math.max(1.5, s * 0.04);
+    g.lineJoin = 'round';
+    g.beginPath();
+    g.moveTo(-s * 0.06, s * 0.04);
+    g.lineTo(s * 0.18, -s * 0.18);
+    g.lineTo(s * 0.08, -s * 0.24);
+    g.lineTo(s * 0.34, -s * 0.5);
+    g.lineTo(s * 0.22, -s * 0.54);
+    g.lineTo(s * 0.5, -s * 0.86);
+    g.lineTo(s * 0.32, -s * 0.48);
+    g.lineTo(s * 0.44, -s * 0.44);
+    g.lineTo(s * 0.2, -s * 0.12);
+    g.lineTo(s * 0.3, -s * 0.08);
+    g.lineTo(s * 0.06, s * 0.1);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    // つけねは ちゃいろ
+    g.fillStyle = '#9a6a2c';
+    g.beginPath();
+    g.moveTo(-s * 0.06, s * 0.04);
+    g.lineTo(s * 0.1, -s * 0.11);
+    g.lineTo(s * 0.17, -s * 0.03);
+    g.lineTo(s * 0.06, s * 0.1);
+    g.closePath();
+    g.fill();
+    g.restore();
+  }
+
+  // パンの かいとうの ふろしき（せなかの つつみ）。からくさ もようは 白い うずまき
+  if (def.furoshiki) {
+    const bob = st.air ? -s * 0.04 : Math.abs(Math.sin(st.t * 6)) * s * 0.02;
+    // かたの上に しょった形。からだの真うしろだと ほとんど隠れて ただの みどりの はしに見える
+    const bx = x + s * 1.02;
+    const by = y + s * 0.16 - bob;
+    g.fillStyle = '#3e9b55';
+    g.beginPath();
+    g.ellipse(bx, by, s * 0.3, s * 0.26, 0.2, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.9)';
+    g.lineWidth = Math.max(1, s * 0.03);
+    g.lineCap = 'round';
+    for (const [dx, dy, r] of [
+      [0.02, -0.1, 0.06],
+      [0.15, 0.03, 0.055],
+      [0.0, 0.1, 0.045],
+    ] as const) {
+      g.beginPath();
+      g.arc(bx + s * dx, by + s * dy, s * r, 0.2 * Math.PI, 1.7 * Math.PI);
+      g.stroke();
+    }
+  }
+
   // かいじゅう の せなかの とげ。からだより先（奥）に描く
   if (def.spike) {
     g.fillStyle = shade;
@@ -1185,12 +1278,76 @@ export function drawChar(
       g.fill();
       g.fillStyle = shade;
     }
+  } else if (def.ear === 'tall') {
+    // ながい みみ。外へ ひらいて、さきの 3わりが くろい
+    for (const dir of [-1, 1]) {
+      g.save();
+      g.translate(cx + dir * s * 0.27, y + s * 0.12);
+      g.rotate(dir * 0.38);
+      const leaf = (): void => {
+        g.beginPath();
+        g.moveTo(-s * 0.11, 0);
+        g.quadraticCurveTo(-s * 0.12, -s * 0.4, 0, -s * 0.62);
+        g.quadraticCurveTo(s * 0.12, -s * 0.4, s * 0.11, 0);
+        g.closePath();
+      };
+      leaf();
+      g.fillStyle = body;
+      g.fill();
+      g.save();
+      leaf();
+      g.clip();
+      g.fillStyle = INK;
+      g.fillRect(-s * 0.2, -s * 0.7, s * 0.4, s * 0.25);
+      g.restore();
+      g.restore();
+    }
+  } else if (def.ear === 'pointy') {
+    // とがった いぬの みみ。そとは こい色、うちがわは うすちゃ
+    for (const dir of [-1, 1]) {
+      g.save();
+      g.translate(cx + dir * s * 0.3, y + s * 0.1);
+      g.rotate(dir * 0.22);
+      g.fillStyle = shade;
+      g.beginPath();
+      g.moveTo(-s * 0.16, s * 0.04);
+      g.quadraticCurveTo(-s * 0.08, -s * 0.24, 0, -s * 0.38);
+      g.quadraticCurveTo(s * 0.08, -s * 0.24, s * 0.16, s * 0.04);
+      g.closePath();
+      g.fill();
+      g.fillStyle = '#f1c9a1';
+      g.beginPath();
+      g.moveTo(-s * 0.08, s * 0.02);
+      g.quadraticCurveTo(-s * 0.04, -s * 0.16, 0, -s * 0.26);
+      g.quadraticCurveTo(s * 0.04, -s * 0.16, s * 0.08, s * 0.02);
+      g.closePath();
+      g.fill();
+      g.restore();
+    }
   }
 
   // からだ
-  g.fillStyle = st.hurt > 0 ? '#e4675c' : body;
-  roundRect(g, x, y, s, s, s * 0.3);
-  g.fill();
+  if (def.bread) {
+    // 山がたの しょくパン。まわりの みみ（shade）を ひとまわり大きく敷いて、
+    // その上に 白い なかみ。あたまの上が ふたつ ふくらんで「パン」と分かる形にする
+    const humps = (r: number, grow: number): void => {
+      g.beginPath();
+      roundRect(g, x - grow, y, s + grow * 2, s - (grow > 0 ? 0 : s * 0.05), s * 0.3 + grow);
+      g.moveTo(x + s * 0.28 + r, y + s * 0.14);
+      g.arc(x + s * 0.28, y + s * 0.14, r, 0, Math.PI * 2);
+      g.moveTo(x + s * 0.72 + r, y + s * 0.14);
+      g.arc(x + s * 0.72, y + s * 0.14, r, 0, Math.PI * 2);
+      g.fill('nonzero');
+    };
+    g.fillStyle = st.hurt > 0 ? '#c24e45' : shade;
+    humps(s * 0.33, s * 0.065);
+    g.fillStyle = st.hurt > 0 ? '#e4675c' : body;
+    humps(s * 0.265, 0);
+  } else {
+    g.fillStyle = st.hurt > 0 ? '#e4675c' : body;
+    roundRect(g, x, y, s, s, s * 0.3);
+    g.fill();
+  }
 
   if (st.hurt <= 0) {
     if (def.stripe) {
@@ -1220,6 +1377,50 @@ export function drawChar(
       g.ellipse(x + s * 0.68, y + s * 0.42, s * 0.16, s * 0.19, 0.2, 0, Math.PI * 2);
       g.fill();
     }
+    if (def.cap || def.muzzle) {
+      // あおワンコ。あたまの上の こい もようと、白っぽい くちもと・むね。
+      // からだの丸みから はみ出さないよう clip する
+      g.save();
+      roundRect(g, x, y, s, s, s * 0.3);
+      g.clip();
+      if (def.cap) {
+        g.fillStyle = shade;
+        g.beginPath();
+        g.ellipse(cx, y + s * 0.02, s * 0.36, s * 0.17, 0, 0, Math.PI * 2);
+        g.fill();
+        // おでこに ひとすじ たれる
+        g.beginPath();
+        g.ellipse(cx, y + s * 0.16, s * 0.07, s * 0.12, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      if (def.muzzle) {
+        g.fillStyle = def.muzzle;
+        g.beginPath();
+        g.ellipse(cx, y + s * 0.63, s * 0.25, s * 0.16, 0, 0, Math.PI * 2);
+        g.fill();
+        g.beginPath();
+        g.ellipse(cx, y + s * 1.02, s * 0.3, s * 0.2, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.restore();
+    }
+  }
+
+  // パンの かいとうの ふろしきの むすび目（あごの下）
+  if (def.furoshiki && st.hurt <= 0) {
+    const ky = y + s * 0.84;
+    g.fillStyle = '#3e9b55';
+    for (const dir of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(cx, ky);
+      g.lineTo(cx + dir * s * 0.17, ky - s * 0.09);
+      g.lineTo(cx + dir * s * 0.15, ky + s * 0.08);
+      g.closePath();
+      g.fill();
+    }
+    g.beginPath();
+    g.arc(cx, ky, s * 0.055, 0, Math.PI * 2);
+    g.fill();
   }
 
   // まほうたんてい の えりの フリル（からだの上・かおの下）
@@ -1320,17 +1521,56 @@ export function drawChar(
       g.arc(cx, y + s * 0.58, s * 0.13, 0.12 * Math.PI, 0.88 * Math.PI);
     }
     g.stroke();
+
+    if (def.nose) {
+      g.fillStyle = def.nose;
+      g.beginPath();
+      g.ellipse(cx, y + s * 0.555, s * 0.05, s * 0.035, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    if (def.whisker) {
+      g.strokeStyle = 'rgba(43,52,64,.55)';
+      g.lineWidth = Math.max(1, s * 0.025);
+      for (const dir of [-1, 1]) {
+        for (const dy of [-0.04, 0.04]) {
+          g.beginPath();
+          g.moveTo(cx + dir * s * 0.2, y + s * (0.6 + dy * 0.5));
+          g.lineTo(cx + dir * s * 0.44, y + s * (0.6 + dy * 1.6));
+          g.stroke();
+        }
+      }
+    }
   }
 
   // ほっぺ
   if (st.hurt <= 0 && !def.patch && !def.mask) {
-    g.fillStyle = 'rgba(255,138,128,.45)';
+    // ビリビリねずみの あかい ほっぺは 大きく、はっきり
+    const big = Boolean(def.cheek);
+    g.fillStyle = def.cheek ?? 'rgba(255,138,128,.45)';
     g.beginPath();
-    g.arc(x + s * 0.17, y + s * 0.6, s * 0.08, 0, Math.PI * 2);
+    g.arc(x + s * 0.17, y + s * 0.6, s * (big ? 0.1 : 0.08), 0, Math.PI * 2);
     g.fill();
     g.beginPath();
-    g.arc(x + s * 0.83, y + s * 0.6, s * 0.08, 0, Math.PI * 2);
+    g.arc(x + s * 0.83, y + s * 0.6, s * (big ? 0.1 : 0.08), 0, Math.PI * 2);
     g.fill();
+  }
+
+  // ほっぺから ときどき ぱちっと 火花。ずっと出すと うるさいので、ひと呼吸に1回だけ
+  if (def.bolt && st.hurt <= 0 && Math.sin(st.t * 2.6) > 0.86) {
+    g.strokeStyle = '#fff6a0';
+    g.lineWidth = Math.max(1.5, s * 0.035);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    for (const dir of [-1, 1]) {
+      const sx = cx + dir * s * 0.42;
+      const sy = y + s * 0.58;
+      g.beginPath();
+      g.moveTo(sx, sy);
+      g.lineTo(sx + dir * s * 0.1, sy - s * 0.08);
+      g.lineTo(sx + dir * s * 0.07, sy + s * 0.0);
+      g.lineTo(sx + dir * s * 0.18, sy - s * 0.06);
+      g.stroke();
+    }
   }
 
   if (look.acc) drawAccFront(g, look.acc, x, y, s, st.t);
