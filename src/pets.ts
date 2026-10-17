@@ -82,9 +82,17 @@ export interface PetArt {
     | 'fish'
     /** 5本の うでの ほしがた（ひとで・ほしのこ） */
     | 'star';
-  ear?: 'cat' | 'round' | 'floppy' | 'antenna' | 'horn' | 'crest' | 'mane' | 'long';
-  wing?: 'bug' | 'butterfly' | 'bird' | 'big' | 'fire';
-  tail?: 'short' | 'long' | 'fluffy' | 'fire' | 'glow';
+  ear?: 'cat' | 'round' | 'floppy' | 'antenna' | 'horn' | 'crest' | 'mane' | 'long'
+    /** 3本の かんむりばね（ほうおう）。さきの色は plumes */
+    | 'plume3';
+  wing?: 'bug' | 'butterfly' | 'bird' | 'big' | 'fire'
+    /** 大きな つばさ。ながい はねを おうぎに ならべ、みじかい はねを 2だん かさねる（ほうおう） */
+    | 'grand';
+  tail?: 'short' | 'long' | 'fluffy' | 'fire' | 'glow'
+    /** ふとい しっぽが 上へ まき上がり、さきに ほのお（りゅうおう）。ほのおの色は fireMane */
+    | 'king'
+    /** ながい かざりばねが うしろへ ながれ、さきに 目玉もよう（ほうおう）。色は plumes */
+    | 'plume';
   beak?: 'small' | 'duck';
   /** 水玉模様の色 */
   spots?: string;
@@ -105,9 +113,35 @@ export interface PetArt {
   /**
    * ゴッドの子。legend に くわえて、後光が にじいろになり、光の わが 2重になり、
    * あたまに 小さな おうかんが のる（petart.ts）。大きさは でんせつと同じ
-   * （これより大きくすると 走るときに主人公と重なる。LEGEND_SCALE のところ）
+   * （これより大きくすると 走るときに主人公と重なる。LEGEND_SCALE のところ）。
+   * 光と おうかんだけだと「でんせつの 色ちがい」に見えるので、ゴッドの子は
+   * からだつきも かえる（下の bulk 〜 fluke）
    */
   god?: boolean;
+
+  // ---- ゴッドの子の からだつき ----
+  // でんせつと 同じ わくの中で「その上」に見せるため、あつみ・部位・かざりを ふやす。
+  // どれも シルエット（まだ持っていない子）では 色を出さない（形だけ かげの色、もようは 描かない）
+  /** ごつい からだ（beast）。あつい むね・ふとい あし・つめ・はなづら。legs の 細い線の かわりに描く */
+  bulk?: boolean;
+  /** 東洋の りゅうの えだわかれした つの の色。horn（1本角）の かわり */
+  antler?: string;
+  /** りゅうの ながい ひげ（はなさきから うしろへ なびく）の色 */
+  barbel?: string;
+  /** ほのおの たてがみ（くびの うしろ）。そと → うち の色。tail: 'king' の さきの ほのおも この色 */
+  fireMane?: string[];
+  /** からだの うろこ／むねの はねの もようの色 */
+  scales?: string;
+  /** 足もとの くも（東洋の りゅうは つばさではなく くもに のって とぶ） */
+  cloud?: boolean;
+  /** かざりばね・かんむりばね・つばさの さきの色（ほうおう） */
+  plumes?: string[];
+  /** せなかで うずまく ぎんがの色（ぎんがくじら） */
+  galaxy?: string[];
+  /** まわりを まわる わっかの ほしと みかづき（ぎんがくじら） */
+  orbit?: boolean;
+  /** しっぽを 上へ もち上げた 大きな おびれ（fish）。よこの 三角の おびれの かわり */
+  fluke?: boolean;
   /** たてがみの色。2色以上で にじいろの すじになる（ユニコーン） */
   mane?: string[];
   /** せなかの とげ（ドラゴン） */
@@ -122,7 +156,8 @@ export interface PetArt {
   legs?: number;
   /** 走るとき浮いてついてくる */
   fly?: boolean;
-  face?: 'dot' | 'big' | 'sleepy';
+  /** 'brave' は 点の目に光と ふとい まゆ（つよそう。口は にっこりのまま） */
+  face?: 'dot' | 'big' | 'sleepy' | 'brave';
   /** かたつむりの殻 */
   shell?: string;
 }
@@ -325,18 +360,23 @@ export const PETS: PetDef[] = [
     art: { shape: 'bird', body: '#5d6fe0', shade: '#3a46a8', wing: 'big', tail: 'glow', beak: 'small', ear: 'crest', fly: true, face: 'dot', legend: '#fff07a' },
   },
   // ---- ゴッド (3) ----
-  // でんせつの さらに上。キラたまごの 2% からしか出ない（SHINY_ODDS）
+  // でんせつの さらに上。キラたまごの 2% からしか出ない（SHINY_ODDS）。
+  // でんせつの ドラゴン・フェニックス・そらくじらの 色ちがいに 見えないよう、からだつきから 変えてある:
+  //  りゅうおう   = つばさの ない 東洋の りゅう。あつい むねと ふとい あし・えだの つの・ひげ・
+  //                 ほのおの たてがみ・うろこ。くもに のって とぶ
+  //  ほうおう     = 目玉もようの ながい かざりばね・3本の かんむりばね・何まいも かさなる 大きな つばさ
+  //  ぎんがくじら = せなかで うずまく ぎんが・まわりを まわる わっかの ほしと みかづき・上げた 大きな おびれ
   {
     id: 'ryuou', name: 'りゅうおう', rarity: 'god', note: 'りゅうの なかの おうさま。きんいろに かがやく',
-    art: { shape: 'beast', body: '#ffd45a', shade: '#d9a21c', wing: 'big', horn: true, tail: 'long', ear: 'crest', legs: 4, fly: true, belly: true, face: 'dot', legend: '#ffe27a', ridge: '#ff8fa3', god: true },
+    art: { shape: 'beast', body: '#ffd45a', shade: '#d9a21c', bulk: true, antler: '#fff1c9', barbel: '#ff7a59', fireMane: ['#ff5a3c', '#ff9c3c', '#ffe08a'], scales: '#c98a12', cloud: true, tail: 'king', fly: true, belly: true, face: 'brave', legend: '#ffe27a', ridge: '#e8961c', god: true },
   },
   {
     id: 'houou', name: 'ほうおう', rarity: 'god', note: 'にじいろの ほのおで そらを そめる',
-    art: { shape: 'bird', body: '#ff7f9a', shade: '#d9506e', wing: 'fire', tail: 'fire', beak: 'small', ear: 'crest', fly: true, face: 'dot', legend: '#ffb3e6', god: true },
+    art: { shape: 'bird', body: '#ff7f9a', shade: '#d9506e', wing: 'grand', tail: 'plume', plumes: ['#8fc8ff', '#8fe3a0', '#ffd257', '#c9a0ff', '#ff8fa3'], beak: 'small', ear: 'plume3', scales: '#ffd8a8', fly: true, face: 'dot', legend: '#ffb3e6', god: true },
   },
   {
     id: 'gingakujira', name: 'ぎんがくじら', rarity: 'god', note: 'せなかに ほしぞらを のせて うちゅうを およぐ',
-    art: { shape: 'fish', body: '#3d4b9a', shade: '#29336e', belly: true, spout: true, fly: true, face: 'dot', legend: '#c9a8ff', stars: '#fff3b0', god: true },
+    art: { shape: 'fish', body: '#3d4b9a', shade: '#29336e', belly: true, spout: true, fluke: true, galaxy: ['#c9a8ff', '#8fc8ff', '#ffb3e6'], orbit: true, fly: true, face: 'dot', legend: '#c9a8ff', stars: '#fff3b0', god: true },
   },
 ];
 

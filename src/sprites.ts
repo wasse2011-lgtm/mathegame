@@ -53,10 +53,20 @@ export interface SkinDef {
   whisker?: boolean;
   /** ビリビリねずみの いなずま しっぽ。ときどき ほっぺから ぱちっと 火花 */
   bolt?: boolean;
-  /** あおワンコの くちもと（白っぽい ところ）の色 */
+  /** あおワンコの くちもと（うすちゃの ところ）の色。むねも 同じ色 */
   muzzle?: string;
   /** あおワンコの あたまの上の こい もよう */
   cap?: boolean;
+  /**
+   * かおの 描きかた。ないときは ほかの子と同じ（まるい 点の目 ＋ にっこり口）。
+   * コラボふうの子は 点の目のままだと「いろの ちがう いぬ・パン」にしか 見えないので、
+   * もとの おはなしの 顔の しるしを ここで 描きわける。
+   *  - 'heeler': あおワンコ。目のまわりの こい もよう・白目のある 目・うすちゃの まゆ・
+   *              くちもとの 上はしに のる かどの丸い さかさ三角の はな・ひらいた 口
+   *  - 'thief' : パンの かいとう。まぶたが 半分 さがって 横を「ジロリ」と 見る目・
+   *              パンの あなから つんと 出た はなづら・かたほうだけ 上がる 口
+   */
+  face?: 'heeler' | 'thief';
 }
 
 export const SKINS: SkinDef[] = [
@@ -79,9 +89,9 @@ export const SKINS: SkinDef[] = [
   // ---- コラボふう ----
   // パンを ぬすむ おはなしの どろぼう／きいろい でんきの ねずみ／あおい いぬの 家族の アニメ。
   // どれも「それっぽい」ところだけ借りて、名前と絵は べつものにしてある
-  { id: 'pan', label: 'パンの かいとう', body: '#fff3d9', shade: '#d39143', ear: 'none', bread: true, furoshiki: true, whisker: true, nose: '#f08a9a' },
+  { id: 'pan', label: 'パンの かいとう', body: '#fff3d9', shade: '#d39143', ear: 'none', bread: true, furoshiki: true, whisker: true, nose: '#f08a9a', face: 'thief' },
   { id: 'biri', label: 'ビリビリねずみ', body: '#fad648', shade: '#d9a21c', ear: 'tall', bolt: true, cheek: '#f0584a', nose: '#3a2f2a' },
-  { id: 'aowan', label: 'あおワンコ', body: '#7fb1e6', shade: '#3e5f9f', ear: 'pointy', muzzle: '#e3eef8', cap: true, nose: '#2b3440' },
+  { id: 'aowan', label: 'あおワンコ', body: '#7fb1e6', shade: '#3e5f9f', ear: 'pointy', muzzle: '#f3dcb5', cap: true, nose: '#2b3440', face: 'heeler' },
 ];
 
 export function skinDef(id: SkinId): SkinDef {
@@ -1035,6 +1045,232 @@ function colorsOf(def: SkinDef, look: Look, t: number): { body: string; shade: s
   return { body: c.body, shade: c.shade };
 }
 
+/**
+ * あおワンコの 顔（SkinDef.face = 'heeler'）。目のまわりの こい もようと くちもとは
+ * からだを ぬるところで 先に 敷いてある。ここは その上に のる 目・まゆ・はな・口。
+ *
+ * もとの アニメの 絵の しるしを、まるい しかくの からだに あわせて 正面むきに 直したもの:
+ *  - 目は 白目の 大きな だ円に、小さな くろめ（点の目だと ほかの いぬと 同じ顔になる）
+ *  - まゆは うすちゃ。こい もようの 上で はっきり見える
+ *  - はなは かどの丸い さかさ三角で、くちもとの 上はしに のせる
+ *  - 口は 大きく ひらいた にっこり口。なかに ももいろの ベロ
+ */
+function drawHeelerFace(
+  g: CanvasRenderingContext2D,
+  cx: number,
+  y: number,
+  s: number,
+  blink: number,
+  air: boolean,
+  def: SkinDef,
+): void {
+  const ey = y + s * 0.42;
+  const tan = def.muzzle ?? '#f3dcb5';
+
+  // まゆ
+  g.strokeStyle = tan;
+  g.lineWidth = Math.max(1.5, s * 0.05);
+  g.lineCap = 'round';
+  for (const dir of [-1, 1]) {
+    g.beginPath();
+    g.moveTo(cx + dir * s * 0.1, ey - s * 0.14);
+    g.quadraticCurveTo(cx + dir * s * 0.17, ey - s * 0.2, cx + dir * s * 0.26, ey - s * 0.16);
+    g.stroke();
+  }
+
+  // 目。まばたきは 白目ごと たてに つぶす
+  for (const dir of [-1, 1]) {
+    const ex = cx + dir * s * 0.18;
+    g.fillStyle = '#fff';
+    g.beginPath();
+    g.ellipse(ex, ey, s * 0.09, s * 0.11 * blink, 0, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = INK;
+    g.beginPath();
+    g.ellipse(ex, ey + s * 0.02 * blink, s * 0.055, s * 0.07 * blink, 0, 0, Math.PI * 2);
+    g.fill();
+    if (blink === 1) {
+      g.fillStyle = '#fff';
+      g.beginPath();
+      g.arc(ex + s * 0.018, ey - s * 0.005, s * 0.02, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  // はな。くちもとの 上はしに のる、かどの丸い さかさ三角
+  const ny = y + s * 0.49;
+  g.fillStyle = def.nose ?? INK;
+  g.beginPath();
+  g.moveTo(cx - s * 0.09, ny);
+  g.quadraticCurveTo(cx, ny - s * 0.03, cx + s * 0.09, ny);
+  g.quadraticCurveTo(cx + s * 0.08, ny + s * 0.075, cx, ny + s * 0.095);
+  g.quadraticCurveTo(cx - s * 0.08, ny + s * 0.075, cx - s * 0.09, ny);
+  g.closePath();
+  g.fill();
+  g.fillStyle = 'rgba(255,255,255,.5)';
+  g.beginPath();
+  g.ellipse(cx - s * 0.03, ny + s * 0.02, s * 0.028, s * 0.014, -0.2, 0, Math.PI * 2);
+  g.fill();
+
+  // 口。はなから たての すじを おろして、大きく ひらいた にっこり口。跳んでいるときは もっと ひらく
+  const my = y + s * 0.63;
+  const deep = s * (air ? 0.2 : 0.15);
+  g.strokeStyle = INK;
+  g.lineWidth = Math.max(1.5, s * 0.035);
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.beginPath();
+  g.moveTo(cx, ny + s * 0.09);
+  g.lineTo(cx, my + s * 0.01);
+  g.stroke();
+  const mouth = (): void => {
+    g.beginPath();
+    g.moveTo(cx - s * 0.15, my - s * 0.01);
+    g.quadraticCurveTo(cx, my + s * 0.03, cx + s * 0.15, my - s * 0.01);
+    g.quadraticCurveTo(cx + s * 0.13, my + deep, cx, my + deep);
+    g.quadraticCurveTo(cx - s * 0.13, my + deep, cx - s * 0.15, my - s * 0.01);
+    g.closePath();
+  };
+  mouth();
+  g.fillStyle = '#7a3340';
+  g.fill();
+  g.save();
+  mouth();
+  g.clip();
+  g.fillStyle = '#f08a9a';
+  g.beginPath();
+  g.ellipse(cx, my + deep, s * 0.09, s * 0.065, 0, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+  mouth();
+  g.stroke();
+}
+
+/**
+ * パンの かいとうの 顔（SkinDef.face = 'thief'）。
+ *
+ * もとの えほんの しょうかいに ある「パンの マスクから つんと とび出た はなづら」と
+ * 「ジロリと のぞく 目つき」を、正面むきで 読める形に したもの:
+ *  - 目は まぶたが 半分 さがって、くろめを 走る向き（右）へ よせる（横目で ジロリ）
+ *  - はなづらは パンの あなから 出ている ねずみの はなで、ねもとに あなの かげ、
+ *    下の パンに 小さな かげを おとして「つき出ている」と 分かるようにする
+ *  - 口は かたほうだけ 上がる「にやり」。跳んでいるときは 小さく ひらく
+ */
+function drawThiefFace(
+  g: CanvasRenderingContext2D,
+  cx: number,
+  y: number,
+  s: number,
+  blink: number,
+  air: boolean,
+  def: SkinDef,
+): void {
+  const ey = y + s * 0.42;
+
+  // 目
+  for (const dir of [-1, 1]) {
+    const ex = cx + dir * s * 0.19;
+    // まぶたの線は ほぼ たいら。目がしら（内がわ）を もっと 下げると
+    // おこった顔になって こわい（5さいの子が 選ばなくなる）
+    const lidIn = ey - s * 0.012;
+    const lidOut = ey - s * 0.028;
+    const xIn = ex - dir * s * 0.12;
+    const xOut = ex + dir * s * 0.12;
+    if (blink === 1) {
+      g.save();
+      g.beginPath();
+      g.moveTo(xIn, lidIn);
+      g.lineTo(xOut, lidOut);
+      g.lineTo(xOut, ey + s * 0.2);
+      g.lineTo(xIn, ey + s * 0.2);
+      g.closePath();
+      g.clip();
+      g.beginPath();
+      g.ellipse(ex, ey, s * 0.095, s * 0.085, 0, 0, Math.PI * 2);
+      g.fillStyle = '#fff';
+      g.fill();
+      g.strokeStyle = INK;
+      g.lineWidth = Math.max(1, s * 0.025);
+      g.stroke();
+      // くろめは 右へ よせる。走る先を 横目で うかがう
+      g.fillStyle = INK;
+      g.beginPath();
+      g.arc(ex + s * 0.035, ey + s * 0.02, s * 0.058, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
+    g.strokeStyle = INK;
+    g.lineWidth = Math.max(2, s * 0.045);
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(xIn, lidIn);
+    g.lineTo(xOut, lidOut);
+    g.stroke();
+  }
+
+  // はなづら。目の あいだの あなから 下へ のびて、さきが まるく ふくらむ
+  const fur = '#b3a69c';
+  const tipY = y + s * 0.6;
+  // あなの かげ（パンの みみの色を うすく）
+  g.fillStyle = 'rgba(150,90,30,.35)';
+  g.beginPath();
+  g.ellipse(cx, y + s * 0.47, s * 0.065, s * 0.035, 0, 0, Math.PI * 2);
+  g.fill();
+  // 下の パンに おちる かげ
+  g.fillStyle = 'rgba(120,80,40,.18)';
+  g.beginPath();
+  g.ellipse(cx + s * 0.03, tipY + s * 0.085, s * 0.08, s * 0.03, 0, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = fur;
+  g.beginPath();
+  g.moveTo(cx - s * 0.045, y + s * 0.47);
+  g.quadraticCurveTo(cx - s * 0.05, tipY - s * 0.05, cx - s * 0.085, tipY);
+  g.arc(cx, tipY, s * 0.085, Math.PI, 0, true);
+  g.quadraticCurveTo(cx + s * 0.05, tipY - s * 0.05, cx + s * 0.045, y + s * 0.47);
+  g.closePath();
+  g.fill();
+  g.fillStyle = 'rgba(255,255,255,.45)';
+  g.beginPath();
+  g.ellipse(cx - s * 0.025, tipY - s * 0.04, s * 0.02, s * 0.045, 0, 0, Math.PI * 2);
+  g.fill();
+  // はなさき
+  g.fillStyle = def.nose ?? INK;
+  g.beginPath();
+  g.ellipse(cx, tipY + s * 0.035, s * 0.05, s * 0.036, 0, 0, Math.PI * 2);
+  g.fill();
+
+  // ひげ。はなづらの よこから
+  if (def.whisker) {
+    g.strokeStyle = 'rgba(43,52,64,.6)';
+    g.lineWidth = Math.max(1, s * 0.022);
+    for (const dir of [-1, 1]) {
+      for (const k of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(cx + dir * s * 0.1, tipY + k * s * 0.015);
+        g.lineTo(cx + dir * s * 0.38, tipY + k * s * 0.05 - s * 0.01);
+        g.stroke();
+      }
+    }
+  }
+
+  // 口
+  g.strokeStyle = INK;
+  g.lineWidth = Math.max(1.5, s * 0.035);
+  g.lineCap = 'round';
+  const my = tipY + s * 0.13;
+  if (air) {
+    g.fillStyle = '#7a3340';
+    g.beginPath();
+    g.ellipse(cx, my + s * 0.01, s * 0.04, s * 0.035, 0, 0, Math.PI * 2);
+    g.fill();
+  } else {
+    g.beginPath();
+    g.moveTo(cx - s * 0.06, my);
+    g.quadraticCurveTo(cx + s * 0.01, my + s * 0.035, cx + s * 0.08, my - s * 0.025);
+    g.stroke();
+  }
+}
+
 export function drawChar(
   g: CanvasRenderingContext2D,
   cx: number,
@@ -1378,7 +1614,7 @@ export function drawChar(
       g.fill();
     }
     if (def.cap || def.muzzle) {
-      // あおワンコ。あたまの上の こい もようと、白っぽい くちもと・むね。
+      // あおワンコ。あたまの上の こい もようと、うすちゃの くちもと・むね。
       // からだの丸みから はみ出さないよう clip する
       g.save();
       roundRect(g, x, y, s, s, s * 0.3);
@@ -1388,15 +1624,24 @@ export function drawChar(
         g.beginPath();
         g.ellipse(cx, y + s * 0.02, s * 0.36, s * 0.17, 0, 0, Math.PI * 2);
         g.fill();
-        // おでこに ひとすじ たれる
-        g.beginPath();
-        g.ellipse(cx, y + s * 0.16, s * 0.07, s * 0.12, 0, 0, Math.PI * 2);
-        g.fill();
+      }
+      if (def.face === 'heeler') {
+        // 目のまわりの こい もよう。もとの いぬ（ブルー・ヒーラー）の「マスク」で、
+        // ここが 無いと ただの あおい いぬに 見える。目より先に 敷いて、
+        // まんなかは うすい いろを のこす（くっつけると 大きな めがねに 見える）
+        g.fillStyle = shade;
+        for (const dir of [-1, 1]) {
+          g.beginPath();
+          g.ellipse(cx + dir * s * 0.2, y + s * 0.37, s * 0.155, s * 0.17, dir * 0.4, 0, Math.PI * 2);
+          g.fill();
+        }
       }
       if (def.muzzle) {
         g.fillStyle = def.muzzle;
         g.beginPath();
-        g.ellipse(cx, y + s * 0.63, s * 0.25, s * 0.16, 0, 0, Math.PI * 2);
+        // まるい はなさきの くちもと。目の 下はしに すこし かかる高さにする
+        // （はなれていると 顔が 間のびして、いぬの 鼻づらに 見えない）
+        g.ellipse(cx, y + s * 0.665, s * 0.28, s * 0.175, 0, 0, Math.PI * 2);
         g.fill();
         g.beginPath();
         g.ellipse(cx, y + s * 1.02, s * 0.3, s * 0.2, 0, 0, Math.PI * 2);
@@ -1491,6 +1736,11 @@ export function drawChar(
     g.moveTo(x + s * 0.6, ey - s * 0.08); g.lineTo(x + s * 0.76, ey + s * 0.08);
     g.moveTo(x + s * 0.76, ey - s * 0.08); g.lineTo(x + s * 0.6, ey + s * 0.08);
     g.stroke();
+  } else if (def.face) {
+    // コラボふうの子の 顔。まばたきの間合いは ほかの子と そろえる
+    const blink = Math.sin(st.t * 1.7) > 0.985 ? 0.25 : 1;
+    if (def.face === 'heeler') drawHeelerFace(g, cx, y, s, blink, st.air, def);
+    else drawThiefFace(g, cx, y, s, blink, st.air, def);
   } else {
     const blink = Math.sin(st.t * 1.7) > 0.985 ? 0.25 : 1;
     // ぱんだは 黒い模様のうえなので、白目を敷いてから描く
@@ -1542,8 +1792,9 @@ export function drawChar(
     }
   }
 
-  // ほっぺ
-  if (st.hurt <= 0 && !def.patch && !def.mask) {
+  // ほっぺ。コラボふうの 顔（def.face）には 付けない。もとの絵に ももいろの ほっぺが 無く、
+  // くちもと・ひげと かさなって 顔が ごちゃつく
+  if (st.hurt <= 0 && !def.patch && !def.mask && !def.face) {
     // ビリビリねずみの あかい ほっぺは 大きく、はっきり
     const big = Boolean(def.cheek);
     g.fillStyle = def.cheek ?? 'rgba(255,138,128,.45)';
