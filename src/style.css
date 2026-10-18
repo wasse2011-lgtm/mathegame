@@ -65,6 +65,18 @@ body {
 
 #app { position: fixed; inset: 0; }
 
+/* 子ども向けの文は、ことばの あいだに 空白を入れて書いている（わかちがき）。
+   ふつうの日本語の折りかたのままだと「もういち／ど」「あ／てる」「ちょうせ／んした」のように
+   ことばの途中で折れて、読みはじめの子には 別の ことばに見える。折るのは 空白のところにする。
+   空白の無い長い語（ロケットパンチ など）が はばに入らないときだけ、前と同じく どこでも折る。
+   おうちのかた向けの説明（.p-note など）は 空白を入れない ふつうの文なので、ここには入れない */
+.card-row .daily-title, .card-row .daily-state, .mini-main, .item > span,
+.revenge-note, .replay-note, .unlock-note, .learned, .fail-note, .pause-note,
+.sensei-say, .hint-text, .mini-say, .mini-goal, .pet-detail, .pet-note, .shop-msg, .map-hint,
+.rest-sub, .rest-next, .zukan-goal, .zukan-detail, .hatch-say, .no-storage {
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+
 .screen {
   position: absolute;
   inset: 0;
@@ -174,8 +186,11 @@ body {
 .skin-btn canvas { width: 56px; height: 56px; }
 .skin-btn[aria-pressed="true"] { border-color: var(--amber); background: #fff8e6; color: var(--ink); }
 .name-field { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; font-weight: 700; }
+/* 「なまえ」は たてに 1字ずつ折らない */
+.name-field span { flex: 0 0 auto; white-space: nowrap; }
 .name-field input {
-  flex: 1; font-family: inherit; font-size: 1.2rem; padding: .5rem .7rem;
+  /* min-width: 0 が無いと、入力欄の ふつうの幅（20文字ぶん）に押されて カードの右へ はみ出す */
+  flex: 1; min-width: 0; font-family: inherit; font-size: 1.2rem; padding: .5rem .7rem;
   border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink);
   min-height: 48px;
 }
@@ -641,7 +656,9 @@ body {
 .card-row .daily-card { min-height: 64px; padding: .5rem .55rem; gap: .3rem; }
 .card-row .daily-title { font-size: 1rem; }
 .card-row .daily-state { font-size: .74rem; }
-.card-row .hunt-face { font-size: 1.35rem; }
+/* .hunt-card / .mini-entry の .hunt-face（1.7rem）より あとに来ても負けないよう、1段 くわしく書く。
+   前は同じ強さで あとから上書きされて 大きいままになり、幅 375px で「にがて たい／じ」と折れていた */
+.card-row .daily-card .hunt-face { font-size: 1.35rem; flex: 0 0 auto; }
 
 /* にがて たいじ。きょうの5もんと同じ形で、色だけ「たおす相手」の赤にする */
 .hunt-card { border-color: var(--bad); }
@@ -1883,8 +1900,11 @@ body {
   font-family: inherit; text-align: left; cursor: pointer;
   background: var(--paper); border: 3px solid var(--amber); border-bottom-width: 6px;
   border-radius: var(--r-md); padding: .55rem .8rem; min-height: 64px;
-  animation: zm-pop 1.6s ease-in-out infinite;
+  animation: zp-pop 1.6s ease-in-out infinite;
 }
+/* 画面いっぱいの幅なので、ほかの ボタンと同じ 1.08 倍だと 左右が画面の外へ出る
+   （横持ちや iPad では 1回ごとに 40px ほど はみ出していた）。ゆれは小さくする */
+@keyframes zp-pop { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
 .zukan-prize[hidden] { display: none; }
 .zukan-prize:active { transform: translateY(3px); border-bottom-width: 3px; animation: none; }
 .zp-emoji { font-size: 1.8rem; line-height: 1; }
@@ -3088,6 +3108,9 @@ body {
      押されて シートが画面の右へ はみ出す（320px 幅で 14px はみ出していた） */
   display: grid; place-items: center; grid-template-columns: minmax(0, 1fr);
   padding: calc(var(--safe-t) + 1rem) 1.2rem calc(var(--safe-b) + 1rem);
+  /* シートが画面より高いときは、ここごと たてに送る。スマホの横持ち（たかさ 390px ほど）では
+     せってい・関門の シートが 500px をこえ、下の「おうちのかたへ」「すすむ」に 指が届かなかった */
+  overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
 }
 .overlay[hidden] { display: none !important; }
 .sheet {

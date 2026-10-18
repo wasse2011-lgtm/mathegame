@@ -888,8 +888,17 @@ function paintRanch(ts: number): void {
     g.fillStyle = 'rgba(40,60,70,.62)';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = `700 ${Math.min(15, ranchW / 22)}px "Hiragino Maru Gothic ProN", sans-serif`;
-    g.fillText('たまごを わると なかまが ふえるよ', ranchW / 2, ranchH - 16);
+    const fs = Math.min(15, ranchW / 22);
+    g.font = `700 ${fs}px "Hiragino Maru Gothic ProN", sans-serif`;
+    // 横持ちでは ぼくじょうが ひくく（120px ほど）、手前に置くと かいぬしの 足もとに かぶる。
+    // そのときは 空の帯（さくの上）の 左に出す（まんなかだと かいぬしの 耳に かかる）
+    const below = ranchH - 16;
+    if (below - fs / 2 > yOf(OWNER_DEPTH) + 4) {
+      g.fillText('たまごを わると なかまが ふえるよ', ranchW / 2, below);
+    } else {
+      g.textAlign = 'left';
+      g.fillText('たまごを わると なかまが ふえるよ', 12, top() / 2);
+    }
   }
 
   ranchRaf = requestAnimationFrame(paintRanch);

@@ -1115,7 +1115,9 @@ function openCollection(where: 'shop' | 'ranch', from: 'home' | 'result'): void 
   const play = $<HTMLButtonElement>(where === 'shop' ? 'shop-play' : 'ranch-play');
   play.hidden = from !== 'result' || timeUp();
   if (!play.hidden) {
-    const next = lastResult && nextStageOf(lastResult.worldId, lastResult.stage);
+    // むずかしさも渡す。渡さないと ハードの ボスのあと（つぎが無く マップへ戻る）でも
+    // ふつうの地図の つぎを見て「つづきを あそぶ」と出てしまう（goNext と行き先が ずれる）
+    const next = lastResult && nextStageOf(lastResult.worldId, lastResult.stage, lastResult.tier);
     play.textContent = next ? 'つづきを あそぶ' : nextLabel();
   }
   show(where);
