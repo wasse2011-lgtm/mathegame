@@ -240,6 +240,20 @@ function pointAtGacha(): void {
   window.setTimeout(() => btn.classList.remove('call'), 700);
 }
 
+/**
+ * マスの名前に、ひらがな と カタカナ の さかいめで 折れる すきまを入れる（見た目だけ）。
+ * マスは 5〜6字ぶんの はばしかなく、そのままだと「ビリビリね／ずみ」「だいハンマ／ー」の
+ * ように ことばの途中で折れる。さかいめで折れば「ビリビリ／ねずみ」になる。
+ * 小さい字（っ・ゃ など）の前には入れない（行の頭に来ると読みにくい）。
+ * データの名前そのものは変えない（ぶきの名前は canvas にも描いている）
+ */
+const SCRIPT_SEAM =
+  /([ァ-ヺー])(?=[ぁ-ゖ])(?![ぁぃぅぇぉっゃゅょゎゕゖ])|([ぁ-ゖ])(?=[ァ-ヺ])(?![ァィゥェォッャュョヮヵヶ])/g;
+
+function wrapLabel(text: string): string {
+  return text.replace(SCRIPT_SEAM, '$1$2\u200b');
+}
+
 function itemButton(item: Item): HTMLButtonElement {
   const owned = isOwned(item);
 
@@ -250,7 +264,7 @@ function itemButton(item: Item): HTMLButtonElement {
 
   const c = document.createElement('canvas');
   const label = document.createElement('span');
-  label.textContent = item.label;
+  label.textContent = wrapLabel(item.label);
   b.append(c, label);
 
   if (!owned) {
