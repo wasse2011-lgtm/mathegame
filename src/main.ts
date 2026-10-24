@@ -22,6 +22,10 @@ import {
   type Tier,
   type World,
 } from './curriculum';
+import {
+  duoAvailable, duoFighting, duoHaltForTime, duoLeave, duoPartners, duoPauseForHidden, duoTick, initDuo, openDuo,
+} from './duo-menu';
+import { DUO_BOSS_COUNT } from './duo-rules';
 import { Hanabi } from './hanabi';
 import { GACHA_COST, lockedItems } from './items';
 import { GRACE_SEC, minuteWord } from './limit';
@@ -76,7 +80,7 @@ import { weaponDef } from './weapons';
 import { initZukan, onZukanChange, openZukan, zukanNewCount, zukanPrizeReady } from './zukan';
 
 type ScreenName =
-  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent' | 'rest';
+  | 'title' | 'slots' | 'map' | 'play' | 'result' | 'zukan' | 'shop' | 'ranch' | 'mini' | 'parent' | 'rest' | 'duo';
 
 const screens: Record<ScreenName, HTMLElement> = {
   title: document.getElementById('screen-title') as HTMLElement,
@@ -90,6 +94,7 @@ const screens: Record<ScreenName, HTMLElement> = {
   mini: document.getElementById('screen-mini') as HTMLElement,
   parent: document.getElementById('screen-parent') as HTMLElement,
   rest: document.getElementById('screen-rest') as HTMLElement,
+  duo: document.getElementById('screen-duo') as HTMLElement,
 };
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -120,7 +125,7 @@ let shopFrom: 'home' | 'result' = 'home';
  * ミニゲームは、1回ぶんを遊んでいる途中だけ見のがす（onClockTick を見る）。
  */
 const LOCKED_WHEN_OVER: ReadonlySet<ScreenName> = new Set<ScreenName>([
-  'title', 'map', 'zukan', 'shop', 'ranch', 'mini',
+  'title', 'map', 'zukan', 'shop', 'ranch', 'mini', 'duo',
 ]);
 
 /**
@@ -161,6 +166,8 @@ function show(name: ScreenName): void {
   if (current === 'result' && name !== 'result') stopResultAnim();
   // ミニゲームも同じ。演出の途中で ← を押されても、タイマーを残さない
   if (current === 'mini' && name !== 'mini') stopMini();
+  // ふたりで ボス。とちゅうなら つづきを保存して止める（時間切れは負けにしない）
+  if (current === 'duo' && name !== 'duo') duoLeave();
   current = name;
   (Object.keys(screens) as ScreenName[]).forEach((k) => {
     screens[k].hidden = k !== name;
@@ -550,6 +557,8 @@ function leaveRest(): void {
   }
   // ミニゲームの途中で打ち切ったなら、止まった盤面ではなく 一覧に戻す
   if (to === 'mini' && miniPlaying()) renderMiniList();
+  // ふたりで ボス は 2人を えらぶ画面から（右の子の時間も変わっているかもしれない）
+  if (to === 'duo') openDuo();
   // 開きなおしで きろく えらびへ行こうとしていたとき（タイマーで おわっていた）。
   // のばしたので「おしまい」の しるしを付けなおす
   if (to === 'slots') renderSlots();
@@ -606,7 +615,7 @@ let overAt = 0;
 
 /** 遊んでいる途中か（ステージ・ミニゲームの1回ぶん）。0 になっても ここは待つ */
 function midGame(): boolean {
-  return current === 'play' || (current === 'mini' && miniPlaying());
+  return current === 'play' || (current === 'mini' && miniPlaying()) || (current === 'duo' && duoFighting());
 }
 
 /**
@@ -619,6 +628,8 @@ function midGame(): boolean {
  */
 function onClockTick(): void {
   const over = timeUp();
+  // ふたりで ボス は 右の子の時間も見る（切れたら つぎの やすみで区切る）
+  if (current === 'duo') duoTick();
   if (over) {
     if (!wasOver) overAt = performance.now();
     if (midGame()) {
@@ -628,6 +639,10 @@ function onClockTick(): void {
           runner.stop();
           restFrom = lastRun && lastRun.stage === 0 ? 'title' : 'map';
           restRedraw = true;
+        } else if (current === 'duo') {
+          // つづきは そのボスから（時間切れは負けにしない）。のばしたら ホームから えらびなおす
+          duoHaltForTime();
+          restFrom = 'title';
         } else {
           restFrom = 'mini';
         }
@@ -635,7 +650,13 @@ function onClockTick(): void {
         show('rest');
       }
     } else if (current !== 'rest' && lockedNow(current) && !overlayOpen()) {
-      restFrom = current;
+      // ふたりで ボス の やすみ・おわりの画面。つぎのボスから つづけられるよう保存してから閉じる
+      if (current === 'duo') {
+        duoHaltForTime();
+        restFrom = 'title';
+      } else {
+        restFrom = current;
+      }
       show('rest');
     }
   } else if (current === 'rest') {
@@ -879,6 +900,15 @@ function renderTitle(): void {
       ? `ごほうび ${left}こ`
       : 'あそべるよ';
   $('mini-card').classList.toggle('done', !over && left === 0);
+
+  // ふたりで ボス。iPad のときだけ出す（スマホでは 2人の板が並ばない）
+  const duoCard = $<HTMLButtonElement>('duo-card');
+  duoCard.hidden = !duoAvailable();
+  duoCard.disabled = over;
+  const best = p.duo.best[0];
+  $('duo-card-state').textContent = over
+    ? 'また あした'
+    : best >= DUO_BOSS_COUNT ? '👑 ぜんぶ たおした！' : best > 0 ? `${best}たい たおした` : '8たいの ボスと たたかう';
 
   // にがて たいじ。相手がいないと始まらないので、何ひきいるかを先に出す
   const weak = weakFactCount(unlockedFacts());
@@ -1307,6 +1337,14 @@ $('mini-card').addEventListener('click', () => {
   sfx.tap();
   renderMiniList();
   show('mini');
+});
+
+/** ふたりで ボス（iPad の 2人プレイ）。まず 2人と むずかしさを えらぶ */
+$('duo-card').addEventListener('click', () => {
+  unlockAudio();
+  sfx.tap();
+  openDuo();
+  show('duo');
 });
 
 // ------------------------------------------------------------------ マップ
@@ -2886,6 +2924,7 @@ document.addEventListener('visibilitychange', () => {
       runner.setPaused(true);
       $('overlay-pause').hidden = false;
     }
+    if (current === 'duo') duoPauseForHidden();
   } else {
     unlockAudio(); // 中断されたオーディオを起こしなおす
   }
@@ -2916,6 +2955,7 @@ initMini({
   onCoins: onCollectionChange,
   onExit: goHome,
 });
+initDuo({ onExit: goHome, onChange: onCollectionChange });
 initGate();
 initParent(() => {
   syncSettings();
@@ -2950,6 +2990,8 @@ startPlayClock({
   counting: () =>
     current !== 'parent' && current !== 'rest' && $('overlay-gate').hidden && $('overlay-timer').hidden,
   onTick: onClockTick,
+  // ふたりで ボス の右の子。2人で遊んでいるあいだは その子の 1日の時間も減らす
+  also: () => (current === 'duo' ? duoPartners() : []),
 });
 
 renderTitle();

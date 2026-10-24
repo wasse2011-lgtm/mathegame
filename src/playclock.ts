@@ -19,7 +19,7 @@
  */
 
 import { handAngle, minutesLeft, remainText, timeLevel, wedgePath } from './limit';
-import { addPlayTime, limitView, persist, profile, save, sessionLeft, tickSession } from './save';
+import { addPlayTime, limitView, persist, profile, save, sessionLeft, tickSession, type Profile } from './save';
 
 /** さわらないまま これだけ たったら数えるのをやめる */
 const IDLE_MS = 90_000;
@@ -41,6 +41,11 @@ interface ClockEnv {
   counting: () => boolean;
   /** 1秒ごと。上限に達したときの画面の切りかえは main.ts がやる */
   onTick: () => void;
+  /**
+   * いまの きろくのほかに、いっしょに遊んでいる きろく（ふたりで ボス の右の子）。
+   * 2人で遊んでいるあいだは、右の子の 1日の時間も 同じだけ減らす
+   */
+  also?: () => Profile[];
 }
 
 let env: ClockEnv = { counting: () => true, onTick: () => undefined };
@@ -229,6 +234,7 @@ function tick(): void {
     if (whole > 0) {
       carry -= whole;
       addPlayTime(whole);
+      for (const q of env.also?.() ?? []) if (q !== profile()) addPlayTime(whole, q);
       dirty = true;
     }
   }

@@ -6,7 +6,10 @@
  */
 
 import { type Fact, factKey } from './curriculum';
-import { factStat, peekFact, profile } from './save';
+import { factStat, peekFact, profile, type FactStat } from './save';
+
+/** 式の記録の読みかた。ふだんは いまの きろく（peekFact）。ふたりで ボス では 右の子の分も読む */
+export type StatReader = (key: string) => Readonly<FactStat>;
 
 export interface Question {
   fact: Fact;
@@ -164,10 +167,18 @@ export class QuestionPicker {
   /** 正解が同じ位置に並び続けないようにする */
   private lastSlots: number[] = [];
 
-  constructor(private pool: Fact[], private choiceCount: number, private blank = false) {}
+  /**
+   * @param stat 重みづけに使う記録。ふたりで ボス は 右の子の きろく・ゲスト（記録なし）を渡す
+   */
+  constructor(
+    private pool: Fact[],
+    private choiceCount: number,
+    private blank = false,
+    private stat: StatReader = peekFact,
+  ) {}
 
   private weight(f: Fact): number {
-    const s = peekFact(factKey(f));
+    const s = this.stat(factKey(f));
     if (s.m <= 1) return 6; // まだ身についていない
     if (s.m <= 3) return 3; // 途中
     return 1; // 得意（気持ちよく走らせるためのごほうび問題）
@@ -257,7 +268,11 @@ export const WEAK_MISS = 2;
  * 突きつけないため。
  */
 export function isWeakFact(f: Fact): boolean {
-  const s = peekFact(factKey(f));
+  return isWeakStat(peekFact(factKey(f)));
+}
+
+/** isWeakFact の、記録を渡して見る形（ふたりで ボス で 右の子の記録を見る） */
+export function isWeakStat(s: Readonly<FactStat>): boolean {
   return s.miss >= WEAK_MISS && s.m < MASTERED;
 }
 
@@ -268,12 +283,15 @@ export function isWeakFact(f: Fact): boolean {
  * 「おぼえた」になってしまい、図鑑も親向けの数字も当てにならなかった。
  * 上げ幅は必ず +1 で、4回きれいに正解して初めて「おぼえた」。
  * 速さは ms（平均解答時間）のほうにだけ反映する。
+ *
+ * @param hinted ヒントの絵を出したまま答えたか。h に数えるだけで、上げ幅は変えない
  */
-export function recordAnswer(fact: Fact, ok: boolean, ms: number): boolean {
+export function recordAnswer(fact: Fact, ok: boolean, ms: number, hinted = false): boolean {
   const key = factKey(fact);
   const s = factStat(key);
   const before = s.m;
   s.seen++;
+  if (hinted) s.h = (s.h ?? 0) + 1;
   if (ok) {
     s.m = Math.min(5, s.m + 1);
     s.ms = s.ms ? Math.round(s.ms * 0.7 + ms * 0.3) : ms;
