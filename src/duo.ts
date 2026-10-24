@@ -91,6 +91,12 @@ const STAR_SEC = 0.42;
 const REST_GO_SEC = 2;
 /** 時間切れで待つのは 最長これだけ（limit.ts の GRACE_SEC と同じ 3分） */
 const PARTNER_GRACE_SEC = 180;
+/**
+ * 跳んでから いちばん高いところまでの秒数。正解したとき、攻撃は ちょうどこの時間で
+ * 足もとに届くよう速くなる（dodge）。ジャンプの高さ（resize）も これから逆算するので、
+ * 2つが ずれて「着地してから攻撃が届く」ことは起きない
+ */
+const JUMP_APEX = 0.34;
 
 interface SideStats {
   attacks: number;
@@ -191,7 +197,10 @@ interface Attack {
   dir: 1 | -1;
   /** 届くまでの秒数（はじめの長さ） */
   total: number;
+  /** 正解して跳んだ（攻撃は 頂点で足もとを通るよう 速くなっている） */
   dodged: boolean;
+  /** 跳んだ子の まんなかを 通りすぎた（「よけた」を出した） */
+  passed: boolean;
 }
 
 interface Star {
@@ -833,17 +842,20 @@ export class DuoGame {
     const dir: 1 | -1 = target.id === 0 ? -1 : 1;
     const from = this.bossX + dir * 30 * this.s;
     const kind = shotFor(this.bossDefn, this.shots++);
+    const r = (kind === 'beam' ? 6.5 : 8.5) * this.s * (1 + this.bossDefn.tier * 0.05);
     this.attack = {
       side: target.id,
       dir,
       total: time,
       dodged: false,
+      passed: false,
       shot: {
         kind,
         x: from,
         y: this.groundY - 15 * this.s,
-        v: Math.abs(from - target.x) / time,
-        r: (kind === 'beam' ? 6.5 : 8.5) * this.s * (1 + this.bossDefn.tier * 0.05),
+        // 持ち時間ちょうどで「体に ふれる」ところまで来る速さ（まんなかまで、ではない）
+        v: Math.max(1, Math.abs(from - target.x) - this.contact(r)) / time,
+        r,
         rot: 0,
         t: 0,
       },
@@ -857,14 +869,31 @@ export class DuoGame {
     this.renderSide(this.other(target));
   }
 
-  /** よけた。攻撃は 足もとを 速く ぬけていく（本編と同じ。腕前ではなく 計算で よける） */
+  /**
+   * 攻撃が 子の体に ふれる きょり（まんなか どうしの はなれ）。
+   * 体の はばの半分（drawChar の 34*s の 半分より少し内がわ）＋ 攻撃の半径
+   */
+  private contact(r: number): number {
+    return 14 * this.s + r;
+  }
+
+  /**
+   * 正解して跳んだ。攻撃は、跳んだ子が いちばん高いところにいる瞬間に 足もとを通り抜ける
+   * （本編の runner.ts と同じ。腕前ではなく 計算で よける）。
+   *
+   * 以前は 攻撃の速さを 一律 3.2倍に していた。早めに答えると 攻撃がまだ遠くにあって、
+   * 着地（0.7秒ほど）のあとで 届くので、立っている子に重なって「当たった」ように見えていた。
+   * 速さは「のこりの きょり ÷ 頂点までの時間」で決める。
+   */
   private dodge(side: Side): void {
     const a = this.attack;
     if (!a) return;
     a.dodged = true;
-    a.shot.v *= 3.2;
+    const dist = Math.max(Math.abs(side.x - a.shot.x), 10 * this.s);
+    a.shot.v = Math.min(dist / JUMP_APEX, 4200);
     side.vy = this.jumpV;
     side.char.air = true;
+    side.char.squash = 1.18;
     side.dodgeRun++;
     // ふつうの自動調整。3回つづけて よけたら 1段もどす
     if (this.tier === 0 && side.ease > 0 && side.dodgeRun >= DUO_EASE_BACK) {
@@ -872,9 +901,19 @@ export class DuoGame {
       side.dodgeRun = 0;
       side.picker = null;
     }
+    sfx.jump();
+    this.burst(side.x, this.groundY - 4 * this.s, 8, '#e8d9b8');
+  }
+
+  /** 攻撃が 跳んだ子の足もとを 通り抜けた瞬間（「よけた」と分かるのは ここ） */
+  private dodgeFx(side: Side): void {
+    const a = this.attack;
+    const y = this.groundY - 16 * this.s;
+    const kind = a?.shot.kind ?? 'rock';
+    this.ring(side.x, y, '#ffffff');
+    this.burst(side.x, y, 12, kind === 'fire' ? '#ffb02e' : kind === 'beam' ? '#8fe3ff' : '#e0d6c2');
+    this.floatAt(side.x, this.groundY - 96 * this.s, ['ナイス！', 'かわした！', 'よけた！'][Math.floor(rnd() * 3)], '#fff4b8');
     sfx.dodge();
-    this.ring(side.x, this.groundY - 20 * this.s, '#ffffff');
-    this.floatAt(side.x, this.groundY - 80 * this.s, ['ナイス！', 'かわした！', 'よけた！'][Math.floor(rnd() * 3)], '#fff4b8');
   }
 
   private resolveAttack(target: Side): void {
@@ -1473,6 +1512,8 @@ export class DuoGame {
   private updateSide(side: Side, dt: number): void {
     side.char.t += dt;
     side.char.hurt = Math.max(0, side.char.hurt - dt);
+    // 跳んだ瞬間に のびた からだを もとに戻す
+    side.char.squash += (1 - side.char.squash) * Math.min(1, dt * 10);
     side.revive = Math.max(0, side.revive - dt * 1.4);
     side.shield = Math.max(0, side.shield - dt * 1.6);
     if (side.char.air || side.py < 0) {
@@ -1557,12 +1598,23 @@ export class DuoGame {
     // ヒントを見ている子への攻撃は、ペットが押しとどめている（すすまない）
     const held = target.hintShown && !a.dodged;
     if (!held) a.shot.x += a.dir * a.shot.v * dt;
-    const past = a.dir < 0 ? target.x + 12 * this.s - a.shot.x : a.shot.x - (target.x - 12 * this.s);
-    if (!a.dodged && past >= 0) {
+    // cross: 子の まんなかを 何px 通りすぎたか（まだ手前なら マイナス）
+    const cross = a.dir < 0 ? target.x - a.shot.x : a.shot.x - target.x;
+    // 体に ふれたら 時間切れ。以前は まんなかの少し手前で見ていたので、
+    // 時間切れになる前から 攻撃が体に食いこんで「もう当たっている」絵になっていた
+    if (!a.dodged && cross >= -this.contact(a.shot.r)) {
       this.fail(target, 'time');
       return;
     }
-    if (a.dodged && (past > 80 * this.s || a.shot.x < -60 * this.s || a.shot.x > this.W + 60 * this.s)) {
+    // 跳んだ子の まんなかを 通りすぎた瞬間に「よけた」を見せる（跳んだ頂点と同じ時刻になる）。
+    // そこからは速く ぬけさせる。ぎりぎりで答えたときは のこりの きょりが短く、そのままの速さだと
+    // 着地したときに まだ せなかに重なっていて、また当たったように見える
+    if (a.dodged && !a.passed && cross >= 0) {
+      a.passed = true;
+      a.shot.v = Math.max(a.shot.v, 260 * this.s);
+      this.dodgeFx(target);
+    }
+    if (a.dodged && (cross > 90 * this.s || a.shot.x < -60 * this.s || a.shot.x > this.W + 60 * this.s)) {
       this.resolveAttack(target);
       this.renderSide(target);
     }
@@ -1605,10 +1657,10 @@ export class DuoGame {
     this.s = Math.min(Math.max(Math.min(this.W / 420, this.H / 150), 0.8), 2.4);
     this.groundY = this.H - 20 * this.s;
     this.bossX = this.W / 2;
+    // ジャンプは「頂点で 攻撃の上を通る」高さに合わせて逆算する（dodge が同じ JUMP_APEX を使う）
     const apex = 70 * this.s;
-    const tApex = 0.34;
-    this.gravity = (2 * apex) / (tApex * tApex);
-    this.jumpV = -this.gravity * tApex;
+    this.gravity = (2 * apex) / (JUMP_APEX * JUMP_APEX);
+    this.jumpV = -this.gravity * JUMP_APEX;
     if (this.sides) {
       const lx = Math.max(56 * this.s, this.W * 0.15);
       this.sides[0].x = lx;
