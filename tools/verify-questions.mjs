@@ -1128,6 +1128,49 @@ console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
       if (w.id === 5 && stage === 5) poolNote = `W5-5 の子: ${pools.older.length} / ${pools.mix.length} / ${pools.now.length} しき`;
     }
   }
+  // ほんきモード: ほうせき・ちからくらべは だんだん ふえる。1問で ほんきを とびこして 0 に ならない
+  const maxDmg = R.DUO_DMG_MAX * R.DUO_POWER_DMG;
+  for (let i = 0; i < B.length; i++) {
+    const b = B[i];
+    if (!(b.cores >= 2) || !(b.clash >= 3)) bad.push(`${i + 1}体目の ほうせき ${b.cores}・ちからくらべ ${b.clash} が すくない`);
+    if (i > 0 && (b.cores < B[i - 1].cores || b.clash < B[i - 1].clash)) bad.push(`${i + 1}体目の ほうせき・ちからくらべが へる`);
+    if (!(b.hp * R.DUO_HONKI_AT > maxDmg)) bad.push(`${i + 1}体目は 1問で ほんきを とびこせる（のこり ${b.hp * R.DUO_HONKI_AT}・1問 ${maxDmg}）`);
+    const label = R.honkiLabel(b.honki);
+    if (!label || [...label].length > 16) bad.push(`${i + 1}体目の ほんき技の ことば「${label}」`);
+    if (b.honki.clone && !b.honki.both) bad.push(`${i + 1}体目の ぶんしんが 片がわだけ`);
+  }
+  // ほんき技の持ち時間: ふつうは 同じ（見た目だけ）・ハード以上は 短くてよいが 3.3秒は切らない
+  for (let boss = 0; boss < B.length; boss++) {
+    for (const ms of [0, 1000, 3000, 6000]) {
+      for (const tier of [0, 1, 2]) {
+        const a = { measuredMs: ms, worldTime: 7, boss, tier, slow: false, ease: 0, petSlow: 0, powerSlow: false };
+        const t = R.attackTime(a);
+        const h = R.attackTime({ ...a, honki: true });
+        if (tier === 0 && Math.abs(h - t) > 1e-9) bad.push(`${boss + 1}体目 ふつうの ほんき技の持ち時間が ちがう`);
+        if (h > t + 1e-9) bad.push(`${boss + 1}体目 ほんき技のほうが 長い`);
+        if (h < cur.TIER_TIME_FLOOR - 1e-9) bad.push(`${boss + 1}体目 ほんき技が ${h.toFixed(2)}秒`);
+      }
+    }
+  }
+  // ちからくらべ: 2人とも いつもの速さなら 押しきれる（押す力が のこる）。速さが 3倍まで ちがっても
+  // 片方だけで押しきれる。押しきるまでの見込みは 20秒より短い
+  let clashLong = 0;
+  for (const a1 of [2, 3, 4, 6, 8, 10]) {
+    for (const a2 of [2, 3, 4, 6, 8, 10]) {
+      const drift = R.clashDrift([a1, a2]);
+      const rate = 1 / a1 + 1 / a2;
+      if (!(rate - drift > 0)) bad.push(`ちからくらべが 押しきれない ${a1}秒・${a2}秒`);
+      if (Math.max(a1, a2) / Math.min(a1, a2) <= 3 && !(1 / Math.max(a1, a2) - drift > -1e-9)) {
+        bad.push(`ちからくらべを 片方（${Math.max(a1, a2)}秒）だけで 押しきれない（相方 ${Math.min(a1, a2)}秒）`);
+      }
+      for (const b of B) clashLong = Math.max(clashLong, R.clashSec(b.clash, [a1, a2]) - R.DUO_CLASH_CHARGE);
+      if (a1 <= 6 && a2 <= 6) {
+        const t = R.clashSec(B[B.length - 1].clash, [a1, a2]) - R.DUO_CLASH_CHARGE;
+        if (t > 20) bad.push(`ちからくらべ（8体目・${a1}秒と${a2}秒）が ${t.toFixed(1)}秒`);
+      }
+    }
+  }
+
   // たおれたあとは 起こす時間を残す（終盤のボスの あいだより長い）
   if (!(R.DUO_REVIVE_GAP >= B[B.length - 1].gap)) bad.push(`たおれたあとの あいだ ${R.DUO_REVIVE_GAP}秒が 8体目の あいだより短い`);
   // 自動調整は 1段ずつ下げ、いちばん下で止まる
@@ -1180,9 +1223,10 @@ console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
   if (spot1.worldId !== 1 || spot1.stage !== 1) bad.push(`記録なしの子の場所 ${JSON.stringify(spot1)}`);
   if (spot2.worldId !== 2 || spot2.stage !== 1) bad.push(`W1 を ぜんぶ終えた子の場所 ${JSON.stringify(spot2)}`);
 
-  // 見込み（docs の数字）。2人とも いつもどおり → 1秒あたり 2 × (1 / 4秒)
+  // 見込み（docs の数字）。2人とも 1問 4秒 → ふつうの戦い ＋ ほんきモード（変身・ほうせき・ちからくらべ・ピヨピヨ）
   const hp = R.duoTotalHp();
-  const fightMin = hp / (2 / (R.DUO_DMG_REF / 1000)) / 60;
+  const fightMin = R.duoFightSec(R.DUO_DMG_REF) / 60;
+  if (fightMin > 12) bad.push(`戦いの見込みが ${fightMin.toFixed(1)}分（やすみ・とどめを足すと 15分を こえる）`);
   const surv = [0.03, 0.05, 0.1].map((p) => `${Math.round(R.duoSurvival(p, 100) * 100)}%`);
 
   if (bad.length) {
@@ -1190,7 +1234,8 @@ console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
     console.log('   ' + bad.slice(0, 10).join('\n   '));
   } else {
     console.log(
-      `   すべて正常（体力の合計 ${hp}・戦いの見込み 約${fightMin.toFixed(0)}分・いちばん短い持ち時間 ${shortest.toFixed(2)}秒・`
+      `   すべて正常（体力の合計 ${hp}・戦いの見込み 約${fightMin.toFixed(1)}分・いちばん短い持ち時間 ${shortest.toFixed(2)}秒・`
+        + `ちからくらべ いちばん長くて ${clashLong.toFixed(1)}秒・`
         + `コイン ${full.join(' / ')}（2回目から ${run(0, true)}）・${poolNote}・最後まで行ける見込み p=3/5/10% で ${surv.join(' / ')}）`,
     );
   }
