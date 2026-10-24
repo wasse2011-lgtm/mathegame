@@ -33,6 +33,21 @@ import { starKey, type FactStat, type Profile } from './save';
 export type DuoPool = 'older' | 'mix' | 'now';
 export const DUO_POOL_ORDER: readonly DuoPool[] = ['older', 'mix', 'now'];
 
+/**
+ * ほんき技（ほんきモードの攻撃）。どれも「1回の正解で よけられる」のは ふつうの攻撃と同じで、
+ * 変わるのは 見た目と、2人に同時に来るか だけ。
+ *  big   … 大きな攻撃（DUO_HONKI_BIG 倍）
+ *  count … 3 なら 3つ つらなって来る（1回の ジャンプで まとめて越える）
+ *  both  … 2人に 同時に来る（そのあいだは 起こしてくれる相方がいない）
+ *  clone … ボスの ぶんしんが 歩いてくる（正解で 消える）
+ */
+export interface HonkiMove {
+  big: boolean;
+  count: 1 | 3;
+  both: boolean;
+  clone: boolean;
+}
+
 export interface DuoBoss {
   /** 見た目と攻撃を借りる ワールド（boss.ts の段階） */
   world: number;
@@ -43,7 +58,19 @@ export interface DuoBoss {
   /** 攻撃が片づいてから、つぎの攻撃が出るまでの秒数 */
   gap: number;
   pool: DuoPool;
+  /** ほんきモードの ほうせきの数（1人ぶん。正解1回で 1こ わる） */
+  cores: number;
+  /** ちからくらべで 押しきるのに いる 正解の数（2人あわせて） */
+  clash: number;
+  honki: HonkiMove;
 }
+
+const BIG: HonkiMove = { big: true, count: 1, both: false, clone: false };
+const TRIPLE: HonkiMove = { big: false, count: 3, both: false, clone: false };
+const BOTH: HonkiMove = { big: false, count: 1, both: true, clone: false };
+const BOTH_BIG: HonkiMove = { big: true, count: 1, both: true, clone: false };
+const BOTH_TRIPLE: HonkiMove = { big: false, count: 3, both: true, clone: false };
+const CLONES: HonkiMove = { big: false, count: 1, both: true, clone: true };
 
 /**
  * 8体。最初は弱くて すぐ倒せて、だんだん強くなる。
@@ -54,16 +81,16 @@ export interface DuoBoss {
  * 数字は仮。遊ばせて、おうちのかたの画面の「たおれた割合」を見てから合わせる。
  */
 export const DUO_BOSSES: readonly DuoBoss[] = [
-  { world: 1, hp: 15, timeK: 2.5, gap: 5, pool: 'older' },
-  { world: 2, hp: 20, timeK: 2.35, gap: 4.5, pool: 'older' },
-  { world: 3, hp: 25, timeK: 2.2, gap: 4, pool: 'older' },
-  { world: 4, hp: 30, timeK: 2.05, gap: 3.5, pool: 'mix' },
-  { world: 5, hp: 34, timeK: 1.9, gap: 3, pool: 'mix' },
-  { world: 6, hp: 38, timeK: 1.75, gap: 2.6, pool: 'mix' },
+  { world: 1, hp: 15, timeK: 2.5, gap: 5, pool: 'older', cores: 2, clash: 3, honki: BIG },
+  { world: 2, hp: 20, timeK: 2.35, gap: 4.5, pool: 'older', cores: 2, clash: 3, honki: TRIPLE },
+  { world: 3, hp: 25, timeK: 2.2, gap: 4, pool: 'older', cores: 2, clash: 3, honki: BIG },
+  { world: 4, hp: 30, timeK: 2.05, gap: 3.5, pool: 'mix', cores: 3, clash: 3, honki: BOTH },
+  { world: 5, hp: 34, timeK: 1.9, gap: 3, pool: 'mix', cores: 3, clash: 4, honki: TRIPLE },
+  { world: 6, hp: 38, timeK: 1.75, gap: 2.6, pool: 'mix', cores: 3, clash: 4, honki: BOTH_BIG },
   // 7・8体目は はじめ 45・60（あいだ 2・1.5秒）だった。8体目だけ 飛びぬけて長く、負けの ほとんどが そこに集まる
   // （レビューの見積もり。速い子でも 1体 2分半）。体力と あいだを ゆるめて、のこりの山を なだらかにする
-  { world: 7, hp: 42, timeK: 1.6, gap: 2.3, pool: 'now' },
-  { world: 8, hp: 50, timeK: 1.5, gap: 2, pool: 'now' },
+  { world: 7, hp: 42, timeK: 1.6, gap: 2.3, pool: 'now', cores: 4, clash: 4, honki: BOTH_TRIPLE },
+  { world: 8, hp: 50, timeK: 1.5, gap: 2, pool: 'now', cores: 4, clash: 5, honki: CLONES },
 ];
 
 export const DUO_BOSS_COUNT = DUO_BOSSES.length;
@@ -117,6 +144,8 @@ export interface AttackTimeArgs {
   petSlow: number;
   /** パワーアップ「ゆっくり」 */
   powerSlow: boolean;
+  /** ほんきモードの攻撃か（ハード以上は すこし短い） */
+  honki?: boolean;
 }
 
 /**
@@ -130,6 +159,7 @@ export function attackTime(a: AttackTimeArgs): number {
   const def = DUO_BOSSES[Math.min(Math.max(a.boss, 0), DUO_BOSS_COUNT - 1)];
   let t = a.measuredMs > 0 ? (a.measuredMs / 1000) * def.timeK : a.worldTime;
   t *= tierDef(a.tier).timeRate;
+  if (a.honki) t *= DUO_HONKI_TIME[a.tier];
   t *= 1 + DUO_EASE_STEP * a.ease;
   t *= 1 + a.petSlow;
   t = Math.max(t, TIER_TIME_FLOOR);
@@ -146,6 +176,77 @@ export function attackTime(a: AttackTimeArgs): number {
 export function damageOf(measuredMs: number, power: boolean): number {
   const k = measuredMs > 0 ? Math.min(DUO_DMG_MAX, Math.max(DUO_DMG_MIN, measuredMs / DUO_DMG_REF)) : 1;
   return k * (power ? DUO_POWER_DMG : 1);
+}
+
+// ------------------------------------------------------------------ ほんきモード（のこり 30% から）
+
+/*
+ * ボスの のこり体力が 30% を きると「ほんきモード」になる。流れは
+ *   1. 変身（DUO_HONKI_SEC）… 赤く光って 大きくなる。たおれている子は 起き上がる
+ *   2. ほうせき … 体力のバーが 左右の ほうせき（1人 cores こ）に かわる。正解1回で 自分の側を 1こ わる。
+ *      自分の側を わりおえた子は 相方の側も われる。攻撃は ボスごとの ほんき技になる
+ *   3. ちからくらべ … ほうせきが ぜんぶ われると、ボスが さいごの だいわざ（両がわへ ビーム）を撃つ。
+ *      2人の正解で ぶつかる点を ボスへ押しかえす（clash 回で勝ち）。ボスも ときどき「ぐぐっ」と 1つ ぶん押しもどす
+ *   4. ピヨピヨ（DUO_STUN_SEC）→ ふたりで とどめ（ぶきの フィニッシュ）
+ * ちからくらべで 押しかえされても 負けにはしない（ほうせきが 1こずつ もどって 2. へ）。
+ * 仕様は docs/duo-boss-plan.md
+ */
+
+/** のこり体力が この割合を きったら ほんきモード */
+export const DUO_HONKI_AT = 0.3;
+/** 変身の演出の秒数（攻撃も 答えるのも 止める） */
+export const DUO_HONKI_SEC = 2.4;
+/** ほんきで ボスが どれだけ大きくなるか */
+export const DUO_HONKI_GROW = 1.15;
+/** でっかい攻撃の 大きさ */
+export const DUO_HONKI_BIG = 1.7;
+/** ほんき技の持ち時間の倍率（ふつう・ハード・ベリーハード）。ふつうは 見た目だけ強くする */
+export const DUO_HONKI_TIME: readonly number[] = [1, 0.9, 0.9];
+/** ちからくらべの ため（ボスが だいわざを ためる。答えられない） */
+export const DUO_CLASH_CHARGE = 2;
+/** ちからくらべで 押しかえされて 負けになるまでの はば（正解 何回ぶん） */
+export const DUO_CLASH_BACK = 2;
+/**
+ * ボスが押してくる強さ。2人が いつもの速さで答える数（1秒あたり）の この割合ぶん 押しもどす
+ * （1 / clashDrift 秒ごとに 1つ ぶん）。
+ * 2人とも いつもどおりなら 押す力の 4分の3が のこる。片方が止まっていても、
+ * 速さが 3倍以上 ちがわなければ もう片方だけで押しきれる（verify の L で見る）
+ */
+export const DUO_CLASH_DRIFT = 0.25;
+/** まだ測れていない子の 1問の秒数（ちからくらべの 押す強さを決めるとき） */
+export const DUO_CLASH_DEFAULT_SEC = 4;
+/**
+ * ちからくらべで ヒントを出しているあいだ、ボスが押しもどさない 長さの上限（秒。1回の ヒントごと）。
+ * 上限が ないと、ヒントを出したまま 答えなければ ずっと押しもどされなかった（レビューで見つかった）
+ */
+export const DUO_CLASH_HINT_HOLD = 4;
+/** ちからくらべで 押しかえされたとき、もどる ほうせきの数（1人ぶん） */
+export const DUO_CLASH_RETRY = 1;
+/** ちからくらべに勝って、ボスが 目を回している秒数（そのあと とどめ） */
+export const DUO_STUN_SEC = 1.2;
+
+/** ほんき技を撃ったときに ボスの上に出す ことば */
+export function honkiLabel(m: HonkiMove): string {
+  if (m.clone) return 'ぶんしんの じゅつ！';
+  if (m.both && m.big) return 'りょうがわ でっかい こうげき！';
+  if (m.both && m.count > 1) return 'りょうがわ 3れんぱつ！';
+  if (m.both) return 'りょうがわ こうげき！';
+  if (m.count > 1) return '3れんぱつ！';
+  return 'でっかい こうげき！';
+}
+
+/**
+ * ちからくらべで ボスが押しもどす速さ（正解 何回ぶん／秒）。
+ * @param answerSec 2人それぞれの 1問の秒数（つぎの式が出るまでを ふくむ）
+ */
+export function clashDrift(answerSec: number[]): number {
+  return DUO_CLASH_DRIFT * answerSec.reduce((n, a) => n + 1 / Math.max(0.5, a), 0);
+}
+
+/** ちからくらべの見込みの秒数（ため ＋ 押しきるまで）。2人とも answerSec[i] ごとに 正解するとき */
+export function clashSec(need: number, answerSec: number[]): number {
+  const rate = answerSec.reduce((n, a) => n + 1 / Math.max(0.5, a), 0);
+  return DUO_CLASH_CHARGE + need / (rate - clashDrift(answerSec));
 }
 
 // ------------------------------------------------------------------ その場の自動調整（ふつうだけ）
@@ -455,6 +556,21 @@ export function duoDevice(screenW: number, screenH: number, touch: boolean): boo
 /** 体力の合計 */
 export function duoTotalHp(): number {
   return DUO_BOSSES.reduce((n, b) => n + b.hp, 0);
+}
+
+/**
+ * 戦いの見込みの秒数（8体ぶん。やすみと とどめの演出は 入れない）。
+ * 2人とも 1問 answerMs で答えるとき:
+ *  ・のこり 30% までは 体力 ÷（2人の 1秒あたりの ダメージ）
+ *  ・変身 ＋ ほうせき（2人が ならんで 1人 cores 問）＋ ちからくらべ ＋ ピヨピヨ
+ */
+export function duoFightSec(answerMs: number): number {
+  const a = answerMs / 1000;
+  const perSec = 2 * (damageOf(answerMs, false) / a);
+  return DUO_BOSSES.reduce((n, b) => {
+    const normal = (b.hp * (1 - DUO_HONKI_AT)) / perSec;
+    return n + normal + DUO_HONKI_SEC + b.cores * a + clashSec(b.clash, [a, a]) + DUO_STUN_SEC;
+  }, 0);
 }
 
 /**

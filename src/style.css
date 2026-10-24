@@ -3213,6 +3213,11 @@ body {
   text-align: right; line-height: 1.2; word-break: keep-all; overflow-wrap: anywhere;
 }
 /* 攻撃されているとき・相方を たすけるときは、いちばん目に入る ことばにする */
+/* ほんきモード。自分の ほうせきを 自分の色の ◆ で（舞台の ほうせきと 同じ色） */
+.duo-side.raging .ds-state { color: #5b3b00; font-size: 1.1rem; }
+.ds-gems { letter-spacing: .08em; -webkit-text-stroke: .6px rgba(60,40,0,.7); }
+.ds-gems.g0 { color: #f5b800; }
+.ds-gems.g1 { color: #ff5f9e; }
 .duo-side.attacked .ds-state { color: var(--bad-dark); font-size: 1.2rem; }
 .duo-side.rescue .ds-state { color: #c2185b; font-size: 1.05rem; }
 .duo-side.rescue { border-color: #ff8fb8; animation: ds-rescue .9s ease-in-out infinite; }
@@ -3229,6 +3234,19 @@ body {
 .ds-timer[hidden] { display: none; }
 .ds-timer i { display: block; height: 100%; background: #e4675c; border-radius: 999px; transform-origin: left center; }
 .duo-side.right .ds-timer i { transform-origin: right center; }
+/*
+ * ちからくらべの 押しぐあい。ボスのほうへ のびる（左の子は 右へ、右の子は 左へ）。
+ * 太くして 先を いちばん こい色にし、ゴール（ボスの側の はし）に 赤い しるしを置く。
+ * 7px で 先が うすい色のころは、地の色と ほとんど同じで どこまで来たか 読めなかった
+ */
+.ds-timer.push { height: 12px; top: .15rem; background: rgba(255,170,40,.2); box-shadow: inset 0 0 0 1.5px rgba(150,90,0,.35); }
+.ds-timer.push i { background: linear-gradient(90deg, #ffe17a, #ff8a00); }
+.duo-side.right .ds-timer.push i { background: linear-gradient(270deg, #ffe17a, #ff8a00); }
+.ds-timer.push::after { content: ''; position: absolute; top: 0; bottom: 0; right: 0; width: 6px; border-radius: 3px; background: #c0283c; }
+.duo-side.right .ds-timer.push::after { right: auto; left: 0; }
+.duo-side.dueling .ds-state { color: #a86a00; font-size: 1.2rem; }
+.duo-side.dueling { border-color: #ffc94a; animation: ds-duel .6s ease-in-out infinite; }
+@keyframes ds-duel { 50% { box-shadow: 0 0 0 6px rgba(255,201,74,.35); } }
 .ds-timer.low i { background: #ff3b30; }
 .ds-mode {
   font-family: inherit; font-weight: 700; font-size: .8rem; color: var(--ink);
@@ -3359,5 +3377,5 @@ body {
 .duo-rotate-pic { font-size: 4rem; animation: duo-turn 2.4s ease-in-out infinite; }
 @keyframes duo-turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .duo-side.attacked, .duo-side.rescue, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic { animation: none; }
+  .duo-side.attacked, .duo-side.rescue, .duo-side.dueling, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic { animation: none; }
 }
