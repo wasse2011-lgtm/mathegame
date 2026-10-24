@@ -3217,13 +3217,18 @@ body {
 .duo-side.rescue .ds-state { color: #c2185b; font-size: 1.05rem; }
 .duo-side.rescue { border-color: #ff8fb8; animation: ds-rescue .9s ease-in-out infinite; }
 @keyframes ds-rescue { 50% { box-shadow: 0 0 0 6px rgba(255,143,184,.35); } }
-/* のこり時間。攻撃が体に ふれるまでの きょりで ちぢむ（数字は出さない） */
+/*
+ * のこり時間。攻撃が体に ふれるまでの きょりで ちぢむ（数字は出さない）。
+ * 攻撃と同じ向きに ちぢめる: 左の子は ボスのいる右から、右の子は 左から。
+ * まんなかへ ちぢめていたころは 両はしが 動くので、あと どのくらいか ぱっと見で 読みにくかった
+ */
 .ds-timer {
   position: absolute; left: .8rem; right: .8rem; top: .25rem; height: 7px; border-radius: 999px;
   background: rgba(228,103,92,.18); overflow: hidden;
 }
 .ds-timer[hidden] { display: none; }
-.ds-timer i { display: block; height: 100%; background: #e4675c; border-radius: 999px; transform-origin: center; }
+.ds-timer i { display: block; height: 100%; background: #e4675c; border-radius: 999px; transform-origin: left center; }
+.duo-side.right .ds-timer i { transform-origin: right center; }
 .ds-timer.low i { background: #ff3b30; }
 .ds-mode {
   font-family: inherit; font-weight: 700; font-size: .8rem; color: var(--ink);

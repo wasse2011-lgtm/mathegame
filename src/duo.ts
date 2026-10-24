@@ -67,7 +67,8 @@ import { drawChar, paintSkinIcon, roundRect, type CharState, type Look } from '.
 import { frameArt } from './tenframe';
 import { skyCss, themeFor, type Theme } from './theme';
 import {
-  FIN_CHARGE, FIN_FLY, FIN_TOTAL, DEFAULT_WEAPON, drawFinish, drawFinishDim, finishDim, weaponDef, type FinishView,
+  FIN_CHARGE, FIN_FLY, FIN_TOTAL, DEFAULT_WEAPON, drawFinish, drawFinishDim, finishDim, finishHoldsWeapon, smashLeap,
+  weaponDef, type FinishView, type WeaponDef,
 } from './weapons';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -181,6 +182,8 @@ interface Side {
   x: number;
   py: number;
   vy: number;
+  /** とどめで ボスのほうへ 出ている きょり（ボスへ向かう向きが プラス。引くときは マイナス） */
+  lunge: number;
   char: CharState;
   /** 起き上がったときの光（1 → 0） */
   revive: number;
@@ -289,6 +292,8 @@ export class DuoGame {
   private phaseT = 0;
   private finT = 0;
   private finImpact = false;
+  /** とどめの ぶきを 放ったか（音と のびを 1回だけ出す） */
+  private finFired = false;
   private shake = 0;
   private flash = 0;
   private banner = { text: '', life: 0, full: 1 };
@@ -505,6 +510,7 @@ export class DuoGame {
       x: 0,
       py: 0,
       vy: 0,
+      lunge: 0,
       char: { t: 0, air: false, hurt: 0, squash: 1 },
       revive: 0,
       shield: 0,
@@ -642,6 +648,7 @@ export class DuoGame {
       side.char = { t: 0, air: false, hurt: 0, squash: 1 };
       side.py = 0;
       side.vy = 0;
+      side.lunge = 0;
       this.hideHint(side);
       this.ensurePicker(side);
     }
@@ -1077,6 +1084,7 @@ export class DuoGame {
     this.phase = 'finish';
     this.finT = 0;
     this.finImpact = false;
+    this.finFired = false;
     this.attack = null;
     this.stars = [];
     for (const side of sides) {
@@ -1099,6 +1107,8 @@ export class DuoGame {
     const sides = this.sides as [Side, Side];
     const n = this.boss;
     for (const side of sides) {
+      // とどめの途中で 時間切れに なったときも、立ち位置に もどしておく
+      side.lunge = 0;
       if (side.kind !== 'kid' || !side.p) continue;
       const c = duoBossCoins(n, this.tier, this.again[side.id]);
       side.p.coins += c;
@@ -1674,6 +1684,14 @@ export class DuoGame {
 
   private updateFinish(dt: number): void {
     this.finT += dt;
+    const sides = this.sides as [Side, Side];
+    for (const side of sides) this.finishMotion(side);
+    // 放った瞬間。ひとふんばりぶん 体をのばす（ハンマーは とびかかりの式が のばす）
+    if (!this.finFired && this.finT >= FIN_CHARGE) {
+      this.finFired = true;
+      for (const side of sides) if (this.weaponOf(side).style !== 'smash') side.char.squash = 1.16;
+      sfx.finishFire();
+    }
     if (!this.finImpact && this.finT >= FIN_CHARGE + FIN_FLY) {
       this.finImpact = true;
       this.bossState.mode = 'down';
@@ -1685,6 +1703,39 @@ export class DuoGame {
     }
     if (this.finImpact) this.bossState.squash += (0.24 - this.bossState.squash) * Math.min(1, dt * 6);
     if (this.finT >= FIN_TOTAL) this.afterBoss();
+  }
+
+  private weaponOf(side: Side): WeaponDef {
+    return weaponDef(side.look.weapon ?? DEFAULT_WEAPON);
+  }
+
+  /**
+   * とどめの 体の動き。本編（runner.ts の updateFinish）と同じく ぶきの かたちで変える。
+   *  ハンマー … 振りかぶって・しゃがんで・とびかかって 振りおろす（位置も weapons.ts の 振りの式から出す）
+   *  けん・ドリル・たいあたり … ボスの手前まで 踏みこんで、もどる
+   *  とばす ぶき・まほう … 放つ直前に ぐっと引いて、放つと同時に もどる
+   * 前は 立ったまま 光と ぶきだけが 飛んでいき、だれが どの ぶきで たおしたのか 体で 見えなかった
+   */
+  private finishMotion(side: Side): void {
+    const def = this.weaponOf(side);
+    const t = this.finT;
+    const leap = smashLeap(def, this.finView(side));
+    if (leap) {
+      side.lunge = leap.dx;
+      side.py = leap.dy;
+      side.vy = 0;
+      side.char.air = false;
+      side.char.squash = leap.squash;
+    } else if (def.style === 'slash') {
+      // 本編は 相手の まんなか近くまで 斬りぬけるが、ボスは大きく 2人が まんなかで重なるので、ボスの手前で止める
+      const k = Math.min(1, Math.max(0, (t - FIN_CHARGE) / (FIN_FLY + 0.35)));
+      const reach = Math.max(0, Math.abs(this.bossX - side.x) - this.bossSize() * 0.5 - 20 * this.s);
+      side.lunge = reach * Math.sin(k * Math.PI);
+    } else {
+      const tense = Math.max(0, Math.min(1, (t - (FIN_CHARGE - 0.26)) / 0.26));
+      const fire = Math.max(0, Math.min(1, (t - FIN_CHARGE) / 0.14));
+      side.lunge = -9 * this.s * tense * (1 - fire);
+    }
   }
 
   // ---------------------------------------------------------------- 寸法
@@ -1889,10 +1940,13 @@ export class DuoGame {
     const s = this.s;
     const size = 34 * s;
     const mirror = side.id === 1;
+    // とどめで 踏みこんだ・とびかかった いまの位置。cx は 鏡の中（ボスへ向かう向きが プラス）、rx は 画面の座標
+    const cx = side.x + side.lunge;
+    const rx = side.x + (mirror ? -side.lunge : side.lunge);
     const lift = Math.min(1, -side.py / (80 * s));
     g.fillStyle = `rgba(40,60,50,${0.22 * (1 - lift * 0.7)})`;
     g.beginPath();
-    g.ellipse(side.x, this.groundY + 3 * s, 17 * s * (1 - lift * 0.4), 5 * s, 0, 0, Math.PI * 2);
+    g.ellipse(rx, this.groundY + 3 * s, 17 * s * (1 - lift * 0.4), 5 * s, 0, 0, Math.PI * 2);
     g.fill();
 
     g.save();
@@ -1925,22 +1979,24 @@ export class DuoGame {
         g.fill();
       }
     } else {
-      drawChar(g, side.x, this.groundY + side.py, size, side.look, side.char);
-      if (side.kind === 'guest' && side.cpu) this.drawAntenna(side.x, this.groundY + side.py - size);
+      // ハンマーを振っているあいだは フィニッシュの絵が ハンマーを描くので、手もとの ぶきは消す（2本に見えないように）
+      const swinging = this.phase === 'finish' && finishHoldsWeapon(this.weaponOf(side), this.finView(side));
+      drawChar(g, cx, this.groundY + side.py, size, swinging ? { ...side.look, weapon: '' } : side.look, side.char);
+      if (side.kind === 'guest' && side.cpu) this.drawAntenna(cx, this.groundY + side.py - size);
     }
 
     if (side.revive > 0) {
       g.strokeStyle = `rgba(255,244,184,${side.revive})`;
       g.lineWidth = 4 * s * side.revive;
       g.beginPath();
-      g.arc(side.x, this.groundY - size * 0.5, size * (1.4 - side.revive * 0.6), 0, Math.PI * 2);
+      g.arc(cx, this.groundY - size * 0.5, size * (1.4 - side.revive * 0.6), 0, Math.PI * 2);
       g.stroke();
     }
     if (side.shield > 0) {
       g.strokeStyle = `rgba(143,216,255,${side.shield})`;
       g.lineWidth = 5 * s;
       g.beginPath();
-      g.arc(side.x + 26 * s, this.groundY - size * 0.5, size * 0.7, -1.1, 1.1);
+      g.arc(cx + 26 * s, this.groundY - size * 0.5, size * 0.7, -1.1, 1.1);
       g.stroke();
     }
     // パワーアップの しるし
@@ -1955,7 +2011,7 @@ export class DuoGame {
       }
       g.globalAlpha = 1;
       g.fillStyle = '#ffffff';
-      g.fillText(pw.icon, side.x, this.groundY - size - 18 * s);
+      g.fillText(pw.icon, rx, this.groundY - size - 18 * s);
       if (mirror) g.restore();
     }
     g.restore();
@@ -2004,27 +2060,30 @@ export class DuoGame {
     const s = this.s;
     const mirror = side.id === 1;
     const mx = (x: number) => (mirror ? this.W - x : x);
+    // ボスへ向かう向き。右の子は 鏡の中で描くので、渡す座標は どちらも「左の子と同じ向き」になる
+    const dir = mirror ? -1 : 1;
     return {
       t: this.finT,
       s,
       W: this.W,
       H: this.H,
-      fromX: mx(side.x + (mirror ? -26 : 26) * s),
+      // ふみこんだ・引いた いまの手もとから出す（本編と同じ）
+      fromX: mx(side.x + dir * (side.lunge + 26 * s)),
       fromY: this.groundY - 14 * s,
       toX: mx(this.bossX),
       toY: this.groundY - this.bossSize() * 0.5,
       homeX: mx(side.x),
       homeY: this.groundY,
       charSize: 34 * s,
-      // ふみこまない（2人が同時に とどめを刺すので、立ち位置は動かさない）
-      leap: false,
+      // 2人とも じぶんの ぶきで とどめを刺しにいく（ハンマーは とびかかる）
+      leap: true,
     };
   }
 
   /** ふたりで とどめ。それぞれの ぶきで 同時に。右の子は 鏡にして描く */
   private drawSideFinish(side: Side): void {
     const g = this.g;
-    const def = weaponDef(side.look.weapon ?? DEFAULT_WEAPON);
+    const def = this.weaponOf(side);
     g.save();
     if (side.id === 1) {
       g.translate(this.W, 0);
