@@ -1094,35 +1094,42 @@ console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
     if (R.cpuPower(taken, Math.random()) === taken) bad.push('CPU が 左の子と同じ パワーアップを えらんだ');
   }
 
-  // 出す式: 世界ごとの3つの段
+  // 出す式: 世界ごと・本編の いまの小ステップごとの3つの段。通った小ステップの式だけを出す
   let poolNote = '';
   for (const w of cur.WORLDS) {
-    const pools = R.duoPools(w.id);
-    for (const lv of R.DUO_POOL_ORDER) {
-      const list = pools[lv];
-      if (!list.length) bad.push(`W${w.id} ${lv} が空`);
-      const keys = list.map((e) => `${factKey(e.fact)}${e.blank ? '?' : ''}`);
-      if (new Set(keys).size !== keys.length) bad.push(`W${w.id} ${lv} に同じ式が2つ`);
-    }
-    // いまの世界より先の式は 出さない
-    const later = new Set(cur.WORLDS.filter((x) => x.id > w.id).flatMap((x) => cur.allFacts(x).map(factKey)));
-    const mine = new Set(cur.WORLDS.filter((x) => x.id <= w.id).flatMap((x) => cur.allFacts(x).map(factKey)));
-    for (const lv of R.DUO_POOL_ORDER) {
-      for (const e of pools[lv]) {
-        if (later.has(factKey(e.fact)) && !mine.has(factKey(e.fact))) bad.push(`W${w.id} ${lv} に 先の世界の式 ${factKey(e.fact)}`);
+    for (const stage of [1, 2, 4, 5, 8, 9]) {
+      const pools = R.duoPools(w.id, stage);
+      const where = `W${w.id}-${stage}`;
+      for (const lv of R.DUO_POOL_ORDER) {
+        const list = pools[lv];
+        if (!list.length) bad.push(`${where} ${lv} が空`);
+        const keys = list.map((e) => `${factKey(e.fact)}${e.blank ? '?' : ''}`);
+        if (new Set(keys).size !== keys.length) bad.push(`${where} ${lv} に同じ式が2つ`);
       }
-    }
-    // 10 の とびら（W3）の式は 穴埋めで出す（答えが いつも 10 になって 式を読まずに当たるため）
-    for (const lv of R.DUO_POOL_ORDER) {
-      for (const e of pools[lv]) {
-        if (e.fact.a + e.fact.b === 10 && cur.allFacts(cur.worldById(3)).some((f) => factKey(f) === factKey(e.fact)) && !e.blank
-          && !cur.WORLDS.some((x) => x.id !== 3 && x.id <= w.id && cur.allFacts(x).some((f) => factKey(f) === factKey(e.fact)))) {
-          bad.push(`W${w.id} ${lv} の ${factKey(e.fact)} が 穴埋めでない`);
+      // 通ったところ: 前の世界ぜんぶ ＋ いまの世界の 1〜(stage−1) 面（1つめの世界の 1面めの子だけは 1面め）
+      const done = cur.WORLDS.filter((x) => x.id < w.id).flatMap((x) => cur.allFacts(x).map(factKey));
+      const upto = Math.max(w.id === 1 ? 1 : 0, Math.min(stage - 1, w.steps.length));
+      for (let i = 0; i < upto; i++) for (const f of w.steps[i].facts) done.push(factKey(f));
+      const ok = new Set(done);
+      for (const lv of R.DUO_POOL_ORDER) {
+        for (const e of pools[lv]) {
+          if (!ok.has(factKey(e.fact))) bad.push(`${where} ${lv} に まだ通っていない式 ${factKey(e.fact)}`);
         }
       }
+      // 10 の とびら（W3）の式は 穴埋めで出す（答えが いつも 10 になって 式を読まずに当たるため）
+      for (const lv of R.DUO_POOL_ORDER) {
+        for (const e of pools[lv]) {
+          if (e.fact.a + e.fact.b === 10 && cur.allFacts(cur.worldById(3)).some((f) => factKey(f) === factKey(e.fact)) && !e.blank
+            && !cur.WORLDS.some((x) => x.id !== 3 && x.id <= w.id && cur.allFacts(x).some((f) => factKey(f) === factKey(e.fact)))) {
+            bad.push(`${where} ${lv} の ${factKey(e.fact)} が 穴埋めでない`);
+          }
+        }
+      }
+      if (w.id === 5 && stage === 5) poolNote = `W5-5 の子: ${pools.older.length} / ${pools.mix.length} / ${pools.now.length} しき`;
     }
-    if (w.id === 5) poolNote = `W5 の子: ${pools.older.length} / ${pools.mix.length} / ${pools.now.length} しき`;
   }
+  // たおれたあとは 起こす時間を残す（終盤のボスの あいだより長い）
+  if (!(R.DUO_REVIVE_GAP >= B[B.length - 1].gap)) bad.push(`たおれたあとの あいだ ${R.DUO_REVIVE_GAP}秒が 8体目の あいだより短い`);
   // 自動調整は 1段ずつ下げ、いちばん下で止まる
   for (let boss = 0; boss < 8; boss++) {
     const lv = [0, 1, 2, 3].map((e) => R.DUO_POOL_ORDER.indexOf(R.poolLevel(boss, e)));
@@ -1130,7 +1137,7 @@ console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
   }
   // にがて（2回以上まちがえて まだ おぼえていない）は出さない
   {
-    const pools = R.duoPools(2);
+    const pools = R.duoPools(2, 9);
     const weakKey = factKey(pools.now[0].fact);
     const stat = (k) => (k === weakKey ? { m: 1, ms: 0, miss: 3, seen: 5 } : { m: 2, ms: 0, miss: 0, seen: 3 });
     const pk = new R.DuoPicker(pools.now, 3, stat);

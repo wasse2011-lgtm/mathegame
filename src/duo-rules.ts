@@ -58,13 +58,23 @@ export const DUO_BOSSES: readonly DuoBoss[] = [
   { world: 2, hp: 20, timeK: 2.35, gap: 4.5, pool: 'older' },
   { world: 3, hp: 25, timeK: 2.2, gap: 4, pool: 'older' },
   { world: 4, hp: 30, timeK: 2.05, gap: 3.5, pool: 'mix' },
-  { world: 5, hp: 35, timeK: 1.9, gap: 3, pool: 'mix' },
-  { world: 6, hp: 40, timeK: 1.75, gap: 2.5, pool: 'mix' },
-  { world: 7, hp: 45, timeK: 1.6, gap: 2, pool: 'now' },
-  { world: 8, hp: 60, timeK: 1.5, gap: 1.5, pool: 'now' },
+  { world: 5, hp: 34, timeK: 1.9, gap: 3, pool: 'mix' },
+  { world: 6, hp: 38, timeK: 1.75, gap: 2.6, pool: 'mix' },
+  // 7・8体目は はじめ 45・60（あいだ 2・1.5秒）だった。8体目だけ 飛びぬけて長く、負けの ほとんどが そこに集まる
+  // （レビューの見積もり。速い子でも 1体 2分半）。体力と あいだを ゆるめて、のこりの山を なだらかにする
+  { world: 7, hp: 42, timeK: 1.6, gap: 2.3, pool: 'now' },
+  { world: 8, hp: 50, timeK: 1.5, gap: 2, pool: 'now' },
 ];
 
 export const DUO_BOSS_COUNT = DUO_BOSSES.length;
+
+/**
+ * 片方が たおれたあと、もう片方への つぎの攻撃までは 少なくとも これだけ あける（秒）。
+ *
+ * 起き上がるのは「相方が 1問 正解したとき」なので、あいだが 1〜2秒しかない 終盤のボスでは
+ * 起こす前に 相方が攻撃を受けて、たおれる＝ほぼ負け になっていた。「たすける」場面を 残す
+ */
+export const DUO_REVIVE_GAP = 4;
 
 // ------------------------------------------------------------------ 速さ・持ち時間・ダメージ
 
@@ -185,10 +195,12 @@ export const DUO_POWER_SLOW = 1;
 /** パワーアップ「つよく」の ダメージ倍率 */
 export const DUO_POWER_DMG = 1.3;
 
+// note は やすみの ボタンに 小さく出す（字が読めなくても 絵と ならべて分かる 短さにする）。
+// 🛡 は 文字ではなく 絵で出るよう U+FE0F を付ける（付けないと 線だけの字になる端末がある）
 export const DUO_POWERS: readonly PowerDef[] = [
-  { id: 'slow', icon: '⏳', label: 'ゆっくり', note: 'こうげきが くるのが おそくなる' },
-  { id: 'guard', icon: '🛡', label: 'まもり', note: '1かいだけ たおれない' },
-  { id: 'power', icon: '💥', label: 'つよく', note: 'こうげきが つよくなる' },
+  { id: 'slow', icon: '⏳', label: 'ゆっくり', note: 'じかんが のびる' },
+  { id: 'guard', icon: '🛡️', label: 'まもり', note: '1かい まもる' },
+  { id: 'power', icon: '💥', label: 'つよく', note: 'こうげき アップ' },
 ];
 
 export function powerDef(id: string): PowerDef | null {
@@ -289,28 +301,36 @@ function uniq(list: DuoEntry[]): DuoEntry[] {
   });
 }
 
-function firstHalf(w: World): DuoEntry[] {
-  return entriesOf(w, Math.ceil(w.steps.length / 2));
-}
-
 /**
- * その子の3つの段。
- *  older … 1つ前の世界までの式（いま 1つめの世界なら、1つめの世界の前半）
- *  mix   … 1つ前の世界の式 ＋ いまの世界の前半
- *  now   … いまの世界の式（いまの小ステップの式は 出さない。そこは まだ練習中）
+ * その子の3つの段。**本編で もう通った小ステップの式だけ**を出す。
+ *  older … 1つ前の世界までの式
+ *  mix   … 1つ前の世界の式 ＋ いまの世界の 前半のうち 通った小ステップ
+ *  now   … いまの世界の 通った小ステップ（いまの小ステップと その先は 出さない。そこは まだ練習中）
+ *
+ * @param stage 本編で いま いる小ステップ（spotOf）。1〜(stage−1) が 通ったところ
+ *
+ * はじめは stage を見ておらず、いまの世界の8つ ぜんぶから出していた。まだ進んでいない小ステップの式
+ * （1つめの面にいる子に 7面めの 1+9 など）が まざり、しかも 出たことのない式ほど重みが高いので
+ * いちばん よく出ていた（レビューで見つかった）。
+ * 1つめの世界の 1面めにいる子は 通ったところが まだ無いので、1面めの式を使う。
+ * どの段も 空になるときは 1つ下の段を使う（いまの世界の 1面めにいる子の now は mix と同じ）。
  */
-export function duoPools(worldId: number): Record<DuoPool, DuoEntry[]> {
+export function duoPools(worldId: number, stage: number): Record<DuoPool, DuoEntry[]> {
   const w = worldById(worldId);
-  const w1 = WORLDS[0];
-  const older = w.id > 1
-    ? WORLDS.filter((x) => x.id < w.id).flatMap((x) => entriesOf(x, x.steps.length))
-    : firstHalf(w1);
-  const prev = w.id > 1 ? entriesOf(worldById(w.id - 1), worldById(w.id - 1).steps.length) : firstHalf(w1);
-  return {
-    older: uniq(older),
-    mix: uniq([...prev, ...firstHalf(w)]),
-    now: uniq(entriesOf(w, w.steps.length)),
-  };
+  const done = Math.max(0, Math.min(stage - 1, w.steps.length));
+  const half = Math.ceil(w.steps.length / 2);
+  const before = WORLDS.filter((x) => x.id < w.id);
+  const prevWorld = before[before.length - 1];
+  // 1つめの世界の 1面めの子。通った式が 1つも無いので、いま いる 1面めだけを使う
+  const first = entriesOf(w, Math.max(1, done));
+  const older = uniq(before.flatMap((x) => entriesOf(x, x.steps.length)));
+  const prev = prevWorld ? entriesOf(prevWorld, prevWorld.steps.length) : [];
+  const mix = uniq([...prev, ...entriesOf(w, Math.min(half, done))]);
+  const now = uniq(entriesOf(w, done));
+  const pick = (...lists: DuoEntry[][]) => lists.find((l) => l.length > 0) ?? first;
+  const o = pick(older, mix, first);
+  const m = pick(mix, o);
+  return { older: o, mix: m, now: pick(now, m) };
 }
 
 /** 選択肢の数。いまの世界にそろえる（同じ子が、式によって 3択と4択を行き来しないように） */

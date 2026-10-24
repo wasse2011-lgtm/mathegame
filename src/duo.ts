@@ -31,6 +31,7 @@ import {
   DUO_FIRST_MEASURE,
   DUO_POWERS,
   DUO_PRIZES,
+  DUO_REVIVE_GAP,
   DUO_WRONG_LOCK,
   DuoPicker,
   attackTime,
@@ -62,7 +63,7 @@ import { NO_POWER, petOf, powerFor, type PetDef, type PetPower } from './pets';
 import { solvedParts, type Question, type StatReader } from './questions';
 import { persist, profile, save, slots, timeUp, today, type DuoLog, type DuoSuspend, type Profile } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
-import { drawChar, paintSkinIcon, type CharState, type Look } from './sprites';
+import { drawChar, paintSkinIcon, roundRect, type CharState, type Look } from './sprites';
 import { frameArt } from './tenframe';
 import { skyCss, themeFor, type Theme } from './theme';
 import {
@@ -120,6 +121,8 @@ interface SideEls {
   hintText: HTMLElement;
   answers: HTMLElement;
   finger: HTMLElement;
+  timer: HTMLElement;
+  timerFill: HTMLElement;
   hintBtn: HTMLButtonElement;
   hintPet: HTMLCanvasElement;
   hintEmoji: HTMLElement;
@@ -201,6 +204,8 @@ interface Attack {
   dodged: boolean;
   /** 跳んだ子の まんなかを 通りすぎた（「よけた」を出した） */
   passed: boolean;
+  /** 撃ったときの「体に ふれるまでの きょり」。板の のこり時間のバーの分母 */
+  span: number;
 }
 
 interface Star {
@@ -304,6 +309,8 @@ export class DuoGame {
   /** 右の子の時間が切れた（つぎの やすみで区切る）。切れた時刻（performance.now） */
   private partnerOverAt = 0;
   private logged = false;
+  /** このボスで「あと すこし！」を言ったか */
+  private lowSaid = false;
   /** この回で 倒しおわったボスの数（つづきから なら、それまでのぶんも ふくむ） */
   private reached = 0;
 
@@ -363,11 +370,11 @@ export class DuoGame {
     const left = profile();
     const right = opts.partner.kind === 'kid' ? slots()[opts.partner.slot] ?? null : null;
     const spot = spotOf(left);
-    const L = this.makeSide(0, 'kid', left, spot.worldId, false, opts.resume?.ms[0] ?? 0);
+    const L = this.makeSide(0, 'kid', left, spot, false, opts.resume?.ms[0] ?? 0);
     const R = right
-      ? this.makeSide(1, 'kid', right, spotOf(right).worldId, false, opts.resume?.ms[1] ?? 0)
+      ? this.makeSide(1, 'kid', right, spotOf(right), false, opts.resume?.ms[1] ?? 0)
       // ゲストは 左の子と同じレベル（記録がないので 世界を決める手がかりが無い）
-      : this.makeSide(1, 'guest', null, spot.worldId, opts.partner.kind === 'guest' && opts.partner.cpu, opts.resume?.ms[1] ?? 0);
+      : this.makeSide(1, 'guest', null, spot, opts.partner.kind === 'guest' && opts.partner.cpu, opts.resume?.ms[1] ?? 0);
     this.sides = [L, R];
     L.power = opts.resume?.power[0] ?? '';
     R.power = opts.resume?.power[1] ?? '';
@@ -449,7 +456,9 @@ export class DuoGame {
 
   // ---------------------------------------------------------------- 人
 
-  private makeSide(id: SideId, kind: 'kid' | 'guest', p: Profile | null, worldId: number, cpu: boolean, ms: number): Side {
+  private makeSide(
+    id: SideId, kind: 'kid' | 'guest', p: Profile | null, spot: { worldId: number; stage: number }, cpu: boolean, ms: number,
+  ): Side {
     const petHelp = tierDef(this.tier).petHelp;
     const pet = p ? petOf(p) : null;
     const carried = ms > 0 ? ms : p?.duo.ms ?? 0;
@@ -468,8 +477,8 @@ export class DuoGame {
       cpu,
       cpuStart: cpu,
       lastTouch: 0,
-      worldId,
-      pools: duoPools(worldId),
+      worldId: spot.worldId,
+      pools: duoPools(spot.worldId, spot.stage),
       stat: statsOf(p),
       picker: null,
       pickerLevel: null,
@@ -525,6 +534,7 @@ export class DuoGame {
       </div>
       <div class="ds-answers"></div>
       <span class="ds-finger" aria-hidden="true" hidden>👆</span>
+      <span class="ds-timer" aria-hidden="true" hidden><i></i></span>
       <button class="ds-hintbtn" type="button">
         <span class="ds-hint-pic"><canvas aria-hidden="true"></canvas><i aria-hidden="true">💡</i></span>
         <b class="ds-hint-label">ヒント</b>
@@ -549,6 +559,8 @@ export class DuoGame {
       hintText: q('.ds-hint-text'),
       answers: q('.ds-answers'),
       finger: q('.ds-finger'),
+      timer: q('.ds-timer'),
+      timerFill: q('.ds-timer i'),
       hintBtn: q('.ds-hintbtn'),
       hintPet: q('.ds-hint-pic canvas'),
       hintEmoji: q('.ds-hint-pic i'),
@@ -604,6 +616,7 @@ export class DuoGame {
     this.hpMax = def.hp;
     this.hp = def.hp;
     this.hpShown = def.hp;
+    this.lowSaid = false;
     const w = worldById(def.world);
     this.theme = themeFor(def.world, bossStage(w), true, undefined, this.tier);
     this.elScreen.style.background = skyCss(this.theme);
@@ -829,6 +842,10 @@ export class DuoGame {
     let target = sides[this.nextTarget];
     if (target.down) target = this.other(target);
     if (target.down) return;
+    // まちがえて ボタンが止まっている（2秒）・正解の直後で つぎの式を待っている子には、まだ撃たない。
+    // 撃つと 押せないまま 攻撃が近づき、持ち時間が 最大2秒 けずられていた（レビューで見つかった）。
+    // nextAttackIn は 0 以下のままなので、押せるようになった つぎのコマで撃つ
+    if (target.lock > 0 || target.wait > 0 || !target.q) return;
     const time = attackTime({
       measuredMs: target.trusted ? target.measured : 0,
       worldTime: duoWorldTime(target.worldId),
@@ -849,6 +866,7 @@ export class DuoGame {
       total: time,
       dodged: false,
       passed: false,
+      span: Math.max(1, Math.abs(from - target.x) - this.contact(r)),
       shot: {
         kind,
         x: from,
@@ -912,7 +930,9 @@ export class DuoGame {
     const kind = a?.shot.kind ?? 'rock';
     this.ring(side.x, y, '#ffffff');
     this.burst(side.x, y, 12, kind === 'fire' ? '#ffb02e' : kind === 'beam' ? '#8fe3ff' : '#e0d6c2');
-    this.floatAt(side.x, this.groundY - 96 * this.s, ['ナイス！', 'かわした！', 'よけた！'][Math.floor(rnd() * 3)], '#fff4b8');
+    // 頂点にいる頭に重ならないよう、ボスの側へ ずらして出す
+    const toward = side.id === 0 ? 1 : -1;
+    this.floatAt(side.x + toward * 52 * this.s, this.groundY - 92 * this.s, ['ナイス！', 'かわした！', 'よけた！'][Math.floor(rnd() * 3)], '#fff4b8');
     sfx.dodge();
   }
 
@@ -969,7 +989,8 @@ export class DuoGame {
       return;
     }
     this.nextTarget = mate.id;
-    this.nextAttackIn = DUO_BOSSES[this.boss].gap;
+    // 相方が 1問 正解すれば起き上がる。そのための時間を 終盤のボスでも残す（DUO_REVIVE_GAP）
+    this.nextAttackIn = Math.max(DUO_BOSSES[this.boss].gap, DUO_REVIVE_GAP);
     this.renderSide(side);
     this.renderSide(mate);
   }
@@ -1041,6 +1062,11 @@ export class DuoGame {
     this.burst(x, y, 8 + Math.round(st.dmg * 4), '#ffe17a');
     this.shake = Math.max(this.shake, 0.12);
     sfx.coin();
+    // のこり 4分の1を きった瞬間に 1回だけ。終盤の長いボスで「もうすぐ」が分かるように
+    if (!this.lowSaid && this.hp > 0 && this.hp / this.hpMax <= 0.25) {
+      this.lowSaid = true;
+      this.floatAt(this.bossX, this.bossBarY() - 14 * this.s, 'あと すこし！', '#ffe17a');
+    }
     if (this.hp <= 0 && this.phase === 'fight') this.beginFinish();
   }
 
@@ -1156,13 +1182,16 @@ export class DuoGame {
       col.appendChild(head);
       const row = document.createElement('div');
       row.className = 'drp-row';
-      const opts = pow ? DUO_POWERS.map((d) => ({ id: d.id, icon: d.icon, label: d.label })) : [{ id: 'ok', icon: '👍', label: 'OK' }];
+      const opts = pow
+        ? DUO_POWERS.map((d) => ({ id: d.id, icon: d.icon, label: d.label, note: d.note }))
+        : [{ id: 'ok', icon: '👍', label: 'OK', note: '' }];
       for (const o of opts) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'drp-btn';
         b.dataset.id = o.id;
-        b.innerHTML = `<span aria-hidden="true">${o.icon}</span><b>${o.label}</b>`;
+        // 字が読めなくても 絵で、読める子には 効き目を ひとことで
+        b.innerHTML = `<span aria-hidden="true">${o.icon}</span><b>${o.label}</b>${o.note ? `<small>${o.note}</small>` : ''}`;
         b.setAttribute('aria-pressed', 'false');
         b.disabled = side.cpu;
         b.addEventListener('pointerdown', (e) => {
@@ -1246,9 +1275,12 @@ export class DuoGame {
     this.finishLog();
     window.setTimeout(() => {
       $('duo-end-head').textContent = 'ふたりとも やられた…';
-      $('duo-end-sub').textContent = `${this.boss + 1}たいめ ${this.bossDefn.name} まで いけた！`;
+      // 1体目で負けたのに「1たいめ まで いけた！」は おかしいので言いかえる
+      $('duo-end-sub').textContent = this.boss === 0
+        ? `${this.bossDefn.name}に まけちゃった`
+        : `${this.boss}たい たおして ${this.boss + 1}たいめ ${this.bossDefn.name} まで いけた！`;
       this.renderTrack($('duo-end-track'), this.boss, this.boss);
-      this.renderEndLines(false);
+      this.renderEndLines(false, [], this.hp / this.hpMax <= 0.3);
       const btns = $('duo-end-btns');
       btns.replaceChildren();
       btns.appendChild(this.endButton(
@@ -1313,7 +1345,7 @@ export class DuoGame {
     this.elEnd.hidden = false;
   }
 
-  private renderEndLines(cleared: boolean, prizes: string[] = []): void {
+  private renderEndLines(cleared: boolean, prizes: string[] = [], close = false): void {
     const sides = this.sides as [Side, Side];
     const ul = $('duo-end-lines');
     ul.replaceChildren();
@@ -1326,6 +1358,8 @@ export class DuoGame {
     for (const side of sides) {
       if (side.kind === 'kid' && side.p && this.runCoins[side.id] > 0) li(`${side.p.name}  +${this.runCoins[side.id]} コイン`, 'coins');
     }
+    // 負けたボスを あと すこしで倒せていたら、そう言う（つぎも やる気になる）
+    if (!cleared && close) li('あと すこしだった！', 'close');
     const best = sides[0].p?.duo.best[this.tier] ?? 0;
     if (!cleared && best > 0) li(`きろく: ${best}たい たおした`, 'best');
     if (cleared && prizes.length) {
@@ -1417,8 +1451,15 @@ export class DuoGame {
     const el = side.el;
     if (!el) return;
     const attacked = this.attack !== null && this.attack.side === side.id && !this.attack.dodged;
+    const mate = this.other(side);
+    // 相方が たおれていて、自分は攻撃されていない。「つぎの正解で 起こせる」を この子の板に出す
+    // （前は たおれた子の板にしか書いておらず、起こす側は いつもの「じぶんの ペースで」のままだった）
+    const rescue = this.phase === 'fight' && !side.down && mate.down && !attacked;
+    const mateName = mate.cpu ? 'CPU' : mate.name;
     el.root.classList.toggle('attacked', attacked && this.phase === 'fight');
+    el.root.classList.toggle('rescue', rescue);
     el.root.classList.toggle('is-down', side.down);
+    if (!attacked || this.phase !== 'fight') el.timer.hidden = true;
     el.root.classList.toggle('cpu', side.cpu);
     el.name.textContent = side.cpu ? '🤖 CPU' : side.name;
     el.mode.textContent = side.cpu ? 'てで あそぶ' : '🤖 まかせる';
@@ -1428,17 +1469,17 @@ export class DuoGame {
     else if (this.phase === 'intro') state = 'じゅんび…';
     else if (this.phase === 'finish') state = 'とどめ！';
     else if (side.down) state = '💫 たおれた';
-    else if (attacked) state = '⚠ きてる！';
+    else if (attacked) state = mate.down ? `⚠ きてる！ せいかいで ${mateName}も ふっかつ` : '⚠ きてる！';
     else if (side.lock > 0) state = 'ちょっと まってね';
+    else if (rescue) state = `💗 ${mateName}を たすけて！ せいかいで ふっかつ`;
     else if (side.cpu) state = '🤖 うーん…';
     else if (this.phase === 'fight') state = 'じぶんの ペースで こうげき！';
     el.state.textContent = state;
 
     el.down.hidden = !side.down;
     if (side.down) {
-      const mate = this.other(side);
       el.downAns.textContent = side.downAnswer ? `こたえは ${side.downAnswer}` : '';
-      el.downText.textContent = `${mate.cpu ? 'CPU' : mate.name}が せいかいすると ふっかつ`;
+      el.downText.textContent = `${mateName}が せいかいすると ふっかつ`;
     }
 
     // ヒントのボタン。CPU・たおれているときは出さない。ベリーハードは「ヒント なし」
@@ -1447,6 +1488,9 @@ export class DuoGame {
     el.hintLabel.textContent = none ? 'ヒント なし' : 'ヒント';
     el.hintLeft.textContent = side.hintsLeft !== null && side.hintsLeft > 0 ? `あと${side.hintsLeft}` : '';
     el.hintBtn.disabled = !this.hintUsable(side);
+    // ふつうでは、攻撃されているときに ヒントのボタンを光らせる（押すと 攻撃を ペットが止める）。
+    // ヒントに たよって ここまで来た子ほど、追われているときに ボタンを思い出せない
+    el.hintBtn.classList.toggle('nudge', attacked && this.tier === 0 && this.hintUsable(side));
     this.renderButtons(side);
   }
 
@@ -1606,6 +1650,14 @@ export class DuoGame {
       this.fail(target, 'time');
       return;
     }
+    // 板の中の のこり時間（体に ふれるまでの きょりの割合）。子どもが見ているのは 下の板なので、
+    // 舞台の赤みだけでは 気づきにくい
+    if (!a.dodged) {
+      const left = Math.max(0, -cross - this.contact(a.shot.r)) / a.span;
+      target.el.timer.hidden = false;
+      target.el.timerFill.style.transform = `scaleX(${Math.min(1, left).toFixed(3)})`;
+      target.el.timer.classList.toggle('low', left < 0.35);
+    }
     // 跳んだ子の まんなかを 通りすぎた瞬間に「よけた」を見せる（跳んだ頂点と同じ時刻になる）。
     // そこからは速く ぬけさせる。ぎりぎりで答えたときは のこりの きょりが短く、そのままの速さだと
     // 着地したときに まだ せなかに重なっていて、また当たったように見える
@@ -1645,6 +1697,9 @@ export class DuoGame {
     const target = a && this.sides ? this.sides[a.side] : null;
     const oldSpan = target ? target.x - this.bossX : 0;
     const frac = target && Math.abs(oldSpan) > 1 ? (a!.shot.x - this.bossX) / oldSpan : 0;
+    const oldS = this.s;
+    // まだ よけていない攻撃は「体に ふれるまで のこり何px か」を 画面の大きさに合わせて保つ
+    const oldLeft = a && target && !a.dodged ? Math.abs(a.shot.x - target.x) - this.contact(a.shot.r) : 0;
     this.W = Math.round(rect.width);
     this.H = Math.round(rect.height);
     const sr = this.elScreen.getBoundingClientRect();
@@ -1668,9 +1723,17 @@ export class DuoGame {
     }
     if (a && target && Math.abs(oldSpan) > 1) {
       const span = target.x - this.bossX;
-      a.shot.x = this.bossX + frac * span;
-      a.shot.v *= Math.abs(span / oldSpan);
+      const k = Math.abs(span / oldSpan);
+      a.shot.r *= this.s / oldS;
+      a.shot.v *= k;
+      a.span *= k;
       a.shot.y = this.groundY - 15 * this.s;
+      if (a.dodged) {
+        a.shot.x = this.bossX + frac * span;
+      } else {
+        // ボスの側（攻撃が来る向きの反対）に、体に ふれる きょり＋のこりを 置きなおす
+        a.shot.x = target.x - a.dir * (this.contact(a.shot.r) + oldLeft * k);
+      }
     }
   }
 
@@ -1729,8 +1792,10 @@ export class DuoGame {
     if (!a || a.dodged || this.phase !== 'fight') return;
     const g = this.g;
     const target = (this.sides as [Side, Side])[a.side];
-    const span = Math.abs(this.bossX - target.x);
-    const left = Math.abs(a.shot.x - target.x);
+    // 体に ふれるところを 0 にして測る（まんなかで測ると、時間切れの瞬間でも 濃さが 8割ほどで止まる）
+    const c = this.contact(a.shot.r);
+    const span = Math.max(1, Math.abs(this.bossX - target.x) - c);
+    const left = Math.max(0, Math.abs(a.shot.x - target.x) - c);
     const near = Math.max(0, 1 - left / span - 0.35) / 0.65;
     if (near <= 0) return;
     const x0 = a.side === 0 ? 0 : this.W;
@@ -1761,6 +1826,45 @@ export class DuoGame {
       g.scale(-1, 1);
     }
     drawBoss(g, this.bossX, this.groundY + drop, size, this.bossDefn, this.bossState);
+    g.restore();
+    if (this.phase === 'intro' || this.phase === 'fight') this.drawBossHp(drop, fade);
+  }
+
+  /** ボスの頭の上の HP。上の帯は 子どもが見ている 下の板から遠いので、ボスの すぐ上にも出す */
+  private bossBarY(): number {
+    return Math.max(10 * this.s, this.groundY - this.bossSize() - 30 * this.s);
+  }
+
+  private drawBossHp(drop: number, alpha: number): void {
+    const g = this.g;
+    const s = this.s;
+    const w = this.bossSize() * 1.3;
+    const h = 9 * s;
+    const x = this.bossX - w / 2;
+    const y = this.bossBarY() + drop;
+    const k = Math.max(0, Math.min(1, this.hpShown / this.hpMax));
+    const low = k <= 0.25;
+    g.save();
+    g.globalAlpha = alpha;
+    g.fillStyle = 'rgba(25,20,40,.6)';
+    roundRect(g, x - 2 * s, y - 2 * s, w + 4 * s, h + 4 * s, h);
+    g.fill();
+    // のこり すこしは 色を変えて ゆっくり光らせる
+    const grad = g.createLinearGradient(x, 0, x + w, 0);
+    grad.addColorStop(0, low ? '#ffb02e' : '#e4675c');
+    grad.addColorStop(1, low ? '#ffe17a' : '#ffb05c');
+    g.fillStyle = grad;
+    if (k > 0) {
+      roundRect(g, x, y, w * k, h, h / 2);
+      g.fill();
+    }
+    if (low) {
+      g.globalAlpha = alpha * (0.35 + 0.35 * Math.sin(this.t * 8));
+      g.strokeStyle = '#fff4b8';
+      g.lineWidth = 2 * s;
+      roundRect(g, x - 2 * s, y - 2 * s, w + 4 * s, h + 4 * s, h);
+      g.stroke();
+    }
     g.restore();
   }
 
@@ -1849,6 +1953,8 @@ export class DuoGame {
         g.translate(side.x * 2, 0);
         g.scale(-1, 1);
       }
+      g.globalAlpha = 1;
+      g.fillStyle = '#ffffff';
       g.fillText(pw.icon, side.x, this.groundY - size - 18 * s);
       if (mirror) g.restore();
     }
@@ -1936,9 +2042,12 @@ export class DuoGame {
       g.globalAlpha = Math.min(1, f.life / 0.4);
       g.lineWidth = 4 * this.s;
       g.strokeStyle = 'rgba(30,40,50,.75)';
-      g.strokeText(f.text, f.x, f.y);
+      // 画面の はしで切れないよう 内がわへ寄せる（「○○が おさえてる！」は はしの子の上に出る）
+      const half = g.measureText(f.text).width / 2 + 6 * this.s;
+      const x = Math.min(Math.max(f.x, half), this.W - half);
+      g.strokeText(f.text, x, f.y);
       g.fillStyle = f.color;
-      g.fillText(f.text, f.x, f.y);
+      g.fillText(f.text, x, f.y);
     }
     g.globalAlpha = 1;
   }
