@@ -108,6 +108,16 @@
             </button>
           </div>
 
+          <!-- ふたりで ボス（iPad だけ）。2人で きょうりょくして 8たいの ボスと たたかう。
+               ひとりなら CPU と組む。iPad でない端末では main.ts が隠したまま -->
+          <button class="daily-card duo-card" id="duo-card" type="button" hidden>
+            <span class="daily-main">
+              <span class="daily-title">👥 ふたりで ボス</span>
+              <span class="daily-state" id="duo-card-state">8たいの ボスと たたかう</span>
+            </span>
+            <span class="duo-faces" aria-hidden="true">👹👹👹</span>
+          </button>
+
           <!-- ずかん・ペット・ぶきの進みぐあいは、それぞれの画面に置いてある。
                ホームに並べていたころは、遊ぶ前に読む行が5つになって
                ロゴと「あそぶ」が画面の外へ押し出されていた。合図（🆕・🎁・🥚）は
@@ -488,6 +498,99 @@
       </div>
     </section>
 
+    <!-- ===== ふたりで ボス（iPad の 2人プレイ・ボスラッシュ） =====
+         仕様は docs/duo-boss-plan.md。中身は duo-menu.ts（えらぶ）と duo.ts（たたかい）が作る。
+         左は ホームで選ばれている子、右は ほかの子・ゲスト（てで／CPU）。 -->
+    <section class="screen screen-duo" id="screen-duo" data-screen="duo" hidden>
+      <!-- えらぶ -->
+      <div class="duo-pick" id="duo-pick">
+        <header class="map-head">
+          <button class="btn btn-icon" id="duo-back" type="button" aria-label="もどる">←</button>
+          <div class="map-title">
+            <p class="map-world">👥 ふたりで ボス</p>
+            <p class="map-desc">ふたりで きょうりょくして 8たいの ボスを たおそう</p>
+          </div>
+          <span class="tclock" data-tclock hidden></span>
+        </header>
+        <nav class="duo-tiers" id="duo-tiers" aria-label="むずかしさ"></nav>
+        <div class="duo-cols">
+          <div class="duo-col">
+            <p class="duo-col-head">ひだり（きみ）</p>
+            <div class="duo-me">
+              <canvas id="duo-left-face" aria-hidden="true"></canvas>
+              <b id="duo-left-name"></b>
+            </div>
+            <p class="duo-col-note">ほかの子に するなら ホームで えらびなおしてね</p>
+          </div>
+          <div class="duo-col">
+            <p class="duo-col-head">みぎ（なかま）</p>
+            <div class="duo-partners" id="duo-partners" role="radiogroup" aria-label="なかま"></div>
+          </div>
+        </div>
+        <p class="duo-msg" id="duo-pick-msg"></p>
+        <div class="duo-go" id="duo-go"></div>
+      </div>
+
+      <!-- たたかい。上が 2人ぶんの舞台、下が 左右に分けた こたえの板 -->
+      <div class="duo-play" id="duo-play" hidden>
+        <header class="duo-hud">
+          <button class="btn btn-icon" id="duo-pause" type="button" aria-label="ポーズ">‖</button>
+          <p class="duo-boss-name" id="duo-boss-name"></p>
+          <span class="bb-track duo-hp"><i id="duo-hp"></i></span>
+          <span class="tclock" data-tclock hidden></span>
+        </header>
+        <div class="duo-stage"><canvas id="duo-world"></canvas></div>
+        <div class="duo-sides">
+          <div class="duo-side left" id="duo-side-L"></div>
+          <!-- まん中の すきま。となりの子の手が入っても 押されない -->
+          <div class="duo-gap" aria-hidden="true"></div>
+          <div class="duo-side right" id="duo-side-R"></div>
+        </div>
+
+        <!-- やすみ（ボスとボスのあいだ） -->
+        <div class="duo-over" id="duo-rest" hidden>
+          <div class="sheet duo-sheet">
+            <p class="sheet-head" id="duo-rest-head">たおした！</p>
+            <div class="duo-track" id="duo-rest-track"></div>
+            <div class="duo-next">
+              <canvas id="duo-rest-shadow" aria-hidden="true"></canvas>
+              <p id="duo-rest-next">つぎは…</p>
+            </div>
+            <div class="duo-rest-picks" id="duo-rest-picks"></div>
+            <p class="duo-rest-note" id="duo-rest-note"></p>
+            <button class="btn btn-ghost" id="duo-rest-quit" type="button">ここで やめる（つづきは あとで）</button>
+          </div>
+        </div>
+
+        <!-- まけ・クリア -->
+        <div class="duo-over" id="duo-end" hidden>
+          <div class="sheet duo-sheet">
+            <p class="sheet-head" id="duo-end-head"></p>
+            <p class="duo-end-sub" id="duo-end-sub"></p>
+            <div class="duo-track" id="duo-end-track"></div>
+            <ul class="duo-end-lines" id="duo-end-lines"></ul>
+            <div class="duo-end-btns" id="duo-end-btns"></div>
+          </div>
+        </div>
+
+        <!-- ふつうの ポーズ（と、アプリを裏に回したとき） -->
+        <div class="duo-over" id="duo-pausebox" hidden>
+          <div class="sheet">
+            <p class="sheet-head">ちょっと きゅうけい</p>
+            <button class="btn btn-primary btn-xl" id="duo-resume" type="button">つづける</button>
+            <button class="btn btn-ghost" id="duo-quit" type="button">やめる</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- iPad を 縦にしているとき。2人の板が せまくなりすぎるので 横にしてもらう -->
+      <div class="duo-rotate" aria-hidden="true">
+        <span class="duo-rotate-pic">📱</span>
+        <b>よこに してね</b>
+        <small>ふたりで ならんで あそぶよ</small>
+      </div>
+    </section>
+
     <!-- ===== きせかえ ===== -->
     <section class="screen" id="screen-shop" data-screen="shop" hidden>
       <header class="map-head">
@@ -708,6 +811,24 @@
           <tbody id="p-weak"></tbody>
         </table>
         <p class="p-note" id="p-weak-note"></p>
+        <p class="p-note" id="p-hint-note"></p>
+
+        <!-- ふたりで ボス（iPad の 2人プレイ）。数字を見て、ボスの強さ（duo-rules.ts の DUO_BOSSES）を合わせる -->
+        <h3 class="p-h">ふたりで ボス（iPad の 2人プレイ）</h3>
+        <div class="p-cards">
+          <div class="p-card"><span>攻撃でたおれた割合</span><b id="p-duo-down">-</b></div>
+          <div class="p-card"><span>1問にかかった時間</span><b id="p-duo-ms">-</b></div>
+          <div class="p-card"><span>ヒント（1回あたり）</span><b id="p-duo-hint">-</b></div>
+          <div class="p-card"><span>1回の長さ</span><b id="p-duo-sec">-</b></div>
+        </div>
+        <p class="p-note" id="p-duo-note"></p>
+        <p class="p-note">
+          iPad を横にしたときだけ、ホームに出ます。ボスと8回つづけて戦い、2人で協力します（ひとりなら CPU と組みます）。
+          ボスは交代で片方に攻撃し、その子が時間内に正解できないと倒れます。もう片方が1問正解すると起き上がり、
+          2人とも倒れたら負けです。攻撃が届くまでの時間は、その場で測った答える速さから決めます
+          （本編の記録は、ヒントで止めていた時間を数えていないため）。
+          ★・図鑑・習熟度は動かしません（となりの子が答えを言えるため）。コインは、きろくのある子に同じだけ出ます。
+        </p>
 
         <h3 class="p-h">せってい</h3>
         <label class="toggle"><input type="checkbox" id="p-slow" /><span>ゆっくりモード（障害物を遅く）</span></label>

@@ -536,6 +536,82 @@ export function drawHat(g: CanvasRenderingContext2D, cx: number, headY: number, 
       }
       break;
     }
+    case 'hat-chibiboss': {
+      // ふたりで ボス（ふつう）の記念。頭の上に ちいさな ドドン（1体目のボス）が のっている。
+      // 色は boss.ts の ドドン と同じ。つの 2本・白い目・おなか で「あのボス」と分かる形にする
+      const by = headY - s * 0.16;
+      g.fillStyle = '#f6e3ae';
+      g.strokeStyle = INK;
+      g.lineWidth = Math.max(1, s * 0.025);
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(cx + dir * s * 0.1, by - s * 0.14);
+        g.lineTo(cx + dir * s * 0.2, by - s * 0.34);
+        g.lineTo(cx + dir * s * 0.2, by - s * 0.12);
+        g.closePath();
+        g.fill();
+        g.stroke();
+      }
+      g.fillStyle = '#8fbf6a';
+      g.beginPath();
+      g.ellipse(cx, by, s * 0.27, s * 0.21, 0, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#e2f2c8';
+      g.beginPath();
+      g.ellipse(cx, by + s * 0.08, s * 0.15, s * 0.09, 0, 0, Math.PI * 2);
+      g.fill();
+      for (const dir of [-1, 1]) {
+        g.fillStyle = '#fff';
+        g.beginPath();
+        g.arc(cx + dir * s * 0.09, by - s * 0.05, s * 0.055, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = INK;
+        g.beginPath();
+        g.arc(cx + dir * s * 0.08, by - s * 0.045, s * 0.028, 0, Math.PI * 2);
+        g.fill();
+      }
+      // あし。頭に ちょこんと すわっている
+      g.fillStyle = '#63944a';
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.ellipse(cx + dir * s * 0.13, by + s * 0.19, s * 0.07, s * 0.04, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+      break;
+    }
+    case 'hat-bosshelm': {
+      // ふたりで ボス（ハード）の記念。「つよい ○○」の 赤い からだの色と、大きな まがった つの。
+      // 本編の「つの」（クリーム色の小さい つの）と まちがえないよう、かぶとごと 描く
+      const b = headY + s * 0.08;
+      g.fillStyle = '#f2dfb4';
+      g.strokeStyle = '#a8823f';
+      g.lineWidth = Math.max(1.2, s * 0.03);
+      for (const dir of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(cx + dir * s * 0.24, b - s * 0.18);
+        g.quadraticCurveTo(cx + dir * s * 0.62, b - s * 0.22, cx + dir * s * 0.52, b - s * 0.62);
+        g.quadraticCurveTo(cx + dir * s * 0.42, b - s * 0.32, cx + dir * s * 0.18, b - s * 0.3);
+        g.closePath();
+        g.fill();
+        g.stroke();
+      }
+      g.fillStyle = '#b8432f';
+      g.strokeStyle = '#7d2418';
+      g.beginPath();
+      g.arc(cx, b, s * 0.36, Math.PI, 0);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#ffc53d';
+      roundRect(g, cx - s * 0.38, b - s * 0.06, s * 0.76, s * 0.1, s * 0.05);
+      g.fill();
+      g.fillStyle = '#7fe0ff';
+      g.beginPath();
+      g.arc(cx, b - s * 0.17, s * 0.06, 0, Math.PI * 2);
+      g.fill();
+      break;
+    }
     default:
       break;
   }
@@ -553,6 +629,45 @@ function drawAccBack(g: CanvasRenderingContext2D, acc: string, x: number, y: num
       g.quadraticCurveTo(x + s * 0.4, y + s * 0.92, x + s * 0.88, y + s * 0.12);
       g.closePath();
       g.fill();
+      break;
+    }
+    case 'acc-flamecape': {
+      // ふたりで ボス（ベリーハード）の記念。「さいきょう ○○」の 夜の むらさきの マントで、
+      // すそが ほのおの形に ゆれる。本編の「マント」（赤・すそが まるい）と 形で分ける
+      const wave = Math.sin(t * 8) * s * 0.06;
+      const grad = g.createLinearGradient(0, y + s * 0.1, 0, y + s * 1.1);
+      grad.addColorStop(0, '#6b2fa3');
+      grad.addColorStop(1, '#3a1650');
+      g.fillStyle = grad;
+      g.beginPath();
+      g.moveTo(x + s * 0.12, y + s * 0.12);
+      g.quadraticCurveTo(x - s * 0.5 - wave, y + s * 0.46, x - s * 0.44 - wave, y + s * 0.96);
+      // すその ほのお。5つの山が ばらばらに ゆらぐ
+      const tips = 5;
+      const left = x - s * 0.44 - wave;
+      const right = x + s * 0.7;
+      for (let i = 0; i < tips; i++) {
+        const k0 = i / tips;
+        const k1 = (i + 1) / tips;
+        const flick = Math.sin(t * 11 + i * 1.7) * s * 0.06;
+        const mx = left + (right - left) * (k0 + k1) / 2;
+        g.lineTo(mx, y + s * (1.18 + (i % 2) * 0.06) + flick);
+        g.lineTo(left + (right - left) * k1, y + s * 0.98);
+      }
+      g.lineTo(x + s * 0.88, y + s * 0.12);
+      g.closePath();
+      g.fill();
+      // ほのおの 芯。むらさきの上に 明るい だいだい
+      g.fillStyle = 'rgba(255,150,90,.75)';
+      for (let i = 0; i < tips; i++) {
+        const mx = left + (right - left) * (i + 0.5) / tips;
+        const flick = Math.sin(t * 13 + i * 2.1) * s * 0.04;
+        g.beginPath();
+        g.moveTo(mx - s * 0.06, y + s * 1.0);
+        g.quadraticCurveTo(mx, y + s * 1.12 + flick, mx + s * 0.06, y + s * 1.0);
+        g.closePath();
+        g.fill();
+      }
       break;
     }
     case 'acc-wings': {

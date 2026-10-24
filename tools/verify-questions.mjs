@@ -1011,6 +1011,184 @@ console.log('\nK) うらマップ（ハード・ベリーハード）');
   }
 }
 
+console.log('\nL) ふたりで ボス（iPad の 2人プレイ）');
+{
+  // 数字（duo-rules.ts）をいじったときに
+  // ・持ち時間が 3.3秒を切る／ベリーハードが ふつうより長くなる
+  // ・ダメージの補正が崩れて、速い子が ぜんぶ倒す形に戻る
+  // ・CPU が 左の子より ずっと強い／弱い
+  // ・まだ習っていない世界の式が まざる、にがてが攻撃の式に出る
+  // が 黙って起きないようにする。仕様は docs/duo-boss-plan.md
+  const R = await load('duo-rules');
+  const cur = await load('curriculum');
+  const bad = [];
+  const B = R.DUO_BOSSES;
+
+  // ボスの並び: 8体・だんだん強く
+  if (B.length !== 8) bad.push(`ボスが ${B.length}体`);
+  for (let i = 1; i < B.length; i++) {
+    if (!(B[i].hp > B[i - 1].hp)) bad.push(`${i + 1}体目の体力が ふえていない`);
+    if (!(B[i].timeK < B[i - 1].timeK)) bad.push(`${i + 1}体目の持ち時間の倍率が へっていない`);
+    if (!(B[i].gap < B[i - 1].gap)) bad.push(`${i + 1}体目の あいだが へっていない`);
+    if (R.DUO_POOL_ORDER.indexOf(B[i].pool) < R.DUO_POOL_ORDER.indexOf(B[i - 1].pool)) bad.push(`${i + 1}体目の式が やさしくなる`);
+  }
+
+  // 持ち時間: どの組み合わせでも 3.3秒を切らない・20秒を こえない・ベリーハード ≦ ハード ＝ ふつう
+  let shortest = Infinity;
+  for (let boss = 0; boss < B.length; boss++) {
+    for (const ms of [0, 600, 1000, 2000, 3500, 6000, 12000, 20000]) {
+      for (const ease of [0, 1, 2]) {
+        for (const petSlow of [0, 0.25]) {
+          const t = (tier, slow = false, powerSlow = false) => R.attackTime({
+            measuredMs: ms, worldTime: 7, boss, tier, slow, ease, petSlow, powerSlow,
+          });
+          const t0 = t(0), t1 = t(1), t2 = t(2);
+          shortest = Math.min(shortest, t2);
+          if (t2 < cur.TIER_TIME_FLOOR - 1e-9) bad.push(`${boss + 1}体目 ${ms}ms ベリーハードが ${t2.toFixed(2)}秒`);
+          if (t0 > R.DUO_TIME_MAX + 1e-9 || t(0, true, true) > R.DUO_TIME_MAX + 1e-9) bad.push(`${boss + 1}体目 ${ms}ms 持ち時間が上限を こえる`);
+          if (Math.abs(t1 - t0) > 1e-9) bad.push(`${boss + 1}体目 ハードの持ち時間が ふつうと ちがう`);
+          if (t2 > t0 + 1e-9) bad.push(`${boss + 1}体目 ベリーハードが ふつうより長い`);
+          if (t(0, true) + 1e-9 < t0 && t0 < R.DUO_TIME_MAX) bad.push(`${boss + 1}体目 ゆっくり設定で 短くなる`);
+          if (ease > 0 && t0 + 1e-9 < R.attackTime({ measuredMs: ms, worldTime: 7, boss, tier: 0, slow: false, ease: ease - 1, petSlow, powerSlow: false })) {
+            bad.push(`${boss + 1}体目 自動調整で 短くなる`);
+          }
+        }
+      }
+    }
+  }
+
+  // ダメージ: いつもどおりの速さなら 1秒あたり同じ（0.5〜2.5倍の はばの中）
+  const perSec = (ms) => R.damageOf(ms, false) / (ms / 1000);
+  const ref = perSec(R.DUO_DMG_REF);
+  for (const ms of [2000, 2500, 3000, 4000, 5000, 7000, 10000]) {
+    if (Math.abs(perSec(ms) - ref) > 1e-9) bad.push(`${ms}ms の子の 1秒あたりのダメージが ちがう`);
+  }
+  if (R.damageOf(0, false) !== 1) bad.push('まだ測れていない子のダメージが 1 でない');
+  if (!(R.damageOf(4000, true) > R.damageOf(4000, false))) bad.push('パワーアップ「つよく」が効いていない');
+
+  // CPU: 左の子と同じくらい
+  for (const leftMs of [0, 1500, 3000, 6000]) {
+    for (const r of [0, 0.5, 0.999]) {
+      const d = R.cpuDelay(leftMs, r);
+      const base = leftMs || R.DUO_CPU_DEFAULT_MS;
+      const lo = Math.max(1200, base * R.DUO_CPU_SPEED[0]) - 1;
+      const hi = Math.min(R.DUO_SAMPLE_MAX, base * R.DUO_CPU_SPEED[1]) + 1;
+      if (d < lo || d > hi) bad.push(`CPU の速さ ${d}ms（左 ${leftMs}ms）`);
+    }
+  }
+  for (const [c, n] of [[0, 0], [2, 3], [10, 10], [5, 10], [19, 20]]) {
+    const a = R.cpuAccuracy(c, n);
+    if (a < R.DUO_CPU_ACC[0] - 1e-9 || a > R.DUO_CPU_ACC[1] + 1e-9) bad.push(`CPU の正答率 ${a}`);
+  }
+  {
+    const qp = new QuestionPicker([], 4, false);
+    for (let i = 0; i < 300; i++) {
+      const q = qp.question({ a: 1 + (i % 9), b: 1 + ((i * 7) % 9) });
+      const w = R.cpuWrongChoice(q, Math.random());
+      const best = Math.min(...q.choices.filter((v) => v !== q.answer).map((v) => Math.abs(v - q.answer)));
+      if (w === q.answer || Math.abs(w - q.answer) !== best) bad.push(`CPU の まちがいが ありがちな数でない: ${q.text} → ${w}`);
+    }
+  }
+  for (let i = 0; i < 40; i++) {
+    const taken = R.DUO_POWERS[i % 3].id;
+    if (R.cpuPower(taken, Math.random()) === taken) bad.push('CPU が 左の子と同じ パワーアップを えらんだ');
+  }
+
+  // 出す式: 世界ごとの3つの段
+  let poolNote = '';
+  for (const w of cur.WORLDS) {
+    const pools = R.duoPools(w.id);
+    for (const lv of R.DUO_POOL_ORDER) {
+      const list = pools[lv];
+      if (!list.length) bad.push(`W${w.id} ${lv} が空`);
+      const keys = list.map((e) => `${factKey(e.fact)}${e.blank ? '?' : ''}`);
+      if (new Set(keys).size !== keys.length) bad.push(`W${w.id} ${lv} に同じ式が2つ`);
+    }
+    // いまの世界より先の式は 出さない
+    const later = new Set(cur.WORLDS.filter((x) => x.id > w.id).flatMap((x) => cur.allFacts(x).map(factKey)));
+    const mine = new Set(cur.WORLDS.filter((x) => x.id <= w.id).flatMap((x) => cur.allFacts(x).map(factKey)));
+    for (const lv of R.DUO_POOL_ORDER) {
+      for (const e of pools[lv]) {
+        if (later.has(factKey(e.fact)) && !mine.has(factKey(e.fact))) bad.push(`W${w.id} ${lv} に 先の世界の式 ${factKey(e.fact)}`);
+      }
+    }
+    // 10 の とびら（W3）の式は 穴埋めで出す（答えが いつも 10 になって 式を読まずに当たるため）
+    for (const lv of R.DUO_POOL_ORDER) {
+      for (const e of pools[lv]) {
+        if (e.fact.a + e.fact.b === 10 && cur.allFacts(cur.worldById(3)).some((f) => factKey(f) === factKey(e.fact)) && !e.blank
+          && !cur.WORLDS.some((x) => x.id !== 3 && x.id <= w.id && cur.allFacts(x).some((f) => factKey(f) === factKey(e.fact)))) {
+          bad.push(`W${w.id} ${lv} の ${factKey(e.fact)} が 穴埋めでない`);
+        }
+      }
+    }
+    if (w.id === 5) poolNote = `W5 の子: ${pools.older.length} / ${pools.mix.length} / ${pools.now.length} しき`;
+  }
+  // 自動調整は 1段ずつ下げ、いちばん下で止まる
+  for (let boss = 0; boss < 8; boss++) {
+    const lv = [0, 1, 2, 3].map((e) => R.DUO_POOL_ORDER.indexOf(R.poolLevel(boss, e)));
+    if (lv.some((x, i) => i > 0 && x > lv[i - 1]) || lv[3] < 0) bad.push(`${boss + 1}体目の自動調整の段`);
+  }
+  // にがて（2回以上まちがえて まだ おぼえていない）は出さない
+  {
+    const pools = R.duoPools(2);
+    const weakKey = factKey(pools.now[0].fact);
+    const stat = (k) => (k === weakKey ? { m: 1, ms: 0, miss: 3, seen: 5 } : { m: 2, ms: 0, miss: 0, seen: 3 });
+    const pk = new R.DuoPicker(pools.now, 3, stat);
+    for (let i = 0; i < 400; i++) {
+      const q = pk.next();
+      if (factKey(q.fact) === weakKey) { bad.push(`にがての ${weakKey} が出た`); break; }
+      if (!q.choices.includes(q.answer)) bad.push(`選択肢に こたえが無い ${q.text}`);
+    }
+  }
+
+  // ヒントの回数: ふつうは 何回でも・ハードは 2回（ペットで もとの回数まで）・ベリーハードは なし
+  if (R.duoHintQuota(0, 5) !== null) bad.push('ふつうのヒントに 回数がある');
+  if (R.duoHintQuota(1, 0) !== R.DUO_HARD_HINTS || R.duoHintQuota(1, 9) !== R.DUO_HARD_HINTS * 2) bad.push('ハードのヒントの回数');
+  if (R.duoHintQuota(2, 5) !== 0) bad.push('ベリーハードに ヒントがある');
+  if (!(R.powersOn(0) && R.powersOn(1) && !R.powersOn(2))) bad.push('パワーアップは ふつう・ハードだけ');
+
+  // コイン: むずかしいほど多い・2回目からは少ない
+  const run = (tier, again) => B.reduce((n, _, i) => n + R.duoBossCoins(i, tier, again), 0) + R.duoClearCoins(tier, again);
+  const full = [0, 1, 2].map((t) => run(t, false));
+  if (!(full[0] < full[1] && full[1] < full[2])) bad.push(`コインの並び ${full.join(' / ')}`);
+  if (!(run(0, true) < full[0] / 3)) bad.push('2回目からの コインが 少なくなっていない');
+
+  // 端末: iPad だけ
+  for (const [w, h, touch, want] of [
+    [1180, 820, true, true], [820, 1180, true, true], [1024, 768, true, true], [1133, 744, true, true], [744, 1133, true, true],
+    [390, 844, true, false], [430, 932, true, false], [852, 393, true, false], [1440, 900, false, false],
+  ]) {
+    if (R.duoDevice(w, h, touch) !== want) bad.push(`端末 ${w}x${h} touch=${touch} → ${!want}`);
+  }
+
+  // 中断のキー: むずかしさ・相手ごとに ちがう
+  const keys = [0, 1, 2].flatMap((t) => [R.duoSaveKey(t, 0), R.duoSaveKey(t, 1), R.duoSaveKey(t, 'g')]);
+  if (new Set(keys).size !== keys.length) bad.push(`中断のキーが ぶつかる ${keys.join(' ')}`);
+
+  // 本編の いま いる場所（main.ts の currentSpot と同じ決まり）
+  const prof = (st) => ({ stars: st });
+  const spot1 = R.spotOf(prof({}));
+  const allW1 = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`1-${i + 1}`, 2]));
+  const spot2 = R.spotOf(prof(allW1));
+  if (spot1.worldId !== 1 || spot1.stage !== 1) bad.push(`記録なしの子の場所 ${JSON.stringify(spot1)}`);
+  if (spot2.worldId !== 2 || spot2.stage !== 1) bad.push(`W1 を ぜんぶ終えた子の場所 ${JSON.stringify(spot2)}`);
+
+  // 見込み（docs の数字）。2人とも いつもどおり → 1秒あたり 2 × (1 / 4秒)
+  const hp = R.duoTotalHp();
+  const fightMin = hp / (2 / (R.DUO_DMG_REF / 1000)) / 60;
+  const surv = [0.03, 0.05, 0.1].map((p) => `${Math.round(R.duoSurvival(p, 100) * 100)}%`);
+
+  if (bad.length) {
+    failed++;
+    console.log('   ' + bad.slice(0, 10).join('\n   '));
+  } else {
+    console.log(
+      `   すべて正常（体力の合計 ${hp}・戦いの見込み 約${fightMin.toFixed(0)}分・いちばん短い持ち時間 ${shortest.toFixed(2)}秒・`
+        + `コイン ${full.join(' / ')}（2回目から ${run(0, true)}）・${poolNote}・最後まで行ける見込み p=3/5/10% で ${surv.join(' / ')}）`,
+    );
+  }
+}
+
 console.log('\nI) 出題の例');
 for (const w of WORLDS) {
   for (const st of stepsOf(w)) {

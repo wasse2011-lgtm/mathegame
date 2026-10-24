@@ -35,6 +35,7 @@ import {
   slots,
   stageStars,
   today,
+  type DuoRecord,
 } from './save';
 import { openTimerSheet } from './timer';
 import { zukanProgress } from './zukan';
@@ -109,6 +110,14 @@ export function renderParent(): void {
       + 'ホームの「にがて たいじ」は、この式だけを時間制限なしで出します。'
     : 'まだ十分なデータがありません。何ステージか遊ぶと出てきます。';
 
+  // ヒントの絵を出したまま答えた回数（本編）。記録を始めたのは ふたりで ボス を足したときから
+  const hinted = Object.values(p.facts).reduce((n, s) => n + (s.h ?? 0), 0);
+  $('p-hint-note').textContent =
+    `ヒント（10マスの絵）を出したまま答えた回数: ${hinted}回（本編。2026年10月から記録しています）。`
+    + 'ヒントで止めているあいだは、上の「平均」の時間に数えていません。';
+
+  renderDuo(p.duo);
+
   renderLimit();
   renderTimerRow();
   $<HTMLInputElement>('p-slow').checked = save.settings.slow;
@@ -127,6 +136,27 @@ export function renderParent(): void {
 
   const mastered = Object.values(p.facts).filter((s) => s.m >= MASTERED).length;
   $('parent-sub').textContent = `おぼえた式 ${mastered} こ ・ コイン ${p.coins}`;
+}
+
+/**
+ * ふたりで ボス の数（この子が 左・右どちらで遊んだぶんも ふくむ）。
+ * たおれた割合は、ボスの強さを合わせるときの いちばんの手がかり（duo-rules.ts の duoSurvival）
+ */
+function renderDuo(d: DuoRecord): void {
+  const log = d.log;
+  const pct = (a: number, b: number) => (b > 0 ? `${Math.round((a / b) * 100)}%` : '-');
+  $('p-duo-down').textContent = pct(log.downs, log.attacks);
+  $('p-duo-ms').textContent = log.answers > 0 ? `${(log.ms / log.answers / 1000).toFixed(1)}秒` : '-';
+  $('p-duo-hint').textContent = log.runs > 0 ? `${(log.hints / log.runs).toFixed(1)}回` : '-';
+  $('p-duo-sec').textContent = log.runs > 0 ? `${Math.round(log.sec / log.runs / 60)}分` : '-';
+  const tierName = ['ふつう', 'ハード', 'ベリーハード'];
+  const last = d.last;
+  $('p-duo-note').textContent = log.runs === 0
+    ? 'まだ遊んでいません。'
+    : `これまで ${log.runs}回。いちばん先まで: ふつう ${d.best[0]}/8・ハード ${d.best[1]}/8・ベリーハード ${d.best[2]}/8。`
+      + (last
+        ? `前回（${last.day}）: ${tierName[last.tier] ?? ''} ${last.reached}/8 体まで、攻撃 ${last.attacks}回のうち ${last.downs}回 倒れ、ヒント ${last.hints}回、${Math.max(1, Math.round(last.sec / 60))}分。`
+        : '');
 }
 
 // ------------------------------------------------------------------ 1日にあそべる時間
