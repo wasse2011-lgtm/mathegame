@@ -3200,15 +3200,31 @@ body {
 .duo-side {
   position: relative; min-width: 0; min-height: 0;
   background: rgba(255,255,255,.93); border: 4px solid rgba(255,255,255,.5); border-radius: var(--r-lg);
-  padding: .4rem .6rem .5rem; display: flex; flex-direction: column; gap: .3rem;
+  /* 上は のこり時間のバー（.ds-timer）のぶん あけておく。出し入れで板の中身が動かないように */
+  padding: .75rem .6rem .5rem; display: flex; flex-direction: column; gap: .3rem;
 }
 .duo-side.attacked { border-color: var(--bad); animation: ds-alert .7s ease-in-out infinite; }
 @keyframes ds-alert { 50% { box-shadow: 0 0 0 6px rgba(228,103,92,.3); } }
 .ds-top { display: flex; align-items: center; gap: .45rem; min-height: 40px; }
 .ds-face { width: 40px; height: 40px; flex: 0 0 auto; }
 .ds-name { font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.ds-state { margin-left: auto; font-size: .85rem; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
-.duo-side.attacked .ds-state { color: var(--bad-dark); font-size: 1rem; }
+.ds-state {
+  margin-left: auto; min-width: 0; font-size: .85rem; font-weight: 700; color: var(--ink-2);
+  text-align: right; line-height: 1.2; word-break: keep-all; overflow-wrap: anywhere;
+}
+/* 攻撃されているとき・相方を たすけるときは、いちばん目に入る ことばにする */
+.duo-side.attacked .ds-state { color: var(--bad-dark); font-size: 1.2rem; }
+.duo-side.rescue .ds-state { color: #c2185b; font-size: 1.05rem; }
+.duo-side.rescue { border-color: #ff8fb8; animation: ds-rescue .9s ease-in-out infinite; }
+@keyframes ds-rescue { 50% { box-shadow: 0 0 0 6px rgba(255,143,184,.35); } }
+/* のこり時間。攻撃が体に ふれるまでの きょりで ちぢむ（数字は出さない） */
+.ds-timer {
+  position: absolute; left: .8rem; right: .8rem; top: .25rem; height: 7px; border-radius: 999px;
+  background: rgba(228,103,92,.18); overflow: hidden;
+}
+.ds-timer[hidden] { display: none; }
+.ds-timer i { display: block; height: 100%; background: #e4675c; border-radius: 999px; transform-origin: center; }
+.ds-timer.low i { background: #ff3b30; }
 .ds-mode {
   font-family: inherit; font-weight: 700; font-size: .8rem; color: var(--ink);
   border: 2px solid var(--line); border-radius: 999px; background: var(--paper-2);
@@ -3256,6 +3272,9 @@ body {
 .duo-side.right .ds-hintbtn { align-self: flex-end; }
 .ds-hintbtn[hidden] { display: flex; visibility: hidden; }
 .ds-hintbtn[disabled] { opacity: .45; cursor: default; }
+/* ふつうで 攻撃されているとき。押すと 攻撃を ペットが止める、を 思い出させる */
+.ds-hintbtn.nudge { border-color: var(--blue); background: #eaf6ff; animation: ds-nudge .8s ease-in-out infinite; }
+@keyframes ds-nudge { 50% { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(74,163,221,.3); } }
 .ds-hint-pic { display: grid; place-items: center; width: 30px; height: 30px; }
 .ds-hint-pic canvas { width: 30px; height: 30px; }
 .ds-hint-pic canvas[hidden], .ds-hint-pic i[hidden] { display: none; }
@@ -3308,6 +3327,7 @@ body {
 }
 .drp-btn span { font-size: 1.8rem; line-height: 1; }
 .drp-btn b { font-size: .85rem; }
+.drp-btn small { font-size: .68rem; color: var(--ink-2); line-height: 1.15; word-break: keep-all; overflow-wrap: anywhere; padding: 0 .2rem; }
 .drp-btn[aria-pressed="true"] { border-color: var(--good); background: #dff5e9; }
 .drp-btn[disabled] { cursor: default; }
 .duo-rest-note { margin: 0; text-align: center; font-weight: 700; color: var(--ink-2); }
@@ -3315,6 +3335,7 @@ body {
 .duo-end-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; text-align: center; }
 .duo-end-lines .coins { font-weight: 700; font-size: 1.15rem; color: var(--amber-dark); }
 .duo-end-lines .best { color: var(--ink-2); font-weight: 700; }
+.duo-end-lines .close { color: var(--bad-dark); font-weight: 700; font-size: 1.1rem; }
 .duo-end-lines .prize { color: #6a3fb5; font-weight: 700; }
 .duo-end-lines .unlock { color: var(--bad-dark); font-weight: 700; }
 .duo-end-btns { display: flex; gap: .8rem; justify-content: center; align-items: center; flex-wrap: wrap; }
@@ -3333,5 +3354,5 @@ body {
 .duo-rotate-pic { font-size: 4rem; animation: duo-turn 2.4s ease-in-out infinite; }
 @keyframes duo-turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .duo-side.attacked, .ds-dizzy, .dt-node.next, .duo-rotate-pic { animation: none; }
+  .duo-side.attacked, .duo-side.rescue, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic { animation: none; }
 }
