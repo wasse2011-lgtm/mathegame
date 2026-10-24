@@ -215,6 +215,11 @@ export const DUO_CLASH_BACK = 2;
 export const DUO_CLASH_DRIFT = 0.25;
 /** まだ測れていない子の 1問の秒数（ちからくらべの 押す強さを決めるとき） */
 export const DUO_CLASH_DEFAULT_SEC = 4;
+/**
+ * ちからくらべで ヒントを出しているあいだ、ボスが押しもどさない 長さの上限（秒。1回の ヒントごと）。
+ * 上限が ないと、ヒントを出したまま 答えなければ ずっと押しもどされなかった（レビューで見つかった）
+ */
+export const DUO_CLASH_HINT_HOLD = 4;
 /** ちからくらべで 押しかえされたとき、もどる ほうせきの数（1人ぶん） */
 export const DUO_CLASH_RETRY = 1;
 /** ちからくらべに勝って、ボスが 目を回している秒数（そのあと とどめ） */
