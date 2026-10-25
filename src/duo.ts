@@ -131,7 +131,7 @@ const POOF_SEC = 0.32;
  */
 const MEGA_SEC = 0.5;
 const MEGA_SLOW = 0.3;
-/** でんどういり: 8体の ボスが おりてきて 頭を下げる あいだ（秒）。はじめて その段階を ぜんぶ倒したときだけ */
+/** でんどういり: 8体の ボスが おりてきて 頭を下げる あいだ（秒）。毎回 見せる（「スキップ」で 額縁へ） */
 const FAME_PARADE = 3.6;
 /** ボスが 頭を下げはじめる（「まいりました〜！」） */
 const FAME_BOW = 2.0;
@@ -141,7 +141,7 @@ const FAME_STAMP = 0.9;
 const FAME_TOUCH = 0.6;
 /** 2人の タッチを「いっしょ」と みなす はば（秒） */
 const FAME_PAD_HOLD = 1.0;
-/** ふたりで おせなくても「つづける」を出すまで（「おしてね」が出てから。2回目からは すぐ出す） */
+/** ふたりで おせなくても「つづける」を出すまで（「おしてね」が出てから。「スキップ」したときは すぐ出す） */
 const FAME_WAIT = 8;
 
 interface SideStats {
@@ -336,6 +336,7 @@ export class DuoGame {
   private elEnd = $('duo-end');
   private elPauseBox = $('duo-pausebox');
   private elFame = $('duo-fame');
+  private elFameSkip = $<HTMLButtonElement>('duo-fame-skip');
   private hanabi = new Hanabi($<HTMLCanvasElement>('duo-fame-sky'), false);
 
   /**
@@ -412,11 +413,11 @@ export class DuoGame {
   /** 8体目の とどめで 2人の光を あわせた ばくはつを 出したか */
   private finMega = false;
   /**
-   * でんどういり。t は はじまってからの秒（2回目からは ボスの ならびを はぶいて FAME_PARADE から）。
+   * でんどういり。t は はじまってからの秒（「スキップ」すると FAME_PARADE の 手前へ とぶ。skip）。
    * pads は 左・右の「おしてね」を おした時刻（t）、cpuAt は CPU が おす時刻、nextAt は「つづける」を出す時刻
    */
   private fame = {
-    t: 0, full: true, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
+    t: 0, skip: false, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
     pads: [-9, -9] as [number, number], cpuAt: -1,
   };
   /** でんどういりの 額縁に 入れる回と、おわりの画面に出す 記念品を もらった子（clear で作る） */
@@ -469,8 +470,12 @@ export class DuoGame {
       sfx.tap();
       this.leaveFame();
     });
-    // ボスが ならぶ ところは 舞台・板の どこを さわっても とばせる
-    this.elPlay.addEventListener('pointerdown', () => this.skipFame());
+    // 右上の「スキップ」で 額縁へ とぶ。舞台・板の どこでも とばせる形には しない
+    // （8体目の とどめの あとの 指や、よろこんで さわった 指で とんでしまう）
+    this.elFameSkip.addEventListener('click', () => {
+      sfx.tap();
+      this.skipFame();
+    });
     // はなびが ひらくたびに 2人が 跳ねる
     this.hanabi.onBurst = () => {
       for (const side of this.sides ?? []) {
@@ -548,6 +553,7 @@ export class DuoGame {
     this.elEnd.hidden = true;
     this.elPauseBox.hidden = true;
     this.elFame.hidden = true;
+    this.elFameSkip.hidden = true;
     this.hanabi.stop();
     this.elPlay.hidden = false;
     const canPause = tierDef(this.tier).pause;
@@ -1650,8 +1656,6 @@ export class DuoGame {
   private afterBoss(silent = false): void {
     const sides = this.sides as [Side, Side];
     const n = this.boss;
-    // はじめて この段階を ぜんぶ倒すか（2人の どちらかが はじめてなら でんどういりは 長い演出）。best を 書きかえる前に見る
-    const first = sides.some((x) => x.kind === 'kid' && x.p && x.p.duo.best[this.tier] < DUO_BOSS_COUNT);
     for (const side of sides) {
       // とどめの途中で 時間切れに なったときも、立ち位置に もどしておく
       side.lunge = 0;
@@ -1671,7 +1675,7 @@ export class DuoGame {
       this.restPick = ['', ''];
       return;
     }
-    if (n + 1 >= DUO_BOSS_COUNT) this.clear(silent, first);
+    if (n + 1 >= DUO_BOSS_COUNT) this.clear(silent);
     else this.showRest();
   }
 
@@ -1875,7 +1879,7 @@ export class DuoGame {
    * 8体 ぜんぶ倒した。コイン・記念品・でんどういりの 額縁を 先に のこしてから 演出へ
    * （演出の とちゅうで 時間切れに なっても なくならない）。silent は 時間切れで 区切るとき（演出なし）
    */
-  private clear(silent: boolean, first: boolean): void {
+  private clear(silent: boolean): void {
     const sides = this.sides as [Side, Side];
     this.phase = 'end';
     const prizes: string[] = [];
@@ -1912,7 +1916,7 @@ export class DuoGame {
     this.finishLog();
     this.hooks?.onChange();
     if (silent) return;
-    this.beginFame(first);
+    this.beginFame();
   }
 
   private fameKid(side: Side): DuoFameKid {
@@ -1940,16 +1944,17 @@ export class DuoGame {
   // ---------------------------------------------------------------- でんどういり
 
   /**
-   * でんどういりの 演出。はじめては 8体が おりてきて 頭を下げる → 額縁 → ハンコ → ふたりで おして はなび。
-   * 2回目からは 額縁から（ボスの ならびを はぶく）
+   * でんどういりの 演出。8体が おりてきて 頭を下げる → 額縁 → ハンコ → ふたりで おして はなび。
+   * 2回目からも ぜんぶ見せる。右上の「スキップ」で 額縁へ とべる（コイン・記念品・額縁は clear で 保存ずみ）
    */
-  private beginFame(full: boolean): void {
+  private beginFame(): void {
     const sides = this.sides as [Side, Side];
     this.phase = 'fame';
     this.fame = {
-      t: full ? 0 : FAME_PARADE, full, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
+      t: 0, skip: false, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
       pads: [-9, -9], cpuAt: -1,
     };
+    this.elFameSkip.hidden = false;
     const prefix = tierDef(this.tier).bossPrefix;
     this.fameBosses = DUO_BOSSES.map((b) => bossDef(b.world, this.tier, prefix));
     this.attacks = [];
@@ -1963,10 +1968,8 @@ export class DuoGame {
       side.el.timer.hidden = true;
       this.renderSide(side);
     }
-    if (full) {
-      this.showBanner('ぜんぶ たおした！', 1.7);
-      sfx.legend();
-    }
+    this.showBanner('ぜんぶ たおした！', 1.7);
+    sfx.legend();
   }
 
   /** ボスが ならぶ ところ（8体目）の 置き場所。2人の あいだに 8体。まんなかから 左の4体は 左の子へ、右の4体は 右の子へ 頭を下げる */
@@ -1988,30 +1991,29 @@ export class DuoGame {
     const before = f.t;
     f.t += dt;
     const at = (x: number): boolean => before < x && f.t >= x;
-    if (f.full) {
-      for (let i = 0; i < DUO_BOSS_COUNT; i++) {
-        const p = this.famePos(i);
-        if (!at(p.land)) continue;
-        this.burst(p.x, this.groundY - 4 * this.s, 7, '#e8d9b8');
-        this.shake = Math.max(this.shake, 0.08);
-        sfx.drop();
+    // ボスの ならび。「スキップ」は t を じかに 先へ すすめるので、とばした ぶんの 音や 字は 出ない
+    for (let i = 0; i < DUO_BOSS_COUNT; i++) {
+      const p = this.famePos(i);
+      if (!at(p.land)) continue;
+      this.burst(p.x, this.groundY - 4 * this.s, 7, '#e8d9b8');
+      this.shake = Math.max(this.shake, 0.08);
+      sfx.drop();
+    }
+    if (at(FAME_BOW)) {
+      this.sayLine('まいりました〜！', 1.6);
+      sfx.solved();
+    }
+    // 2人は 名まえを よばれて 2回 跳ねる
+    if (at(FAME_BOW + 0.3) || at(FAME_BOW + 0.95)) {
+      for (const side of this.sides as [Side, Side]) {
+        side.vy = this.jumpV * 0.8;
+        side.char.air = true;
       }
-      if (at(FAME_BOW)) {
-        this.sayLine('まいりました〜！', 1.6);
-        sfx.solved();
-      }
-      // 2人は 名まえを よばれて 2回 跳ねる
-      if (at(FAME_BOW + 0.3) || at(FAME_BOW + 0.95)) {
-        for (const side of this.sides as [Side, Side]) {
-          side.vy = this.jumpV * 0.8;
-          side.char.air = true;
-        }
-        sfx.jump();
-      }
-      if (at(FAME_BOW + 0.35)) {
-        for (const side of this.sides as [Side, Side]) {
-          this.floatAt(side.x, this.groundY - 96 * this.s, `${side.cpu ? 'CPU' : side.name}！`, '#ffe17a');
-        }
+      sfx.jump();
+    }
+    if (at(FAME_BOW + 0.35)) {
+      for (const side of this.sides as [Side, Side]) {
+        this.floatAt(side.x, this.groundY - 96 * this.s, `${side.cpu ? 'CPU' : side.name}！`, '#ffe17a');
       }
     }
     if (!f.framed && f.t >= FAME_PARADE) this.showFrame();
@@ -2023,7 +2025,7 @@ export class DuoGame {
     }
     if (f.stamped && !f.touch && f.t >= FAME_PARADE + FAME_STAMP + FAME_TOUCH) {
       f.touch = true;
-      f.nextAt = f.t + (f.full ? FAME_WAIT : 0);
+      f.nextAt = f.t + (f.skip ? 0 : FAME_WAIT);
       this.elFame.classList.add('touch');
     }
     if (f.cpuAt >= 0 && f.t >= f.cpuAt) {
@@ -2036,6 +2038,7 @@ export class DuoGame {
     if (f.touch && !f.nextShown && f.t >= f.nextAt) {
       f.nextShown = true;
       this.elFame.classList.add('ready');
+      this.elFameSkip.hidden = true;
     }
   }
 
@@ -2086,12 +2089,18 @@ export class DuoGame {
     if (!f.nextShown) f.nextAt = Math.min(f.nextAt, f.t + 1.6);
   }
 
-  /** ボスが ならぶ ところを とばして 額縁へ */
+  /**
+   * 「スキップ」。ボスが ならぶ ところを とばして 額縁へ。「つづける」は ハンコの あと すぐ出す
+   * （ふたりで おすのを 8秒 またない）。額縁が もう出ていれば「つづける」を出すのを 早めるだけ
+   */
   private skipFame(): void {
     const f = this.fame;
-    if (this.phase !== 'fame' || f.framed || f.t < 0.3) return;
+    if (this.phase !== 'fame' || f.nextShown) return;
+    f.skip = true;
+    this.elFameSkip.hidden = true;
     // 額縁の すこし手前へ（ならぶ ところの 音は もう鳴らさない）
-    f.t = FAME_PARADE - 0.001;
+    if (!f.framed) f.t = FAME_PARADE - 0.001;
+    else if (f.touch) f.nextAt = f.t;
   }
 
   private leaveFame(): void {
@@ -2099,6 +2108,7 @@ export class DuoGame {
     this.phase = 'end';
     this.hanabi.stop();
     this.elFame.hidden = true;
+    this.elFameSkip.hidden = true;
     this.showClearSheet();
   }
 
@@ -3121,7 +3131,7 @@ export class DuoGame {
 
   /**
    * でんどういりの 舞台。金色の 光の すじと、2人の あいだに ならぶ 8体（目を回して 頭を下げる）。
-   * 2回目からは ボスは 出さない（額縁から）
+   * 「スキップ」したときは もう おりて 頭を下げた すがたで 額縁の うしろに出る
    */
   private drawFame(): void {
     const g = this.g;
@@ -3129,7 +3139,7 @@ export class DuoGame {
     const f = this.fame;
     const calm = reduced();
     // 光。上の まんなかから さしこむ
-    const glow = Math.min(1, (f.full ? f.t : f.t - FAME_PARADE + 1) / 0.8);
+    const glow = Math.min(1, f.t / 0.8);
     const cx = this.bossX;
     const cy = -this.H * 0.1;
     const rad = Math.max(this.W, this.H) * 1.1;
@@ -3151,7 +3161,6 @@ export class DuoGame {
       g.fill();
     }
     g.restore();
-    if (!f.full) return;
     for (let i = 0; i < DUO_BOSS_COUNT; i++) {
       const p = this.famePos(i);
       const def = this.fameBosses[i];

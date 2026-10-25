@@ -395,6 +395,8 @@
           <button class="btn btn-primary btn-xl hero-next" id="hero-next" type="button">つづける</button>
         </div>
       </div>
+      <!-- 演出の「スキップ」。右上（こたえの ボタンから はなす。とどめの 指で 押さないように） -->
+      <button class="ceremony-skip" id="hero-skip" type="button" hidden>スキップ <span aria-hidden="true">▶▶</span></button>
       <canvas class="hanabi-sky" id="hero-sky" aria-hidden="true"></canvas>
     </section>
 
@@ -629,6 +631,8 @@
           <button class="btn btn-primary btn-xl fame-next" id="duo-fame-next" type="button">つづける ▶</button>
           <canvas class="hanabi-sky fame-sky" id="duo-fame-sky" aria-hidden="true"></canvas>
         </div>
+        <!-- でんどういりの「スキップ」。右上（2人の こたえの 板から はなす）。額縁の 上にも 出す -->
+        <button class="ceremony-skip" id="duo-fame-skip" type="button" hidden>スキップ <span aria-hidden="true">▶▶</span></button>
 
         <!-- ふつうの ポーズ（と、アプリを裏に回したとき） -->
         <div class="duo-over" id="duo-pausebox" hidden>

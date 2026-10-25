@@ -280,8 +280,8 @@ const COMBO_CALLS: { at: number; text: string }[] = [
  *   HERO_KNEEL … ボスが ひざまずいて「まいった… おまえこそ えいゆうだ」
  *   HERO_OWL … ホーくんが とんできて「○○は △△の えいゆうだ！」
  *   HERO_CALL … 「○○！」が 画面じゅうに 出て、はなびが 上がる
- *   HERO_CARD … 称号と 金の 像の カード。像が 台座から せり上がる
- * 2回目からは 世界が ぬりかわったら すぐ カード（HERO_SHORT_CARD）。どこを タップしても カードへ とぶ
+ *   HERO_CARD … 称号と 金の 像の カード。像が 台座から せり上がる（はじめてだけ）
+ * 2回目からも ぜんぶ見せる。右上の「スキップ」で カードへ とぶ（光が ひろがりきってから HERO_SKIP_CARD）
  */
 const HERO_SLOW = 0.38;
 const HERO_WIPE = 1.5;
@@ -292,7 +292,7 @@ const HERO_CALL = 4.1;
 const HERO_CALLS = 14;
 const HERO_CALL_GAP = 0.15;
 const HERO_CARD = 6.4;
-const HERO_SHORT_CARD = 1.6;
+const HERO_SKIP_CARD = 1.6;
 /** カードが出てから「つづける」を出すまで（像が せり上がりきるまで） */
 const HERO_READY = 1.7;
 /** 花の色。ステージの 色の 意味（青＝もとの数・緑＝こたえ）と ぶつからない 明るい色 */
@@ -315,8 +315,8 @@ interface Mote {
 
 interface HeroShow {
   t: number;
-  /** はじめて（ぜんぶ見せる）。false は 2回目から（世界が かわったら すぐ カード） */
-  full: boolean;
+  /** はじめて（像が たった）。false は 2回目から（演出は 同じ。カードの 見出しと ことばだけ かわる） */
+  first: boolean;
   /** この 1つで 8つ そろった（でんせつの えいゆう） */
   legend: boolean;
   /** ぬりかわった あとの 明るい 世界（その せかいの ふつうの 昼） */
@@ -337,7 +337,7 @@ interface HeroShow {
   /** ボスが ひざまずいた 時刻（演出の秒）。まだなら -1 */
   kneelAt: number;
   calls: number;
-  /** タップで とばした（光が ひろがりきったら すぐ カード） */
+  /** 「スキップ」で とばした（光が ひろがりきったら すぐ カード。「つづける」も すぐ出す） */
   skip: boolean;
   card: boolean;
   /** カードを出した 時刻（演出の秒） */
@@ -567,6 +567,7 @@ export class Runner {
   private elHeroOwlSay = document.getElementById('hero-owl-say') as HTMLElement;
   private elHeroCalls = document.getElementById('hero-calls') as HTMLElement;
   private elHeroOver = document.getElementById('hero-over') as HTMLElement;
+  private elHeroSkip = document.getElementById('hero-skip') as HTMLButtonElement;
   private heroSky = new Hanabi(document.getElementById('hero-sky') as HTMLCanvasElement, false);
 
   // 画面寸法（CSS ピクセル）
@@ -600,8 +601,12 @@ export class Runner {
       if (Math.hypot(x - this.petHit.x, y - this.petHit.y) > this.petHit.r) return;
       this.pullHint();
     });
-    // えいゆうの 演出。どこを さわっても カードへ とぶ。カードの「つづける」で リザルトへ
-    this.elPlay.addEventListener('pointerdown', () => this.skipHero());
+    // えいゆうの 演出。右上の「スキップ」で カードへ とぶ。カードの「つづける」で リザルトへ。
+    // 画面の どこでも とばせる形には しない（とどめの あとの 指や、よろこんで さわった 指で とんでしまう）
+    this.elHeroSkip.addEventListener('click', () => {
+      sfx.tap();
+      this.skipHero();
+    });
     document.getElementById('hero-next')?.addEventListener('click', () => {
       sfx.tap();
       this.leaveHero();
@@ -1909,9 +1914,9 @@ export class Runner {
   private beginStomp(): void {
     this.setPhase('stomp');
     this.hold = 2.6;
-    // せかいを すくう とどめ（はじめての ベリーハードの ボス）は、踏む ところを スローで 見せる。
+    // せかいを すくう とどめ（ベリーハードの ボス。2回目からも）は、踏む ところを スローで 見せる。
     // 「とつげき！」の帯は ここで しまう（スローの あいだ 帯が のこって ボスが 見えない）
-    if (this.heroWin() && !profile().heroes[String(this.world.id)]) {
+    if (this.heroWin()) {
       this.slowArm = true;
       this.banner = 0;
     }
@@ -2213,14 +2218,14 @@ export class Runner {
   private beginHero(): void {
     const p = profile();
     const key = String(this.world.id);
-    const full = !p.heroes[key];
+    const first = !p.heroes[key];
     const r = this.settle();
-    if (full) {
+    if (first) {
       // 像は いまの すがた（あとで きせかえても かわらない）
       p.heroes[key] = statueOf(p, today());
       persist();
     }
-    r.heroNew = full;
+    r.heroNew = first;
     this.heroResult = r;
     this.setPhase('hero');
     this.hold = 0;
@@ -2247,7 +2252,7 @@ export class Runner {
     ) + 20 * s;
     const theme = themeFor(this.world.id, 1, false, 'day', 0);
     this.hero = {
-      t: 0, full, legend: full && isLegend(p), theme, cx, cy, maxR, ox, oy,
+      t: 0, first, legend: first && isLegend(p), theme, cx, cy, maxR, ox, oy,
       flowers: this.makeFlowers(), motes: [],
       pure: false, painted: false, kneelAt: -1, calls: 0, skip: false, card: false, cardAt: 0, ready: false,
       say: { text: '', life: 0 },
@@ -2255,6 +2260,7 @@ export class Runner {
     this.elHeroSky.style.background = skyCss(theme);
     this.setHeroClip(0);
     this.elHeroSky.hidden = false;
+    this.elHeroSkip.hidden = false;
     this.elPlay.classList.add('hero');
     // 主人公は ボスの上から 跳んで もとの 場所へ。ボスは 起き上がる
     this.vy = this.jumpV * 0.7;
@@ -2369,7 +2375,7 @@ export class Runner {
     }
     if (h.say.life > 0) h.say.life -= dt;
 
-    if (h.full && !h.skip) {
+    if (!h.skip) {
       if (at(HERO_KNEEL)) {
         this.heroKneel();
         h.say = { text: 'まいった… おまえこそ えいゆうだ', life: 2.6 };
@@ -2389,15 +2395,16 @@ export class Runner {
       }
       if (at(HERO_CALL + 0.2) || at(HERO_CALL + 1.3)) this.launchHeroSky();
     }
-    if (!h.card && h.t >= (h.full && !h.skip ? HERO_CARD : HERO_SHORT_CARD)) this.showHeroCard();
-    // はじめては 像が せり上がりきってから「つづける」
-    if (h.card && !h.ready && h.t >= h.cardAt + (h.full ? HERO_READY : 0)) {
+    if (!h.card && h.t >= (h.skip ? HERO_SKIP_CARD : HERO_CARD)) this.showHeroCard();
+    // はじめては 像が せり上がりきってから「つづける」（とばしたときは すぐ）
+    if (h.card && !h.ready && h.t >= h.cardAt + (h.first && !h.skip ? HERO_READY : 0)) {
       h.ready = true;
       this.elHeroOver.classList.add('ready');
+      this.elHeroSkip.hidden = true;
     }
   }
 
-  /** ボスが ひざまずく（2回目から・とばしたときは カードと いっしょに） */
+  /** ボスが ひざまずく（とばしたときは カードと いっしょに） */
   private heroKneel(): void {
     const h = this.hero;
     if (!h || h.kneelAt >= 0) return;
@@ -2448,11 +2455,11 @@ export class Runner {
     const id = this.world.id;
     const statue = p.heroes[String(id)] ?? null;
     const over = this.elHeroOver;
-    over.classList.toggle('again', !h.full);
+    over.classList.toggle('again', !h.first);
     over.classList.toggle('legend', h.legend);
     over.classList.remove('ready');
     const head = over.querySelector('.hero-head');
-    if (head) head.textContent = h.full ? 'せかいを すくった えいゆう' : 'また せかいを まもった！';
+    if (head) head.textContent = h.first ? 'せかいを すくった えいゆう' : 'また せかいを まもった！';
     const stage = document.getElementById('hero-stage');
     if (stage) stage.replaceChildren(buildStatue(id, statue, true));
     const name = document.getElementById('hero-name');
@@ -2473,25 +2480,27 @@ export class Runner {
       const n = heroCount(p);
       note.textContent = h.legend
         ? `8つ ぜんぶ！ ${LEGEND_TITLE}に なった！ これからは いつでも きんいろに ひかるよ`
-        : h.full
+        : h.first
           ? `ホームの ひろばに ぞうが たったよ！（${n} / ${WORLDS.length}）`
           : `えいゆうの ぞう ${n} / ${WORLDS.length}`;
     }
     over.hidden = false;
     this.elHeroOwl.hidden = true;
-    if (h.full) {
-      sfx.fanfare();
-      if (!this.heroSky.busy) this.launchHeroSky();
-    } else {
-      sfx.clear();
-    }
+    sfx.fanfare();
+    if (!this.heroSky.busy) this.launchHeroSky();
   }
 
-  /** どこかを タップした。演出を とばして カードへ（さわってすぐは とばさない。とどめの 指が のこっている） */
+  /**
+   * 「スキップ」。演出を とばして カードへ（カードが もう出ていれば「つづける」を すぐ出す）。
+   * ★・コイン・像は beginHero で 保存ずみなので、とばしても なにも なくならない
+   */
   private skipHero(): void {
     const h = this.hero;
-    if (!h || this.phase !== 'hero' || h.card || h.t < 0.4) return;
+    if (!h || this.phase !== 'hero' || h.ready) return;
     h.skip = true;
+    this.elHeroSkip.hidden = true;
+    // カードが 出ていれば、つぎの こまで「つづける」（updateHero）
+    if (h.card) return;
     // 光は ひろがりきった ことに する（つぎの こまで 世界が ぬりかわり、その あと すぐ カード。
     // カードの うしろが 夜の まま 残らないように）
     h.t = Math.max(h.t, HERO_WIPE);
@@ -2516,6 +2525,7 @@ export class Runner {
     this.heroResult = null;
     this.heroSky.stop();
     this.elHeroSky.hidden = true;
+    this.elHeroSkip.hidden = true;
     this.elHeroOwl.hidden = true;
     this.elHeroOver.hidden = true;
     this.elHeroOver.classList.remove('ready', 'again', 'legend');
