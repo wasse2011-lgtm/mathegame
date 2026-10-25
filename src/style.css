@@ -3549,6 +3549,30 @@ body {
   to { transform: none; opacity: 1; }
 }
 @keyframes hero-say-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+/* ホーくんの ふきだしは 右上の「スキップ」に かからない はばまで。はばの せまい 画面では スキップの 下へ さげる */
+.screen-play.hero .hero-owl { right: calc(var(--safe-r) + 9.5rem); }
+@media (max-width: 34rem) {
+  .screen-play.hero .hero-owl { top: calc(var(--safe-t) + 4.2rem); right: 1rem; }
+}
+
+/* 演出の「スキップ ▶▶」（えいゆう・でんどういり）。右上。動画の スキップのように うすい黒の 板に 白い字。
+   はなびや カード（でんどういりは 額縁の 板）より 上に出す */
+.ceremony-skip {
+  position: absolute; z-index: 8; top: calc(var(--safe-t) + .5rem); right: calc(var(--safe-r) + .6rem);
+  display: inline-flex; align-items: center; gap: .35rem;
+  min-height: 48px; padding: 0 1.1rem; border-radius: 999px;
+  font-family: inherit; font-weight: 900; font-size: 1.05rem; line-height: 1; color: #fff; cursor: pointer;
+  background: rgba(20,28,40,.55); border: 2px solid rgba(255,255,255,.8);
+  box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  animation: skip-in .4s ease-out both;
+}
+.ceremony-skip[hidden] { display: none; }
+.ceremony-skip span { font-size: .8em; letter-spacing: -.15em; }
+.ceremony-skip:active { transform: scale(.96); background: rgba(20,28,40,.75); }
+/* ふたりで ボスは 舞台の 右上（やすみの「ここで やめる」の 左上と 同じ 置きかた） */
+.duo-play .ceremony-skip { top: 0; right: 0; }
+@keyframes skip-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ceremony-skip { animation: none; } }
 
 /* 「○○！」。画面の どこかに ぽんと 出て、のぼって 消える */
 .hero-calls { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
