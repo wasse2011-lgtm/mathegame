@@ -20,6 +20,11 @@ export interface BossState {
   hit: number;
   /** 1 で通常。踏まれると 0 に近づいてぺしゃんこになる */
   squash: number;
+  /**
+   * 0 より大きいと おこっている（ふたりで ボスの ほんきモード）。赤い もや・つりあがった まゆ・
+   * 頭の おこりマーク。数字の大きさは もやの こさ（0〜1）
+   */
+  rage?: number;
 }
 
 export interface BossDef {
@@ -149,6 +154,43 @@ function wings(g: CanvasRenderingContext2D, cx: number, top: number, h: number, 
   g.globalAlpha = 1;
 }
 
+/** ほんきモードの 赤い もや。段階の オーラ（aura）とは別に、どのボスにも出す */
+function rageAura(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, t: number, k: number): void {
+  const pulse = r * (1.08 + Math.sin(t * 7) * 0.07);
+  const grad = g.createRadialGradient(cx, cy, r * 0.45, cx, cy, pulse);
+  grad.addColorStop(0, 'rgba(255,80,60,0)');
+  grad.addColorStop(0.7, `rgba(255,70,50,${0.32 * k})`);
+  grad.addColorStop(1, 'rgba(255,60,40,0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(cx, cy, pulse, 0, Math.PI * 2);
+  g.fill();
+}
+
+/**
+ * おこりマーク（まんがの 十字の すじ）。字の読めない子にも「おこっている」が伝わる しるし。
+ * 4つの 曲がった すじを、まんなかを あけて 十字に ならべる
+ */
+function angerMark(g: CanvasRenderingContext2D, x: number, y: number, r: number, t: number): void {
+  const beat = 1 + Math.max(0, Math.sin(t * 9)) * 0.18;
+  g.save();
+  g.translate(x, y);
+  g.scale(beat, beat);
+  g.strokeStyle = '#e8344a';
+  g.lineWidth = Math.max(2, r * 0.32);
+  g.lineCap = 'round';
+  for (let i = 0; i < 4; i++) {
+    g.save();
+    g.rotate((i * Math.PI) / 2);
+    g.beginPath();
+    g.moveTo(r * 0.25, -r);
+    g.quadraticCurveTo(r * 0.3, -r * 0.3, r, -r * 0.25);
+    g.stroke();
+    g.restore();
+  }
+  g.restore();
+}
+
 function aura(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, def: BossDef, t: number): void {
   if (def.tier < 7) return;
   const pulse = r * (1.05 + Math.sin(t * 5) * 0.05);
@@ -185,6 +227,8 @@ export function drawBoss(
   g.save();
   g.translate(lean, 0);
 
+  const rage = st.rage ?? 0;
+  if (rage > 0) rageAura(g, cx, top + h * 0.5, Math.max(w, h) * 0.95, st.t, rage);
   aura(g, cx, top + h * 0.5, Math.max(w, h) * 0.8, def, st.t);
   wings(g, cx, top, h, w, def, st.t);
 
@@ -254,6 +298,7 @@ export function drawBoss(
   }
 
   drawFace(g, cx, top, w, h, s, def, st);
+  if (rage > 0 && st.mode !== 'down') angerMark(g, x + w * 0.82, top + h * 0.1, s * 0.13, st.t);
 
   // よけられた瞬間だけ白く光る。色を白で塗りつぶすと別の生き物に見えるので、
   // ふつうに描いた上へ半透明の白をかぶせる
@@ -334,7 +379,7 @@ function drawFace(
   g.strokeStyle = INK;
   g.lineWidth = Math.max(2, s * 0.055);
   g.lineCap = 'round';
-  const angry = st.mode === 'charge' || st.mode === 'roar' ? 1.5 : 1;
+  const angry = st.mode === 'charge' || st.mode === 'roar' || (st.rage ?? 0) > 0 ? 1.5 : 1;
   for (const side of [-1, 1]) {
     const bx = cx + side * w * 0.19;
     g.beginPath();

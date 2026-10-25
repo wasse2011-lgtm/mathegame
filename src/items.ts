@@ -14,7 +14,7 @@
  * 選ぶ楽しさは「どの種類を増やすか」に、当たる楽しさは「まわした瞬間」に残す。
  */
 
-import { persist, profile, type SkinId } from './save';
+import { persist, profile, type Profile, type SkinId } from './save';
 import { TRAILS } from './trails';
 import { WEAPONS } from './weapons';
 
@@ -26,6 +26,12 @@ export interface Item {
   label: string;
   /** 最初から持っているか */
   free?: boolean;
+  /**
+   * ガチャでは出ない ごほうびの品。中身は もらいかた（きせかえで押したときに言う）。
+   * 「ふたりで ボス」を最後まで倒した記念（duo-rules.ts の DUO_PRIZES）。
+   * 「なし」と同じく、ガチャの中身にも「あつめた数」にも数えない
+   */
+  prize?: string;
 }
 
 /** 種類の名前。ガチャのボタンにも、タブにも、同じことばを出す */
@@ -98,6 +104,9 @@ export const ITEMS: Item[] = [
   { id: 'hat-deer', kind: 'hat', label: 'たんていハット' },
   { id: 'hat-tiara', kind: 'hat', label: 'ティアラ' },
   { id: 'hat-goggle', kind: 'hat', label: 'ゴーグル' },
+  // ふたりで ボス の記念。ガチャからは出ない
+  { id: 'hat-chibiboss', kind: 'hat', label: 'ちびドドン', prize: 'ふたりで ボスの ふつうを さいごまで たおすと もらえるよ！' },
+  { id: 'hat-bosshelm', kind: 'hat', label: 'つよいボスの かぶと', prize: 'ふたりで ボスの ハードを さいごまで たおすと もらえるよ！' },
 
   // ---- アクセ 24 ----
   // せなかに つけるもの（drawAccBack）と からだの上に つけるもの（drawAccFront）がある。
@@ -126,6 +135,7 @@ export const ITEMS: Item[] = [
   { id: 'acc-belt', kind: 'acc', label: 'きんの ベルト' },
   { id: 'acc-nafuda', kind: 'acc', label: 'なふだ' },
   { id: 'acc-kira', kind: 'acc', label: 'きらきら' },
+  { id: 'acc-flamecape', kind: 'acc', label: 'さいきょうの ほのおマント', prize: 'ふたりで ボスの ベリーハードを さいごまで たおすと もらえるよ！' },
 
   // ---- ぶき ----
   // 中身は weapons.ts。ここに名前を書き写すと、フィニッシュの絵と
@@ -181,18 +191,35 @@ export function isOwned(item: Item): boolean {
   return Boolean(item.free) || profile().unlocked.includes(item.id);
 }
 
+/** ガチャで集める品（ごほうびの品を のぞく）。「あつめた数」の分母もこれ */
+export const GACHA_ITEMS: Item[] = ITEMS.filter((i) => !i.prize);
+
 /** まだ持っていないもの ぜんぶ。ホームの 🎁 の合図に使う */
 export function lockedItems(): Item[] {
-  return ITEMS.filter((i) => !isOwned(i));
+  return GACHA_ITEMS.filter((i) => !isOwned(i));
 }
 
 /** その種類で、まだ持っていないもの。ガチャの中身になる */
 export function lockedItemsOf(kind: ItemKind): Item[] {
-  return ITEMS.filter((i) => i.kind === kind && !isOwned(i));
+  return GACHA_ITEMS.filter((i) => i.kind === kind && !isOwned(i));
 }
 
 export function ownedCount(): number {
-  return ITEMS.filter(isOwned).length;
+  return GACHA_ITEMS.filter(isOwned).length;
+}
+
+/**
+ * ごほうびの品を、きろくを指定して わたす（ふたりで ボス の右の子にも わたすので profile() を使わない）。
+ * ガチャと同じく その場で身につける。子どもは もらった瞬間に見たい
+ */
+export function grantPrize(p: Profile, id: string): boolean {
+  const item = ITEMS.find((i) => i.id === id && i.prize);
+  if (!item || p.unlocked.includes(id)) return false;
+  p.unlocked.push(id);
+  if (item.kind === 'hat') p.hat = id;
+  else if (item.kind === 'acc') p.acc = id;
+  persist();
+  return true;
 }
 
 /**

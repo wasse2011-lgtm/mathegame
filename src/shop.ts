@@ -18,6 +18,7 @@
 import { sfx } from './audio';
 import {
   GACHA_COST,
+  GACHA_ITEMS,
   ITEMS,
   KIND_LABEL,
   equip,
@@ -240,6 +241,20 @@ function pointAtGacha(): void {
   window.setTimeout(() => btn.classList.remove('call'), 700);
 }
 
+/**
+ * マスの名前に、ひらがな と カタカナ の さかいめで 折れる すきまを入れる（見た目だけ）。
+ * マスは 5〜6字ぶんの はばしかなく、そのままだと「ビリビリね／ずみ」「だいハンマ／ー」の
+ * ように ことばの途中で折れる。さかいめで折れば「ビリビリ／ねずみ」になる。
+ * 小さい字（っ・ゃ など）の前には入れない（行の頭に来ると読みにくい）。
+ * データの名前そのものは変えない（ぶきの名前は canvas にも描いている）
+ */
+const SCRIPT_SEAM =
+  /([ァ-ヺー])(?=[ぁ-ゖ])(?![ぁぃぅぇぉっゃゅょゎゕゖ])|([ぁ-ゖ])(?=[ァ-ヺ])(?![ァィゥェォッャュョヮヵヶ])/g;
+
+function wrapLabel(text: string): string {
+  return text.replace(SCRIPT_SEAM, '$1$2\u200b');
+}
+
 function itemButton(item: Item): HTMLButtonElement {
   const owned = isOwned(item);
 
@@ -250,7 +265,7 @@ function itemButton(item: Item): HTMLButtonElement {
 
   const c = document.createElement('canvas');
   const label = document.createElement('span');
-  label.textContent = item.label;
+  label.textContent = wrapLabel(item.label);
   b.append(c, label);
 
   if (!owned) {
@@ -281,6 +296,11 @@ function itemButton(item: Item): HTMLButtonElement {
     }
     // 押しても何も起きないボタンにはしない。どうすれば手に入るかを言う
     sfx.tap();
+    // ごほうびの品は ガチャでは出ないので、ガチャのボタンを はねさせない
+    if (item.prize) {
+      $('shop-msg').textContent = `${item.label}：${item.prize}`;
+      return;
+    }
     $('shop-msg').textContent = `${item.label} は ガチャで あたるよ！`;
     pointAtGacha();
   });
@@ -326,7 +346,7 @@ export function renderShop(): void {
   const p = profile();
   $('shop-coins').textContent = String(p.coins);
   $('gacha-cost').textContent = String(GACHA_COST);
-  $('shop-desc').textContent = `あつめた ${ownedCount()} / ${ITEMS.length}`;
+  $('shop-desc').textContent = `あつめた ${ownedCount()} / ${GACHA_ITEMS.length}`;
   startShopIdle();
 
   const tabs = $('shop-tabs');
@@ -336,8 +356,9 @@ export function renderShop(): void {
     b.type = 'button';
     b.className = 'chip';
     b.setAttribute('aria-selected', String(kind === tab));
-    const got = ITEMS.filter((i) => i.kind === kind && isOwned(i)).length;
-    const all = ITEMS.filter((i) => i.kind === kind).length;
+    // ごほうびの品（ふたりで ボス の記念）は ガチャで集めるものではないので 数に入れない
+    const got = GACHA_ITEMS.filter((i) => i.kind === kind && isOwned(i)).length;
+    const all = GACHA_ITEMS.filter((i) => i.kind === kind).length;
     b.innerHTML = `${KIND_LABEL[kind]}<small>${got}/${all}</small>`;
     b.addEventListener('click', () => {
       tab = kind;

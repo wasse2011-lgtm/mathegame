@@ -1267,7 +1267,7 @@ export class Runner {
 
       if (firstTry) {
         const key = factKey(q.fact);
-        if (recordAnswer(q.fact, true, ms)) this.learned.push(key);
+        if (recordAnswer(q.fact, true, ms, this.hintShown)) this.learned.push(key);
         // リベンジは「取り返す」ぶんなので、せいかい数（x / 10）には足さない
         if (this.revenge) this.revengeCorrect++;
         else this.correct++;
@@ -1388,7 +1388,7 @@ export class Runner {
   private noteWrong(q: Question, ms: number): void {
     if (this.wrongThisQ) return;
     this.wrongThisQ = true;
-    recordAnswer(q.fact, false, ms);
+    recordAnswer(q.fact, false, ms, this.hintShown);
     if (this.revenge) return;
     this.misses++;
     this.picker.markWrong(q.fact);
@@ -1849,7 +1849,7 @@ export class Runner {
     if (!this.wrongThisQ) {
       this.wrongThisQ = true;
       this.misses++;
-      recordAnswer(q.fact, false, this.qElapsed * 1000);
+      recordAnswer(q.fact, false, this.qElapsed * 1000, this.hintShown);
     }
     this.markPip(false);
     this.combo = 0;

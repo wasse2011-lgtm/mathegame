@@ -10,7 +10,7 @@
  *   正解したぶんだけしか進まない（引きの良し悪しで学習の記録が甘くならない）。
  */
 
-import { persist, profile } from './save';
+import { persist, profile, type Profile } from './save';
 
 /** 'god' は でんせつの さらに上（ゴッド）。キラたまごからしか出ない */
 export type Rarity = 'n' | 'r' | 'sr' | 'ur' | 'god';
@@ -425,17 +425,30 @@ export interface PetPower {
 export const NO_POWER: PetPower = { slow: 0, rescue: 0, guard: 0, hints: 0 };
 
 /** いま つれている子の力。なかよし度 1 あがるごとに +2%（最大 +8%） */
-export function powerOf(pet: PetDef | null): PetPower {
+export function powerOf(pet: PetDef | null, friend = pet ? friendLevel(pet.id) : 1): PetPower {
   if (!pet) return NO_POWER;
   const r = rarityDef(pet.rarity);
-  const bonus = (friendLevel(pet.id) - 1) * 0.02;
+  const bonus = (friend - 1) * 0.02;
   return {
     slow: r.slow > 0 ? r.slow + bonus : 0,
     rescue: r.rescue,
     guard: r.guard,
     // ヒントは なかよし度2つで1回ずつ増える。時間のばしより ゆっくり効かせる
-    hints: r.hints > 0 ? r.hints + Math.floor((friendLevel(pet.id) - 1) / 2) : 0,
+    hints: r.hints > 0 ? r.hints + Math.floor((friend - 1) / 2) : 0,
   };
+}
+
+/** きろくを指定して、つれている子。ふたりで ボス の右の子（いまの きろくではない子）に使う */
+export function petOf(p: Profile): PetDef | null {
+  if (!p.pet) return null;
+  const def = petById(p.pet);
+  return def && (p.pets[def.id] ?? 0) > 0 ? def : null;
+}
+
+/** petOf の子の力（なかよし度も その きろくの数で数える） */
+export function powerFor(p: Profile): PetPower {
+  const pet = petOf(p);
+  return pet ? powerOf(pet, Math.min(p.pets[pet.id] ?? 1, MAX_FRIEND)) : NO_POWER;
 }
 
 /** つれて歩いている子（いなければ null） */

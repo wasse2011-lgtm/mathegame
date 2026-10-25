@@ -40,6 +40,14 @@ export interface FactStat {
   ms: number;
   miss: number;
   seen: number;
+  /**
+   * ヒント（10マスの絵）を出したまま答えた回数。あとから足した。
+   *
+   * ms はヒントで止めているあいだを数えていない（runner.ts は止めているあいだ qElapsed を進めない）。
+   * ストップに頼っている子ほど「いつもの速さ」が速く見えるので、どれだけ頼っているかを別に数える。
+   * ★・図鑑・おぼえたの付きかたには使わない（記録として残すだけ）
+   */
+  h?: number;
 }
 
 /** デイリーチャレンジ。date はローカル時間の YYYY-MM-DD */
@@ -146,6 +154,144 @@ export interface Profile {
   seen: string;
   /** かかっているタイマー（いまから ○分）。null は なし */
   timer: SessionTimer | null;
+  /** ふたりで ボス（iPad の 2人プレイ）の記録。この子が左（ホームで選ばれている子）で遊んだぶん */
+  duo: DuoRecord;
+}
+
+/**
+ * ふたりで ボス の中断。やすみの画面で「ここで やめる」を押したとき（と、時間切れで区切ったとき）。
+ * 左の子 × 右の相手 × むずかしさ ごとに1つ持つ（duoSaveKey）。
+ */
+export interface DuoSuspend {
+  /** つぎに戦うボス（0 始まり） */
+  boss: number;
+  /** つぎのボスに効く パワーアップ（左・右）。'' は なし */
+  power: [string, string];
+  /** その場で測った 答える時間（ミリ秒。左・右）。0 は まだ測っていない */
+  ms: [number, number];
+  /** 右の相手の名まえ。きろくを消して 別の子が同じ枠に入ったら、つづきは使わない */
+  partner: string;
+}
+
+/** おうちのかたの画面に出す数（ふたりで ボス）。左で遊んだぶんを足していく */
+export interface DuoLog {
+  runs: number;
+  /** この子が受けた攻撃の数と、そのうち たおれた数 */
+  attacks: number;
+  downs: number;
+  /** この子が ヒントを出した回数 */
+  hints: number;
+  /** この子が答えた数と、正解までにかかった時間の合計（ミリ秒） */
+  answers: number;
+  ms: number;
+  /** 遊んだ秒数 */
+  sec: number;
+}
+
+/** でんどういりの 額縁の 子（そのときの すがた）。ゲスト・CPU も入る */
+export interface DuoFameKid {
+  name: string;
+  skin: string;
+  hat: string;
+  acc: string;
+  color: string;
+  weapon: string;
+}
+
+/** でんどういり（8体 ぜんぶ倒した）1回ぶん。kids は 画面の 左・右 の順（すわっていた ところ） */
+export interface DuoFame {
+  tier: number;
+  day: string;
+  kids: [DuoFameKid, DuoFameKid];
+  /** ふたりで 正解した数 */
+  correct: number;
+}
+
+/** でんどうに のこす数（ふるい ものから けす） */
+export const DUO_FAME_KEEP = 20;
+
+export interface DuoRecord {
+  /** むずかしさごとの、いちばん先まで倒したボスの数（0〜8） */
+  best: [number, number, number];
+  /** その場で測った 答える時間（ミリ秒）。つぎの回に持ちこす。0 は まだ測っていない */
+  ms: number;
+  /** ボスのコインを満額で払った日（1日の2回目からは少なくする） */
+  day: string;
+  saves: Record<string, DuoSuspend>;
+  log: DuoLog;
+  /** さいごに遊んだ1回ぶん */
+  last: (DuoLog & { tier: number; reached: number; day: string }) | null;
+  /** でんどういり。ふるい順（DUO_FAME_KEEP まで） */
+  fame: DuoFame[];
+  /** この子が 右に すわる（えらぶ画面の「いれかえ」）。つぎも おぼえておく */
+  swap: boolean;
+}
+
+export function freshDuoLog(): DuoLog {
+  return { runs: 0, attacks: 0, downs: 0, hints: 0, answers: 0, ms: 0, sec: 0 };
+}
+
+function freshDuo(): DuoRecord {
+  return { best: [0, 0, 0], ms: 0, day: '', saves: {}, log: freshDuoLog(), last: null, fame: [], swap: false };
+}
+
+function readFameKid(v: unknown): DuoFameKid {
+  const o = (v && typeof v === 'object' ? v : {}) as Partial<Record<keyof DuoFameKid, unknown>>;
+  const str = (x: unknown): string => (typeof x === 'string' ? x : '');
+  return { name: str(o.name), skin: str(o.skin), hat: str(o.hat), acc: str(o.acc), color: str(o.color), weapon: str(o.weapon) };
+}
+
+function readFame(v: unknown): DuoFame[] {
+  if (!Array.isArray(v)) return [];
+  const out: DuoFame[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Partial<DuoFame>;
+    const kids = Array.isArray(o.kids) ? o.kids : [];
+    out.push({
+      tier: typeof o.tier === 'number' ? Math.min(2, Math.max(0, Math.round(o.tier))) : 0,
+      day: typeof o.day === 'string' ? o.day : '',
+      kids: [readFameKid(kids[0]), readFameKid(kids[1])],
+      correct: typeof o.correct === 'number' && Number.isFinite(o.correct) ? Math.max(0, Math.round(o.correct)) : 0,
+    });
+  }
+  return out.slice(-DUO_FAME_KEEP);
+}
+
+/** 読みこんだ ふたりで ボス の記録を確かめる。形がおかしいところは既定値に落とす */
+function readDuo(d: unknown): DuoRecord {
+  const blank = freshDuo();
+  if (!d || typeof d !== 'object') return blank;
+  const o = d as Partial<DuoRecord>;
+  const num = (v: unknown, lo = 0): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(lo, v) : lo);
+  const best = Array.isArray(o.best) ? o.best : [];
+  const log = { ...blank.log };
+  if (o.log && typeof o.log === 'object') {
+    for (const k of Object.keys(log) as (keyof DuoLog)[]) log[k] = num((o.log as Partial<DuoLog>)[k]);
+  }
+  const saves: Record<string, DuoSuspend> = {};
+  if (o.saves && typeof o.saves === 'object') {
+    for (const [k, v] of Object.entries(o.saves)) {
+      const s = v as Partial<DuoSuspend> | null;
+      if (!s || typeof s.boss !== 'number') continue;
+      saves[k] = {
+        boss: Math.round(num(s.boss)),
+        power: Array.isArray(s.power) ? [String(s.power[0] ?? ''), String(s.power[1] ?? '')] : ['', ''],
+        ms: Array.isArray(s.ms) ? [num(s.ms[0]), num(s.ms[1])] : [0, 0],
+        partner: typeof s.partner === 'string' ? s.partner : '',
+      };
+    }
+  }
+  return {
+    best: [0, 1, 2].map((i) => Math.min(8, Math.round(num(best[i])))) as [number, number, number],
+    ms: num(o.ms),
+    day: typeof o.day === 'string' ? o.day : '',
+    saves,
+    log,
+    last: o.last && typeof o.last === 'object' ? (o.last as DuoRecord['last']) : null,
+    fame: readFame(o.fame),
+    swap: o.swap === true,
+  };
 }
 
 export interface Settings {
@@ -237,6 +383,7 @@ function freshProfile(): Profile {
     hurdleBest: 0,
     seen: '',
     timer: null,
+    duo: freshDuo(),
   };
 }
 
@@ -279,9 +426,8 @@ export function refreshDaily(p: Profile): void {
  * 毎秒セーブ全体を書くことになるので、書きこみは時計の側でまとめる
  * （裏に回したときは main.ts の flushSave が吐き出す）。
  */
-export function addPlayTime(sec: number): void {
+export function addPlayTime(sec: number, p: Profile = profile()): void {
   if (sec <= 0) return;
-  const p = profile();
   const now = today();
   if (p.play.date !== now) p.play = { date: now, sec: 0, extra: 0 };
   p.play.sec += Math.round(sec);
@@ -540,6 +686,8 @@ function read(): SaveData {
       pets: p?.pets && typeof p.pets === 'object' ? p.pets : {},
       // タイマーは後から足した。古いセーブには無い
       timer: readTimer(p?.timer),
+      // ふたりで ボス は後から足した。古いセーブには無い
+      duo: readDuo(p?.duo),
       // はしる あと・あそびどうぐ・おやつと はなびは後から足した。古いセーブには無い
       trail: typeof p?.trail === 'string' ? p.trail : '',
       toys: Array.isArray(p?.toys) ? p.toys.filter((x): x is string => typeof x === 'string') : [],
