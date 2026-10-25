@@ -62,7 +62,7 @@ import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
   COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, lumpRate, scaled, type CoinGain,
 } from './rewards';
-import { heroCount, isLegend, profile, save, setStageStars, persist, statueOf, today } from './save';
+import { heroCount, isLegend, profile, sameStatue, save, setStageStars, persist, statueOf, today } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { currentLook, drawChar, drawObstacle, roundRect, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
@@ -317,6 +317,8 @@ interface HeroShow {
   t: number;
   /** はじめて（像が たった）。false は 2回目から（演出は 同じ。カードの 見出しと ことばだけ かわる） */
   first: boolean;
+  /** 2回目からで、像の すがたが かわった（いまの すがたに たてなおした。カードで 像を せり上げる） */
+  renew: boolean;
   /** この 1つで 8つ そろった（でんせつの えいゆう） */
   legend: boolean;
   /** ぬりかわった あとの 明るい 世界（その せかいの ふつうの 昼） */
@@ -2218,13 +2220,14 @@ export class Runner {
   private beginHero(): void {
     const p = profile();
     const key = String(this.world.id);
-    const first = !p.heroes[key];
+    const prev = p.heroes[key];
+    const first = !prev;
     const r = this.settle();
-    if (first) {
-      // 像は いまの すがた（あとで きせかえても かわらない）
-      p.heroes[key] = statueOf(p, today());
-      persist();
-    }
+    // 像は いまの すがた。2回目からも たおすたびに たてなおす（きせかえただけでは かわらない）
+    const statue = statueOf(p, today());
+    const renew = !!prev && !sameStatue(prev, statue);
+    p.heroes[key] = statue;
+    persist();
     r.heroNew = first;
     this.heroResult = r;
     this.setPhase('hero');
@@ -2252,7 +2255,7 @@ export class Runner {
     ) + 20 * s;
     const theme = themeFor(this.world.id, 1, false, 'day', 0);
     this.hero = {
-      t: 0, first, legend: first && isLegend(p), theme, cx, cy, maxR, ox, oy,
+      t: 0, first, renew, legend: first && isLegend(p), theme, cx, cy, maxR, ox, oy,
       flowers: this.makeFlowers(), motes: [],
       pure: false, painted: false, kneelAt: -1, calls: 0, skip: false, card: false, cardAt: 0, ready: false,
       say: { text: '', life: 0 },
@@ -2396,8 +2399,8 @@ export class Runner {
       if (at(HERO_CALL + 0.2) || at(HERO_CALL + 1.3)) this.launchHeroSky();
     }
     if (!h.card && h.t >= (h.skip ? HERO_SKIP_CARD : HERO_CARD)) this.showHeroCard();
-    // はじめては 像が せり上がりきってから「つづける」（とばしたときは すぐ）
-    if (h.card && !h.ready && h.t >= h.cardAt + (h.first && !h.skip ? HERO_READY : 0)) {
+    // 像が たった・たてなおしたときは せり上がりきってから「つづける」（とばしたときは すぐ）
+    if (h.card && !h.ready && h.t >= h.cardAt + ((h.first || h.renew) && !h.skip ? HERO_READY : 0)) {
       h.ready = true;
       this.elHeroOver.classList.add('ready');
       this.elHeroSkip.hidden = true;
@@ -2456,6 +2459,7 @@ export class Runner {
     const statue = p.heroes[String(id)] ?? null;
     const over = this.elHeroOver;
     over.classList.toggle('again', !h.first);
+    over.classList.toggle('renew', h.renew);
     over.classList.toggle('legend', h.legend);
     over.classList.remove('ready');
     const head = over.querySelector('.hero-head');
@@ -2482,7 +2486,9 @@ export class Runner {
         ? `8つ ぜんぶ！ ${LEGEND_TITLE}に なった！ これからは いつでも きんいろに ひかるよ`
         : h.first
           ? `ホームの ひろばに ぞうが たったよ！（${n} / ${WORLDS.length}）`
-          : `えいゆうの ぞう ${n} / ${WORLDS.length}`;
+          : h.renew
+            ? `ぞうを いまの すがたに たてなおしたよ！（${n} / ${WORLDS.length}）`
+            : `えいゆうの ぞう ${n} / ${WORLDS.length}`;
     }
     over.hidden = false;
     this.elHeroOwl.hidden = true;
@@ -2528,7 +2534,7 @@ export class Runner {
     this.elHeroSkip.hidden = true;
     this.elHeroOwl.hidden = true;
     this.elHeroOver.hidden = true;
-    this.elHeroOver.classList.remove('ready', 'again', 'legend');
+    this.elHeroOver.classList.remove('ready', 'again', 'renew', 'legend');
     this.elHeroCalls.replaceChildren();
     this.elPlay.classList.remove('hero');
   }
