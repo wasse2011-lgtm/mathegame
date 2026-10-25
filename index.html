@@ -549,6 +549,10 @@
 
         <!-- やすみ（ボスとボスのあいだ） -->
         <div class="duo-over" id="duo-rest" hidden>
+          <!-- やめるは 左上（たたかいの ‖ と同じ場所）。下に置くと、えらんだ流れで 押してしまっていた -->
+          <button class="btn duo-rest-quit" id="duo-rest-quit" type="button">
+            <span aria-hidden="true">🏠</span><b>ここで やめる</b><small>つづきは あとで</small>
+          </button>
           <div class="sheet duo-sheet">
             <p class="sheet-head" id="duo-rest-head">たおした！</p>
             <div class="duo-track" id="duo-rest-track"></div>
@@ -558,7 +562,8 @@
             </div>
             <div class="duo-rest-picks" id="duo-rest-picks"></div>
             <p class="duo-rest-note" id="duo-rest-note"></p>
-            <button class="btn btn-ghost" id="duo-rest-quit" type="button">ここで やめる（つづきは あとで）</button>
+            <!-- 2人とも えらぶまでは 場所だけ とっておく（出たときに 上の板が ずれない） -->
+            <button class="btn btn-primary btn-xl duo-rest-go" id="duo-rest-go" type="button">つぎの ボスへ ▶</button>
           </div>
         </div>
 
