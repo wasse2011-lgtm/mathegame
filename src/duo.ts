@@ -108,8 +108,6 @@ const NEXT_SEC = 0.5;
 const GUARD_TEACH_SEC = 1.2;
 /** 星が ボスに とどくまで */
 const STAR_SEC = 0.42;
-/** やすみで 2人とも えらんだあと、つぎへ行くまで */
-const REST_GO_SEC = 2;
 /** 時間切れで待つのは 最長これだけ（limit.ts の GRACE_SEC と同じ 3分） */
 const PARTNER_GRACE_SEC = 180;
 /**
@@ -307,6 +305,7 @@ export class DuoGame {
   private elHp = $('duo-hp');
   private elPause = $<HTMLButtonElement>('duo-pause');
   private elRest = $('duo-rest');
+  private elRestGo = $<HTMLButtonElement>('duo-rest-go');
   private elEnd = $('duo-end');
   private elPauseBox = $('duo-pausebox');
 
@@ -349,9 +348,8 @@ export class DuoGame {
   private again: [boolean, boolean] = [false, false];
   private runCoins: [number, number] = [0, 0];
   private runStart = 0;
-  /** やすみで えらんだ パワーアップ（左・右）と、2人とも えらんでからの秒数 */
+  /** やすみで えらんだ パワーアップ（左・右）。2人とも えらんだら「つぎの ボスへ」が出る */
   private restPick: [string, string] = ['', ''];
-  private restGo = -1;
   private restTimer = 0;
   /** 右の子の時間が切れた（つぎの やすみで区切る）。切れた時刻（performance.now） */
   private partnerOverAt = 0;
@@ -406,6 +404,14 @@ export class DuoGame {
     $('duo-rest-quit').addEventListener('click', () => {
       sfx.tap();
       this.restQuit();
+    });
+    // えらぶボタンと同じく 指が ふれた時点で（となりの子が さわっていても 効くように）
+    this.elRestGo.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.restNext();
+    });
+    this.elRestGo.addEventListener('click', (e) => {
+      if (e.detail === 0) this.restNext();
     });
   }
 
@@ -1605,7 +1611,6 @@ export class DuoGame {
     const sides = this.sides as [Side, Side];
     this.phase = 'rest';
     this.restPick = ['', ''];
-    this.restGo = -1;
     const next = DUO_BOSSES[this.boss + 1];
     const nextDef = bossDef(next.world, this.tier, tierDef(this.tier).bossPrefix);
     $('duo-rest-head').textContent = `${this.bossDefn.name}を たおした！`;
@@ -1650,7 +1655,7 @@ export class DuoGame {
       col.appendChild(row);
       wrap.appendChild(col);
     }
-    $('duo-rest-note').textContent = pow ? 'ふたりとも えらんだら つぎへ' : 'ふたりとも おしたら つぎへ';
+    this.renderRestGo();
     for (const side of sides) this.renderSide(side);
     this.elRest.hidden = false;
     sfx.fanfare();
@@ -1679,10 +1684,29 @@ export class DuoGame {
       b.setAttribute('aria-pressed', String(b.dataset.id === id));
     });
     if (side.id === 0) this.cpuRestPick();
-    if (this.restPick[0] && this.restPick[1]) {
-      this.restGo = 0;
-      $('duo-rest-note').textContent = 'つぎへ いくよ！';
+    this.renderRestGo();
+  }
+
+  /** やすみの ひとこと と「つぎの ボスへ」。2人とも えらぶまで ボタンは 場所だけ とっておく */
+  private renderRestGo(): void {
+    const sides = this.sides as [Side, Side];
+    const ready = !!(this.restPick[0] && this.restPick[1]);
+    const pow = powersOn(this.tier);
+    let note = pow ? 'ふたりとも えらんでね' : 'ふたりとも 👍を おしてね';
+    if (ready) note = 'じゅんび OK！';
+    else if (this.restPick[0] || this.restPick[1]) {
+      const wait = sides[this.restPick[0] ? 1 : 0];
+      note = `${wait.cpu ? 'CPU' : wait.name}を まってるよ`;
     }
+    $('duo-rest-note').textContent = note;
+    this.elRestGo.classList.toggle('ready', ready);
+  }
+
+  /** 「つぎの ボスへ」。2人とも えらぶまでは 見えないので 押せないが、念のため ここでも たしかめる */
+  private restNext(): void {
+    if (this.phase !== 'rest' || !this.restPick[0] || !this.restPick[1]) return;
+    sfx.tap();
+    this.leaveRest();
   }
 
   private leaveRest(): void {
@@ -2003,12 +2027,6 @@ export class DuoGame {
       if (this.phaseT >= DUO_STUN_SEC) this.beginFinish();
     } else if (this.phase === 'finish') {
       this.updateFinish(dt);
-    } else if (this.phase === 'rest' && this.restGo >= 0) {
-      this.restGo += dt;
-      if (this.restGo >= REST_GO_SEC) {
-        this.restGo = -1;
-        this.leaveRest();
-      }
     }
 
     for (const st of this.stars) st.t += dt;

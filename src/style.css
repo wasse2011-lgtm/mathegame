@@ -3354,6 +3354,22 @@ body {
 .drp-btn[aria-pressed="true"] { border-color: var(--good); background: #dff5e9; }
 .drp-btn[disabled] { cursor: default; }
 .duo-rest-note { margin: 0; text-align: center; font-weight: 700; color: var(--ink-2); }
+/* つぎへは 2人とも えらんでから。それまでは 場所だけ とっておき、押せない */
+.duo-rest-go { align-self: center; width: min(100%, 24rem); }
+.duo-rest-go:not(.ready) { visibility: hidden; }
+.duo-rest-go.ready { animation: duo-go-in .3s ease-out, duo-go-glow 1.6s ease-in-out .3s infinite; }
+@keyframes duo-go-in { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes duo-go-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,197,61,.6); } 50% { box-shadow: 0 0 0 10px rgba(255,197,61,0); } }
+/* やめるは 左上（たたかいの ‖ と同じ場所）。下に置くと えらんだ流れで 押されていた */
+.duo-rest-quit {
+  position: absolute; top: 0; left: 0; z-index: 1;
+  display: grid; grid-template-columns: auto auto; column-gap: .45rem; align-items: center; justify-items: start;
+  min-height: 56px; padding: .35rem .9rem .35rem .65rem; text-align: left;
+  background: var(--paper); border-color: var(--line); color: var(--ink);
+}
+.duo-rest-quit span { grid-row: 1 / 3; font-size: 1.5rem; line-height: 1; }
+.duo-rest-quit b { font-size: 1rem; line-height: 1.2; }
+.duo-rest-quit small { font-size: .72rem; font-weight: 700; color: var(--ink-2); line-height: 1.2; }
 .duo-end-sub { margin: 0; text-align: center; font-weight: 700; font-size: 1.05rem; }
 .duo-end-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem; text-align: center; }
 .duo-end-lines .coins { font-weight: 700; font-size: 1.15rem; color: var(--amber-dark); }
@@ -3377,5 +3393,6 @@ body {
 .duo-rotate-pic { font-size: 4rem; animation: duo-turn 2.4s ease-in-out infinite; }
 @keyframes duo-turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .duo-side.attacked, .duo-side.rescue, .duo-side.dueling, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic { animation: none; }
+  .duo-side.attacked, .duo-side.rescue, .duo-side.dueling, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic,
+  .duo-rest-go.ready { animation: none; }
 }
