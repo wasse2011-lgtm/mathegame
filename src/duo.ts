@@ -12,6 +12,8 @@
  *  ・相方が 1問 正解すると、たおれていた子は起き上がる。2人とも たおれたら 負け
  *  ・のこり体力が 30% を きると ほんきモード（変身 → ほうせきを わる → ちからくらべ → ピヨピヨ → とどめ）。
  *    決まりは duo-rules.ts の「ほんきモード」
+ *  ・8体 ぜんぶ倒すと でんどういり（2人の光を あわせた とどめ → 8体が 頭を下げる → 額縁と ハンコ →
+ *    ふたりで おして はなび）。額縁は duo-fame.ts
  *
  * 入力は pointerdown で受ける。2人が ほぼ同時に押すので、指ごとに来る pointerdown のほうが確実
  * （click は 2本の指が同時に触れているとき 片方しか来ないことがある）。
@@ -72,11 +74,15 @@ import {
   type DuoPool,
   type HonkiMove,
 } from './duo-rules';
+import { buildFameFrame } from './duo-fame';
+import { Hanabi } from './hanabi';
 import { ITEMS, grantPrize } from './items';
 import { drawPet, paintPetIcon } from './petart';
 import { NO_POWER, petOf, powerFor, type PetDef, type PetPower } from './pets';
 import { solvedParts, type Question, type StatReader } from './questions';
-import { persist, profile, save, slots, timeUp, today, type DuoLog, type DuoSuspend, type Profile } from './save';
+import {
+  DUO_FAME_KEEP, persist, profile, save, slots, timeUp, today, type DuoFame, type DuoFameKid, type DuoLog, type DuoSuspend, type Profile,
+} from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { drawChar, paintSkinIcon, roundRect, type CharState, type Look } from './sprites';
 import { frameArt } from './tenframe';
@@ -94,9 +100,10 @@ export type DuoPartner = { kind: 'kid'; slot: number } | { kind: 'guest'; cpu: b
 type SideId = 0 | 1;
 /**
  * 'honki' は ほんきモードへの 変身の演出、'clash' は ちからくらべ、'stun' は ちからくらべに勝って
- * ボスが 目を回しているところ。ほんきモードの あいだの ふつうの戦い（ほうせき）は 'fight' のまま（rage で見分ける）
+ * ボスが 目を回しているところ。ほんきモードの あいだの ふつうの戦い（ほうせき）は 'fight' のまま（rage で見分ける）。
+ * 'fame' は 8体 ぜんぶ倒したあとの でんどういり（コイン・記念品・額縁は もう のこしてある）
  */
-type Phase = 'off' | 'intro' | 'fight' | 'honki' | 'clash' | 'stun' | 'finish' | 'rest' | 'end';
+type Phase = 'off' | 'intro' | 'fight' | 'honki' | 'clash' | 'stun' | 'finish' | 'fame' | 'rest' | 'end';
 
 /** ボスが出てきて名まえを言うまで（秒） */
 const INTRO_SEC = 1.7;
@@ -118,6 +125,24 @@ const PARTNER_GRACE_SEC = 180;
 const JUMP_APEX = 0.34;
 /** ぶんしんが 正解で 消えるまで（秒） */
 const POOF_SEC = 0.32;
+/**
+ * 8体目の とどめで 2人の光を あわせる あいだ（とどめの 時計で、当たってから）。
+ * このあいだは 時間を MEGA_SLOW 倍に ゆっくり進める（スロー）。おわりに 大ばくはつ
+ */
+const MEGA_SEC = 0.5;
+const MEGA_SLOW = 0.3;
+/** でんどういり: 8体の ボスが おりてきて 頭を下げる あいだ（秒）。はじめて その段階を ぜんぶ倒したときだけ */
+const FAME_PARADE = 3.6;
+/** ボスが 頭を下げはじめる（「まいりました〜！」） */
+const FAME_BOW = 2.0;
+/** 額縁が出てから ハンコを おすまで */
+const FAME_STAMP = 0.9;
+/** ハンコから「ふたりで おしてね」まで */
+const FAME_TOUCH = 0.6;
+/** 2人の タッチを「いっしょ」と みなす はば（秒） */
+const FAME_PAD_HOLD = 1.0;
+/** ふたりで おせなくても「つづける」を出すまで（「おしてね」が出てから。2回目からは すぐ出す） */
+const FAME_WAIT = 8;
 
 interface SideStats {
   attacks: number;
@@ -274,6 +299,8 @@ export interface DuoStartOpts {
   tier: Tier;
   partner: DuoPartner;
   resume: DuoSuspend | null;
+  /** きろくの子（ホームで選ばれている子）が 右に すわる（えらぶ画面の「いれかえ」） */
+  swap?: boolean;
 }
 
 export interface DuoHooks {
@@ -283,7 +310,7 @@ export interface DuoHooks {
   onChange: () => void;
 }
 
-/** ほうせきの色（左の子・右の子）。星の色（drawStar）と そろえる */
+/** ほうせきの色（きろくの子・相手。いれかえても 子に ついていく）。星の色（drawStar）と そろえる */
 const GEM_COLORS = ['#ffd23d', '#ff8fb8'] as const;
 
 const freshStats = (): SideStats => ({ attacks: 0, downs: 0, hints: 0, answers: 0, ms: 0, correct: 0, total: 0 });
@@ -308,8 +335,15 @@ export class DuoGame {
   private elRestGo = $<HTMLButtonElement>('duo-rest-go');
   private elEnd = $('duo-end');
   private elPauseBox = $('duo-pausebox');
+  private elFame = $('duo-fame');
+  private hanabi = new Hanabi($<HTMLCanvasElement>('duo-fame-sky'), false);
 
+  /**
+   * sides[0] は きろくの子（ホームで選ばれている子。つづき・コインの 持ち主）、sides[1] は 相手。
+   * swap のときは 画面の 左右だけ 入れかえる（すわる ところに 合わせる）。決まりは id で、置き場所は posOf で見る
+   */
   private sides: [Side, Side] | null = null;
+  private swap = false;
   private tier: Tier = 0;
   private partner: DuoPartner = { kind: 'guest', cpu: true };
   private phase: Phase = 'off';
@@ -375,6 +409,21 @@ export class DuoGame {
   private say = { text: '', life: 0 };
   /** この回で 倒しおわったボスの数（つづきから なら、それまでのぶんも ふくむ） */
   private reached = 0;
+  /** 8体目の とどめで 2人の光を あわせた ばくはつを 出したか */
+  private finMega = false;
+  /**
+   * でんどういり。t は はじまってからの秒（2回目からは ボスの ならびを はぶいて FAME_PARADE から）。
+   * pads は 左・右の「おしてね」を おした時刻（t）、cpuAt は CPU が おす時刻、nextAt は「つづける」を出す時刻
+   */
+  private fame = {
+    t: 0, full: true, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
+    pads: [-9, -9] as [number, number], cpuAt: -1,
+  };
+  /** でんどういりの 額縁に 入れる回と、おわりの画面に出す 記念品を もらった子（clear で作る） */
+  private fameEntry: DuoFame | null = null;
+  private clearPrizes: string[] = [];
+  /** でんどういりで ならぶ 8体（この段階の すがた） */
+  private fameBosses: BossDef[] = [];
 
   // 寸法
   private W = 320;
@@ -405,6 +454,32 @@ export class DuoGame {
       sfx.tap();
       this.restQuit();
     });
+    // でんどういり。「ふたりで おしてね」は 左右それぞれ 指が ふれた時点で（2人 同時に 押すので）
+    for (const pad of Array.from(this.elFame.querySelectorAll<HTMLButtonElement>('.fame-pad'))) {
+      const pos = (pad.dataset.pos === '1' ? 1 : 0) as SideId;
+      pad.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        this.pressPad(pos);
+      });
+      pad.addEventListener('click', (e) => {
+        if (e.detail === 0) this.pressPad(pos);
+      });
+    }
+    $('duo-fame-next').addEventListener('click', () => {
+      sfx.tap();
+      this.leaveFame();
+    });
+    // ボスが ならぶ ところは 舞台・板の どこを さわっても とばせる
+    this.elPlay.addEventListener('pointerdown', () => this.skipFame());
+    // はなびが ひらくたびに 2人が 跳ねる
+    this.hanabi.onBurst = () => {
+      for (const side of this.sides ?? []) {
+        if (this.phase === 'fame' && !side.char.air && side.py >= 0) {
+          side.vy = this.jumpV * 0.75;
+          side.char.air = true;
+        }
+      }
+    };
     // えらぶボタンと同じく 指が ふれた時点で（となりの子が さわっていても 効くように）
     this.elRestGo.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -423,6 +498,14 @@ export class DuoGame {
     return p === 'intro' || p === 'fight' || p === 'honki' || p === 'clash' || p === 'stun' || p === 'finish';
   }
 
+  /**
+   * でんどういりの 演出中か。1日の時間が 0 になっても ここは待つ（main の midGame）。
+   * コイン・記念品・額縁は 演出の前に のこしてあるので、打ち切られても なくならない
+   */
+  celebrating(): boolean {
+    return this.phase === 'fame';
+  }
+
   /** 走っている途中か（やすみも ふくむ）。ここで終わったら 中断として保存する */
   active(): boolean {
     return this.phase !== 'off' && this.phase !== 'end';
@@ -438,6 +521,7 @@ export class DuoGame {
     this.hooks = hooks;
     this.tier = opts.tier;
     this.partner = opts.partner;
+    this.swap = opts.swap === true;
     const left = profile();
     const right = opts.partner.kind === 'kid' ? slots()[opts.partner.slot] ?? null : null;
     const spot = spotOf(left);
@@ -463,6 +547,8 @@ export class DuoGame {
     this.elRest.hidden = true;
     this.elEnd.hidden = true;
     this.elPauseBox.hidden = true;
+    this.elFame.hidden = true;
+    this.hanabi.stop();
     this.elPlay.hidden = false;
     const canPause = tierDef(this.tier).pause;
     this.elPause.textContent = canPause ? '‖' : '←';
@@ -487,6 +573,7 @@ export class DuoGame {
     // ポーズの箱が 開いたまま 終わることがある（ポーズ中に 右の子の時間が切れた）
     this.elPauseBox.hidden = true;
     stopDrone();
+    this.hanabi.stop();
     cancelAnimationFrame(this.raf);
     this.raf = 0;
     window.clearTimeout(this.restTimer);
@@ -603,10 +690,27 @@ export class DuoGame {
     };
   }
 
+  /** 画面の どちらに いるか（0 は 左）。いれかえ のときは きろくの子（id 0）が 右 */
+  private posOf(id: SideId): SideId {
+    return (this.swap ? 1 - id : id) as SideId;
+  }
+
+  /** ボスから見て その子が いる向き（左は −1、右は 1） */
+  private dirOf(id: SideId): 1 | -1 {
+    return this.posOf(id) === 0 ? -1 : 1;
+  }
+
+  /** 画面の 左から順の 2人 */
+  private byPos(): [Side, Side] {
+    const s = this.sides as [Side, Side];
+    return this.swap ? [s[1], s[0]] : s;
+  }
+
   /** 下の板（こたえのボタン・ヒント・たおれたとき）を作る。2人とも同じ形で、左右だけ鏡にする */
   private buildSide(side: Side): void {
-    const root = $(side.id === 0 ? 'duo-side-L' : 'duo-side-R');
-    root.className = `duo-side ${side.id === 0 ? 'left' : 'right'}`;
+    const left = this.posOf(side.id) === 0;
+    const root = $(left ? 'duo-side-L' : 'duo-side-R');
+    root.className = `duo-side ${left ? 'left' : 'right'}`;
     root.innerHTML = `
       <div class="ds-top">
         <canvas class="ds-face" aria-hidden="true"></canvas>
@@ -719,7 +823,7 @@ export class DuoGame {
     this.stars = [];
     this.shots = 0;
     this.nextTarget = (this.boss % 2) as SideId;
-    this.facing = this.nextTarget === 0 ? -1 : 1;
+    this.facing = this.dirOf(this.nextTarget);
     this.finImpact = false;
 
     for (const side of sides) {
@@ -977,7 +1081,7 @@ export class DuoGame {
       this.attacks.push(this.makeAttack(target, kind, move));
       target.st.attacks++;
     }
-    if (targets.length === 1) this.facing = targets[0].id === 0 ? -1 : 1;
+    if (targets.length === 1) this.facing = this.dirOf(targets[0].id);
     this.bossState.mode = 'wind';
     // ほんき技の名まえは 帯で言う（浮かぶ字にすると 小さい画面では すぐ 舞台の上から 出ていった）
     if (move) this.showBanner(honkiLabel(move), 1.0);
@@ -998,7 +1102,7 @@ export class DuoGame {
       powerSlow: target.power === 'slow',
       honki: move !== null,
     });
-    const dir: 1 | -1 = target.id === 0 ? -1 : 1;
+    const dir = this.dirOf(target.id);
     const clone = move?.clone ?? false;
     // ぶんしんは ボスの体の はしから 出てくる
     const from = this.bossX + dir * (clone ? this.bossSize() * 0.5 : 30 * this.s);
@@ -1092,7 +1196,7 @@ export class DuoGame {
     this.ring(side.x, y, '#ffffff');
     this.burst(side.x, y, 12, kind === 'fire' ? '#ffb02e' : kind === 'beam' ? '#8fe3ff' : '#e0d6c2');
     // 頂点にいる頭に重ならないよう、ボスの側へ ずらして出す
-    const toward = side.id === 0 ? 1 : -1;
+    const toward = -this.dirOf(side.id);
     this.floatAt(side.x + toward * 52 * this.s, this.groundY - 92 * this.s, ['ナイス！', 'かわした！', 'よけた！'][Math.floor(rnd() * 3)], '#fff4b8');
     sfx.dodge();
   }
@@ -1228,7 +1332,7 @@ export class DuoGame {
     }
     this.stars.push({
       from: side.id,
-      x0: side.x + (side.id === 0 ? 18 : -18) * this.s,
+      x0: side.x - this.dirOf(side.id) * 18 * this.s,
       y0: this.groundY - 26 * this.s,
       t: 0,
       dmg,
@@ -1267,9 +1371,9 @@ export class DuoGame {
 
   // ---------------------------------------------------------------- ほんきモード
 
-  /** ほうせきの置き場所。ボスの上に、左の子の側・右の子の側へ ならべる（まんなかから 0, 1, …） */
+  /** ほうせきの置き場所。ボスの上に、その子が すわっている側へ ならべる（まんなかから 0, 1, …） */
   private gemPos(side: SideId, i: number): { x: number; y: number } {
-    const dir = side === 0 ? -1 : 1;
+    const dir = this.dirOf(side);
     return { x: this.bossX + dir * (40 + i * 22) * this.s, y: this.bossBarY() + 4 * this.s };
   }
 
@@ -1523,6 +1627,7 @@ export class DuoGame {
     this.finT = 0;
     this.finImpact = false;
     this.finFired = false;
+    this.finMega = false;
     this.attacks = [];
     stopDrone();
     this.stars = [];
@@ -1545,6 +1650,8 @@ export class DuoGame {
   private afterBoss(silent = false): void {
     const sides = this.sides as [Side, Side];
     const n = this.boss;
+    // はじめて この段階を ぜんぶ倒すか（2人の どちらかが はじめてなら でんどういりは 長い演出）。best を 書きかえる前に見る
+    const first = sides.some((x) => x.kind === 'kid' && x.p && x.p.duo.best[this.tier] < DUO_BOSS_COUNT);
     for (const side of sides) {
       // とどめの途中で 時間切れに なったときも、立ち位置に もどしておく
       side.lunge = 0;
@@ -1564,7 +1671,7 @@ export class DuoGame {
       this.restPick = ['', ''];
       return;
     }
-    if (n + 1 >= DUO_BOSS_COUNT) this.clear();
+    if (n + 1 >= DUO_BOSS_COUNT) this.clear(silent, first);
     else this.showRest();
   }
 
@@ -1621,7 +1728,8 @@ export class DuoGame {
     const pow = powersOn(this.tier);
     const wrap = $('duo-rest-picks');
     wrap.replaceChildren();
-    for (const side of sides) {
+    // 列は すわっている順（左の列が 左の子）
+    for (const side of this.byPos()) {
       const col = document.createElement('div');
       col.className = 'drp-col';
       const head = document.createElement('p');
@@ -1679,7 +1787,7 @@ export class DuoGame {
     if (this.phase !== 'rest') return;
     sfx.tap();
     this.restPick[side.id] = id;
-    const col = $('duo-rest-picks').children[side.id];
+    const col = $('duo-rest-picks').children[this.posOf(side.id)];
     col?.querySelectorAll<HTMLButtonElement>('.drp-btn').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.id === id));
     });
@@ -1763,7 +1871,11 @@ export class DuoGame {
     }, 1400);
   }
 
-  private clear(): void {
+  /**
+   * 8体 ぜんぶ倒した。コイン・記念品・でんどういりの 額縁を 先に のこしてから 演出へ
+   * （演出の とちゅうで 時間切れに なっても なくならない）。silent は 時間切れで 区切るとき（演出なし）
+   */
+  private clear(silent: boolean, first: boolean): void {
     const sides = this.sides as [Side, Side];
     this.phase = 'end';
     const prizes: string[] = [];
@@ -1780,22 +1892,214 @@ export class DuoGame {
         side.look = { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
       }
     }
+    // でんどういり。2人の きろくの子の 両方に のこす（すわっていた順。記念品を 身につけた すがたで）
+    const entry: DuoFame = {
+      tier: this.tier,
+      day: today(),
+      kids: this.byPos().map((x) => this.fameKid(x)) as [DuoFameKid, DuoFameKid],
+      correct: sides[0].st.correct + sides[1].st.correct,
+    };
+    for (const side of sides) {
+      const p = side.p;
+      if (side.kind !== 'kid' || !p) continue;
+      p.duo.fame.push({ ...entry, kids: [{ ...entry.kids[0] }, { ...entry.kids[1] }] });
+      if (p.duo.fame.length > DUO_FAME_KEEP) p.duo.fame.splice(0, p.duo.fame.length - DUO_FAME_KEEP);
+    }
+    this.fameEntry = entry;
+    this.clearPrizes = prizes;
     for (const side of sides) this.renderSide(side);
     persist();
     this.finishLog();
     this.hooks?.onChange();
-    sfx.clear();
+    if (silent) return;
+    this.beginFame(first);
+  }
+
+  private fameKid(side: Side): DuoFameKid {
+    const k = side.look;
+    return { name: side.cpu ? 'CPU' : side.name, skin: k.skin, hat: k.hat ?? '', acc: k.acc ?? '', color: k.color ?? '', weapon: k.weapon ?? '' };
+  }
+
+  /** おわりの画面（でんどういりの あと） */
+  private showClearSheet(): void {
+    const sides = this.sides as [Side, Side];
     const t = tierDef(this.tier);
     $('duo-end-head').textContent = `ぜんぶ たおした！ ${t.icon}${t.name} クリア`;
     const total = sides[0].st.correct + sides[1].st.correct;
     $('duo-end-sub').textContent = `ふたりで ${total}もん せいかい`;
     this.renderTrack($('duo-end-track'), DUO_BOSS_COUNT, -1);
-    this.renderEndLines(true, prizes);
+    this.renderEndLines(true, this.clearPrizes);
     const btns = $('duo-end-btns');
     btns.replaceChildren();
     btns.appendChild(this.endButton('もういちど', 'primary', () => this.restart(0)));
     btns.appendChild(this.endButton('スタートへ', 'ghost', () => this.exit()));
     this.elEnd.hidden = false;
+    sfx.clear();
+  }
+
+  // ---------------------------------------------------------------- でんどういり
+
+  /**
+   * でんどういりの 演出。はじめては 8体が おりてきて 頭を下げる → 額縁 → ハンコ → ふたりで おして はなび。
+   * 2回目からは 額縁から（ボスの ならびを はぶく）
+   */
+  private beginFame(full: boolean): void {
+    const sides = this.sides as [Side, Side];
+    this.phase = 'fame';
+    this.fame = {
+      t: full ? 0 : FAME_PARADE, full, framed: false, stamped: false, touch: false, nextAt: 0, nextShown: false,
+      pads: [-9, -9], cpuAt: -1,
+    };
+    const prefix = tierDef(this.tier).bossPrefix;
+    this.fameBosses = DUO_BOSSES.map((b) => bossDef(b.world, this.tier, prefix));
+    this.attacks = [];
+    this.stars = [];
+    this.floats = [];
+    this.say.life = 0;
+    this.elBossName.textContent = '🏆 でんどういり';
+    for (const side of sides) {
+      side.lunge = 0;
+      side.el.finger.hidden = true;
+      side.el.timer.hidden = true;
+      this.renderSide(side);
+    }
+    if (full) {
+      this.showBanner('ぜんぶ たおした！', 1.7);
+      sfx.legend();
+    }
+  }
+
+  /** ボスが ならぶ ところ（8体目）の 置き場所。2人の あいだに 8体。まんなかから 左の4体は 左の子へ、右の4体は 右の子へ 頭を下げる */
+  private famePos(i: number): { x: number; size: number; land: number; face: 1 | -1 } {
+    const [L, R] = this.byPos();
+    const x0 = L.x + 48 * this.s;
+    const x1 = R.x - 48 * this.s;
+    const step = (x1 - x0) / DUO_BOSS_COUNT;
+    return {
+      x: x0 + step * (i + 0.5),
+      size: Math.min(this.baseSize() * 0.72, step * 0.66),
+      land: 0.4 + i * 0.17,
+      face: i < DUO_BOSS_COUNT / 2 ? -1 : 1,
+    };
+  }
+
+  private updateFame(dt: number): void {
+    const f = this.fame;
+    const before = f.t;
+    f.t += dt;
+    const at = (x: number): boolean => before < x && f.t >= x;
+    if (f.full) {
+      for (let i = 0; i < DUO_BOSS_COUNT; i++) {
+        const p = this.famePos(i);
+        if (!at(p.land)) continue;
+        this.burst(p.x, this.groundY - 4 * this.s, 7, '#e8d9b8');
+        this.shake = Math.max(this.shake, 0.08);
+        sfx.drop();
+      }
+      if (at(FAME_BOW)) {
+        this.sayLine('まいりました〜！', 1.6);
+        sfx.solved();
+      }
+      // 2人は 名まえを よばれて 2回 跳ねる
+      if (at(FAME_BOW + 0.3) || at(FAME_BOW + 0.95)) {
+        for (const side of this.sides as [Side, Side]) {
+          side.vy = this.jumpV * 0.8;
+          side.char.air = true;
+        }
+        sfx.jump();
+      }
+      if (at(FAME_BOW + 0.35)) {
+        for (const side of this.sides as [Side, Side]) {
+          this.floatAt(side.x, this.groundY - 96 * this.s, `${side.cpu ? 'CPU' : side.name}！`, '#ffe17a');
+        }
+      }
+    }
+    if (!f.framed && f.t >= FAME_PARADE) this.showFrame();
+    if (f.framed && !f.stamped && f.t >= FAME_PARADE + FAME_STAMP) {
+      f.stamped = true;
+      this.elFame.querySelector('.fame-frame')?.classList.add('stamped');
+      this.shake = 0.3;
+      sfx.stomp();
+    }
+    if (f.stamped && !f.touch && f.t >= FAME_PARADE + FAME_STAMP + FAME_TOUCH) {
+      f.touch = true;
+      f.nextAt = f.t + (f.full ? FAME_WAIT : 0);
+      this.elFame.classList.add('touch');
+    }
+    if (f.cpuAt >= 0 && f.t >= f.cpuAt) {
+      f.cpuAt = -1;
+      const cpu = this.byPos().findIndex((x) => x.cpu);
+      if (cpu >= 0) this.pressPad(cpu as SideId);
+    }
+    const pads = this.elFame.querySelectorAll<HTMLElement>('.fame-pad');
+    pads.forEach((el, i) => el.classList.toggle('on', f.t - f.pads[i] < FAME_PAD_HOLD));
+    if (f.touch && !f.nextShown && f.t >= f.nextAt) {
+      f.nextShown = true;
+      this.elFame.classList.add('ready');
+    }
+  }
+
+  /** 額縁を出す */
+  private showFrame(): void {
+    const f = this.fame;
+    f.framed = true;
+    const slot = $('duo-fame-slot');
+    slot.replaceChildren();
+    if (this.fameEntry) slot.appendChild(buildFameFrame(this.fameEntry, true));
+    const pads = this.elFame.querySelectorAll<HTMLButtonElement>('.fame-pad');
+    this.byPos().forEach((side, i) => {
+      const pad = pads[i];
+      if (!pad) return;
+      const label = pad.querySelector('b');
+      if (label) label.textContent = side.cpu ? '🤖 CPU' : side.name;
+      // CPU の ぶんは 相方が おすと 自分で おす（人は おさなくてよい）
+      pad.classList.toggle('cpu', side.cpu);
+      pad.classList.remove('on');
+    });
+    this.elFame.classList.remove('touch', 'ready');
+    this.elFame.hidden = false;
+    sfx.fanfare();
+  }
+
+  /** 「ふたりで おしてね」。2人が FAME_PAD_HOLD 秒の うちに おすと はなび（何回でも） */
+  private pressPad(pos: SideId): void {
+    const f = this.fame;
+    if (this.phase !== 'fame' || !f.touch) return;
+    f.pads[pos] = f.t;
+    sfx.star(pos);
+    const other = (1 - pos) as SideId;
+    if (this.byPos()[other].cpu && f.cpuAt < 0 && f.t - f.pads[other] >= FAME_PAD_HOLD) f.cpuAt = f.t + 0.35;
+    if (Math.abs(f.pads[0] - f.pads[1]) >= FAME_PAD_HOLD) return;
+    f.pads = [-9, -9];
+    // はなびは 左右の はしから 3発ずつ（上がっている とちゅうなら 足さない）
+    if (!this.hanabi.busy) {
+      this.hanabi.launch(window.innerWidth * 0.12, window.innerHeight);
+      this.hanabi.launch(window.innerWidth * 0.88, window.innerHeight);
+    }
+    // 何回 はなびを 上げても 額縁が はずむよう、つけなおす
+    const frame = this.elFame.querySelector<HTMLElement>('.fame-frame');
+    if (frame) {
+      frame.classList.remove('cheer');
+      void frame.offsetWidth;
+      frame.classList.add('cheer');
+    }
+    if (!f.nextShown) f.nextAt = Math.min(f.nextAt, f.t + 1.6);
+  }
+
+  /** ボスが ならぶ ところを とばして 額縁へ */
+  private skipFame(): void {
+    const f = this.fame;
+    if (this.phase !== 'fame' || f.framed || f.t < 0.3) return;
+    // 額縁の すこし手前へ（ならぶ ところの 音は もう鳴らさない）
+    f.t = FAME_PARADE - 0.001;
+  }
+
+  private leaveFame(): void {
+    if (this.phase !== 'fame') return;
+    this.phase = 'end';
+    this.hanabi.stop();
+    this.elFame.hidden = true;
+    this.showClearSheet();
   }
 
   /** 右の子の時間が切れた。つづきは保存してあるので、おしまいの画面だけ出す */
@@ -1824,7 +2128,7 @@ export class DuoGame {
       if (cls) x.className = cls;
       ul.appendChild(x);
     };
-    for (const side of sides) {
+    for (const side of this.byPos()) {
       if (side.kind === 'kid' && side.p && this.runCoins[side.id] > 0) li(`${side.p.name}  +${this.runCoins[side.id]} コイン`, 'coins');
     }
     // 負けたボスを あと すこしで倒せていたら、そう言う（つぎも やる気になる）
@@ -1875,7 +2179,7 @@ export class DuoGame {
     const partner = this.partner.kind === 'guest'
       ? { kind: 'guest' as const, cpu: this.sides[1].cpuStart }
       : this.partner;
-    this.start({ tier: this.tier, partner, resume: boss > 0 ? { boss, power: ['', ''], ms, partner: '' } : null }, this.hooks);
+    this.start({ tier: this.tier, partner, resume: boss > 0 ? { boss, power: ['', ''], ms, partner: '' } : null, swap: this.swap }, this.hooks);
   }
 
   private exit(): void {
@@ -1949,6 +2253,7 @@ export class DuoGame {
     // （数字は ボスの上の「あと ○」（2人の合計）だけにする。2つの「あと」が まぎらわしかった）
     let gems = 0;
     if (this.phase === 'rest' || this.phase === 'end') state = '';
+    else if (this.phase === 'fame') state = '🏆 でんどういり！';
     else if (this.phase === 'intro') state = 'じゅんび…';
     else if (this.phase === 'honki') state = '⚡ ボスが ほんきに なった！';
     else if (this.phase === 'clash') {
@@ -1975,7 +2280,7 @@ export class DuoGame {
     }
 
     // ヒントのボタン。CPU・たおれているときは出さない。ベリーハードは「ヒント なし」
-    el.hintBtn.hidden = side.cpu || side.down;
+    el.hintBtn.hidden = side.cpu || side.down || this.phase === 'fame';
     const none = side.hintsLeft === 0;
     el.hintLabel.textContent = none ? 'ヒント なし' : 'ヒント';
     el.hintLeft.textContent = side.hintsLeft !== null && side.hintsLeft > 0 ? `あと${side.hintsLeft}` : '';
@@ -1997,8 +2302,10 @@ export class DuoGame {
     this.raf = requestAnimationFrame(this.frame);
   };
 
-  private update(dt: number): void {
+  private update(dt0: number): void {
     const sides = this.sides as [Side, Side];
+    // 8体目の とどめの 合わせわざは スロー
+    const dt = this.megaT() !== null ? dt0 * MEGA_SLOW : dt0;
     this.t += dt;
     this.bossState.t += dt;
     this.bossState.hit = Math.max(0, this.bossState.hit - dt);
@@ -2027,6 +2334,8 @@ export class DuoGame {
       if (this.phaseT >= DUO_STUN_SEC) this.beginFinish();
     } else if (this.phase === 'finish') {
       this.updateFinish(dt);
+    } else if (this.phase === 'fame') {
+      this.updateFame(dt);
     }
 
     for (const st of this.stars) st.t += dt;
@@ -2209,8 +2518,38 @@ export class DuoGame {
       this.burst(this.bossX, this.groundY - this.bossSize() * 0.5, 30, '#ffe17a');
       sfx.blast();
     }
+    // 8体目は 当たったあと 2人の光を あわせて おしこみ、大ばくはつ
+    if (this.lastBoss() && this.finImpact && !this.finMega && this.finT >= FIN_CHARGE + FIN_FLY + MEGA_SEC) {
+      this.finMega = true;
+      const bx = this.bossX;
+      const by = this.groundY - this.bossSize() * 0.5;
+      for (const side of sides) this.burst(bx, by, 26, this.weaponOf(side).glow);
+      this.burst(bx, by, 30, '#ffe17a');
+      this.burst(bx, by, 16, '#ffffff');
+      this.ring(bx, by, '#ffffff');
+      this.ring(bx, by, '#ffe17a');
+      this.flash = 1;
+      this.shake = 0.7;
+      sfx.blast();
+      sfx.boom();
+    }
     if (this.finImpact) this.bossState.squash += (0.24 - this.bossState.squash) * Math.min(1, dt * 6);
     if (this.finT >= FIN_TOTAL) this.afterBoss();
+  }
+
+  /** いま 8体目（さいご）の ボスか */
+  private lastBoss(): boolean {
+    return this.boss === DUO_BOSS_COUNT - 1;
+  }
+
+  /**
+   * 8体目の とどめで 2人の光を あわせている あいだなら その進み（0〜1）。ちがえば null。
+   * 当たる すこし前から 光を出す（スローも ここから）
+   */
+  private megaT(): number | null {
+    if (this.phase !== 'finish' || !this.lastBoss()) return null;
+    const k = (this.finT - (FIN_CHARGE + FIN_FLY - 0.04)) / (MEGA_SEC + 0.04);
+    return k >= 0 && k <= 1 ? k : null;
   }
 
   private weaponOf(side: Side): WeaponDef {
@@ -2285,8 +2624,7 @@ export class DuoGame {
     this.jumpV = -this.gravity * JUMP_APEX;
     if (this.sides) {
       const lx = Math.max(56 * this.s, this.W * 0.15);
-      this.sides[0].x = lx;
-      this.sides[1].x = this.W - lx;
+      for (const side of this.sides) side.x = this.posOf(side.id) === 0 ? lx : this.W - lx;
     }
     for (const { a, oldSpan, frac, oldLeft } of prev) {
       if (!this.sides || Math.abs(oldSpan) <= 1) continue;
@@ -2335,13 +2673,16 @@ export class DuoGame {
     if (this.phase === 'finish') drawFinishDim(g, this.finView(this.sides[0]), finishDim(this.finT));
 
     this.drawAttackGlow();
-    this.drawBossFig();
+    // でんどういりの あとの おわりの画面には 倒した ボスを のこさない
+    if (this.phase === 'fame') this.drawFame();
+    else if (!(this.phase === 'end' && this.reached >= DUO_BOSS_COUNT)) this.drawBossFig();
     for (const side of this.sides) this.drawSide(side);
     this.drawShots();
     this.drawClash();
     for (const st of this.stars) this.drawStar(st);
     if (this.phase === 'finish') {
       for (const side of this.sides) this.drawSideFinish(side);
+      this.drawMega();
     }
 
     for (const p of this.particles) {
@@ -2378,7 +2719,7 @@ export class DuoGame {
     const left = Math.max(0, Math.abs(a.shot.x - target.x) - c);
     const near = Math.max(0, 1 - left / span - 0.35) / 0.65;
     if (near <= 0) return;
-    const x0 = a.side === 0 ? 0 : this.W;
+    const x0 = this.posOf(a.side) === 0 ? 0 : this.W;
     const grad = g.createLinearGradient(x0, 0, this.W / 2, 0);
     grad.addColorStop(0, `rgba(228,103,92,${0.35 * near})`);
     grad.addColorStop(1, 'rgba(228,103,92,0)');
@@ -2670,7 +3011,7 @@ export class DuoGame {
   private clashEnds(side: Side): { kx: number; ky: number; bx: number; by: number } {
     const s = this.s;
     const bs = this.bossSize();
-    const toKid = side.id === 0 ? -1 : 1;
+    const toKid = this.dirOf(side.id);
     return {
       kx: side.x - toKid * 24 * s,
       ky: this.groundY - 20 * s,
@@ -2723,9 +3064,9 @@ export class DuoGame {
     }
   }
 
-  private beam(x0: number, y0: number, x1: number, y1: number, color: string, glow: string): void {
+  private beam(x0: number, y0: number, x1: number, y1: number, color: string, glow: string, thick = 1): void {
     const g = this.g;
-    const wob = 1 + Math.sin(this.t * 30) * 0.12;
+    const wob = (1 + Math.sin(this.t * 30) * 0.12) * thick;
     g.save();
     g.lineCap = 'round';
     for (const [w, c, al] of [[18, glow, 0.5], [9, color, 0.95], [3.5, '#ffffff', 0.95]] as const) {
@@ -2756,6 +3097,88 @@ export class DuoGame {
     g.arc(x, y, r * 0.55, 0, Math.PI * 2);
     g.fill();
     g.globalAlpha = 1;
+  }
+
+  /**
+   * 8体目の とどめ。2人の ぶきの光が ボスへ のびて ひとつに あわさる（ちからくらべの 光を 太くして使う）。
+   * 光は いまの 手もと（ふみこんだ・とびかかった ところ）から出す
+   */
+  private drawMega(): void {
+    const k = this.megaT();
+    if (k === null || !this.sides) return;
+    const s = this.s;
+    const bx = this.bossX;
+    const by = this.groundY - this.bossSize() * 0.5;
+    for (const side of this.sides) {
+      const w = this.weaponOf(side);
+      const toward = -this.dirOf(side.id);
+      const hx = side.x + toward * (side.lunge + 24 * s);
+      const hy = this.groundY + side.py - 20 * s;
+      this.beam(hx, hy, bx, by, w.color, w.glow, 1.6 + k * 1.4);
+    }
+    this.glowBall(bx, by, (22 + 46 * k) * s, '#ffffff', '#fff4b8');
+  }
+
+  /**
+   * でんどういりの 舞台。金色の 光の すじと、2人の あいだに ならぶ 8体（目を回して 頭を下げる）。
+   * 2回目からは ボスは 出さない（額縁から）
+   */
+  private drawFame(): void {
+    const g = this.g;
+    const s = this.s;
+    const f = this.fame;
+    const calm = reduced();
+    // 光。上の まんなかから さしこむ
+    const glow = Math.min(1, (f.full ? f.t : f.t - FAME_PARADE + 1) / 0.8);
+    const cx = this.bossX;
+    const cy = -this.H * 0.1;
+    const rad = Math.max(this.W, this.H) * 1.1;
+    g.save();
+    const grad = g.createRadialGradient(cx, cy, 0, cx, cy, rad);
+    grad.addColorStop(0, `rgba(255,236,150,${0.5 * glow})`);
+    grad.addColorStop(1, 'rgba(255,236,150,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, this.W, this.H);
+    g.fillStyle = `rgba(255,248,210,${0.16 * glow})`;
+    const turn = calm ? 0 : this.t * 0.18;
+    for (let i = 0; i < 12; i++) {
+      const a = Math.PI * 0.08 + (i / 12) * Math.PI * 0.84 + turn % ((Math.PI * 0.84) / 12);
+      g.beginPath();
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(a - 0.04) * rad, cy + Math.sin(a - 0.04) * rad);
+      g.lineTo(cx + Math.cos(a + 0.04) * rad, cy + Math.sin(a + 0.04) * rad);
+      g.closePath();
+      g.fill();
+    }
+    g.restore();
+    if (!f.full) return;
+    for (let i = 0; i < DUO_BOSS_COUNT; i++) {
+      const p = this.famePos(i);
+      const def = this.fameBosses[i];
+      if (!def || f.t < p.land - 0.3) continue;
+      // 上から おちてくる（動きを へらす設定では その場に 出る）
+      const k = calm ? 1 : Math.min(1, (f.t - (p.land - 0.3)) / 0.3);
+      const drop = (1 - k) * (1 - k) * -(this.groundY + p.size);
+      // まんなかから 外へ 順に 頭を下げる
+      const bowAt = FAME_BOW + Math.abs(i - (DUO_BOSS_COUNT - 1) / 2) * 0.06;
+      const b = Math.max(0, Math.min(1, (f.t - bowAt) / 0.3));
+      const bow = -0.42 * (1 - (1 - b) * (1 - b));
+      g.save();
+      g.fillStyle = 'rgba(40,60,50,.2)';
+      g.beginPath();
+      g.ellipse(p.x, this.groundY + 3 * s, p.size * 0.55, 5 * s, 0, 0, Math.PI * 2);
+      g.fill();
+      // ボスの絵は 左向き。右の4体は 鏡にして 右の子へ 向ける
+      if (p.face > 0) {
+        g.translate(p.x * 2, 0);
+        g.scale(-1, 1);
+      }
+      g.translate(p.x, this.groundY);
+      g.rotate(bow);
+      g.translate(-p.x, -this.groundY);
+      drawBoss(g, p.x, this.groundY + drop, p.size, def, { t: this.t + i * 0.4, mode: 'down', hit: 0, squash: 1 });
+      g.restore();
+    }
   }
 
   /** ボスの ふきだし。ボスの頭の上（ほうせき・体力のバーより上）に出す */
@@ -2802,7 +3225,7 @@ export class DuoGame {
     const g = this.g;
     const s = this.s;
     const size = 34 * s;
-    const mirror = side.id === 1;
+    const mirror = this.posOf(side.id) === 1;
     // とどめで 踏みこんだ・とびかかった いまの位置。cx は 鏡の中（ボスへ向かう向きが プラス）、rx は 画面の座標
     const cx = side.x + side.lunge;
     const rx = side.x + (mirror ? -side.lunge : side.lunge);
@@ -2863,7 +3286,7 @@ export class DuoGame {
     }
     // パワーアップの しるし
     const pw = powerDef(side.power);
-    if (pw && !(pw.id === 'guard' && side.powerUsed) && this.phase !== 'rest') {
+    if (pw && !(pw.id === 'guard' && side.powerUsed) && this.phase !== 'rest' && this.phase !== 'fame') {
       g.font = `${Math.round(16 * s)}px system-ui, sans-serif`;
       g.textAlign = 'center';
       if (mirror) {
@@ -2921,7 +3344,7 @@ export class DuoGame {
 
   private finView(side: Side): FinishView {
     const s = this.s;
-    const mirror = side.id === 1;
+    const mirror = this.posOf(side.id) === 1;
     const mx = (x: number) => (mirror ? this.W - x : x);
     // ボスへ向かう向き。右の子は 鏡の中で描くので、渡す座標は どちらも「左の子と同じ向き」になる
     const dir = mirror ? -1 : 1;
@@ -2948,7 +3371,7 @@ export class DuoGame {
     const g = this.g;
     const def = this.weaponOf(side);
     g.save();
-    if (side.id === 1) {
+    if (this.posOf(side.id) === 1) {
       g.translate(this.W, 0);
       g.scale(-1, 1);
     }

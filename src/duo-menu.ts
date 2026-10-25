@@ -1,8 +1,10 @@
 /**
  * ふたりで ボス の入口（2人を えらぶ画面）と、main.ts との つなぎ。
  *
- * 左は ホームで選ばれている子に固定（ほかの子を左にするなら ホームで きろくを選びなおす）。
- * 右は ほかの きろくの子・ゲスト（てで）・ゲスト（CPU）から えらぶ。
+ * きろくの子は ホームで選ばれている子に固定（ほかの子にするなら ホームで きろくを選びなおす）。
+ * なかまは ほかの きろくの子・ゲスト（てで）・ゲスト（CPU）から えらぶ。
+ * ふだんは きろくの子が 左。「いれかえる」で 右に すわれる（その子の きろくに おぼえておく）。
+ * 🏆 は でんどういり（8体 ぜんぶ倒した）の 額縁の かざり棚。
  * むずかしさは 本編と同じ3段階で、2人の どちらかが 1つ下を 最後まで倒していれば開く。
  *
  * 出すのは iPad だけ（duo-rules.ts の duoDevice）。2人の板を左右に並べると、
@@ -14,6 +16,7 @@ import { bossDef } from './boss';
 import { TIER_LIST, tierDef, type Tier } from './curriculum';
 import { DuoGame, type DuoPartner } from './duo';
 import { DUO_BOSSES, DUO_BOSS_COUNT, duoDevice, duoSaveKey, duoTierOpen } from './duo-rules';
+import { buildFameFrame } from './duo-fame';
 import { persist, profile, save, slots, timeUp, type DuoSuspend, type Profile } from './save';
 import { paintSkinIcon } from './sprites';
 
@@ -44,6 +47,30 @@ export function initDuo(e: DuoEnv): void {
     sfx.tap();
     env.onExit();
   });
+  $('duo-swap').addEventListener('click', () => {
+    sfx.tap();
+    const d = profile().duo;
+    d.swap = !d.swap;
+    persist();
+    renderPick();
+  });
+  $('duo-hall-btn').addEventListener('click', () => {
+    sfx.tap();
+    openHall();
+  });
+  $('duo-hall-close').addEventListener('click', () => {
+    sfx.tap();
+    $('duo-hall').hidden = true;
+  });
+}
+
+/** でんどう（かざり棚）。あたらしい 額縁から ならべる */
+function openHall(): void {
+  const fame = profile().duo.fame;
+  const list = $('duo-hall-list');
+  list.replaceChildren(...fame.slice().reverse().map((f) => buildFameFrame(f, false)));
+  $('duo-hall-empty').hidden = fame.length > 0;
+  $('duo-hall').hidden = false;
 }
 
 function engine(): DuoGame {
@@ -88,6 +115,7 @@ export function openDuo(): void {
   }
   $('duo-pick').hidden = false;
   $('duo-play').hidden = true;
+  $('duo-hall').hidden = true;
   $('screen-duo').style.background = '';
   renderPick();
 }
@@ -103,6 +131,12 @@ function renderPick(): void {
     skin: left.skin, hat: left.hat, acc: left.acc, color: left.color, weapon: left.weapon,
   }, 72);
   $('duo-left-name').textContent = left.name;
+  // すわる ところ。いれかえると きみの列が 右へ（えらぶ画面も すわる順に ならべる）
+  const swap = left.duo.swap;
+  $('duo-cols').classList.toggle('swap', swap);
+  $('duo-me-head').textContent = swap ? 'みぎ（きみ）' : 'ひだり（きみ）';
+  $('duo-mate-head').textContent = swap ? 'ひだり（なかま）' : 'みぎ（なかま）';
+  $('duo-hall-count').textContent = left.duo.fame.length ? String(left.duo.fame.length) : '';
 
   // むずかしさ。どこまで倒したかを 札に出す（8体ぜんぶなら 👑）
   const tiers = $('duo-tiers');
@@ -208,7 +242,7 @@ function startRun(resume: DuoSuspend | null): void {
     persist();
   }
   $('duo-pick').hidden = true;
-  engine().start({ tier: tierSel, partner: pt, resume }, {
+  engine().start({ tier: tierSel, partner: pt, resume, swap: profile().duo.swap }, {
     onExit: () => env.onExit(),
     onChange: () => env.onChange(),
   });
@@ -216,9 +250,9 @@ function startRun(resume: DuoSuspend | null): void {
 
 // ------------------------------------------------------------------ main.ts から
 
-/** 戦っている途中か（0 になった時間の 3分の待ちに使う） */
+/** 戦っている途中か・でんどういりの 演出中か（0 になった時間の 3分の待ちに使う） */
 export function duoFighting(): boolean {
-  return game?.fighting() ?? false;
+  return game ? game.fighting() || game.celebrating() : false;
 }
 
 /** 1日の時間・タイマーで区切る。つづきは保存する（時間切れは負けにしない） */

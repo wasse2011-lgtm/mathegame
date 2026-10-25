@@ -58,7 +58,8 @@ export class Hanabi {
   /** ひらいた瞬間に呼ぶ（広場の なかまを跳ねさせる） */
   onBurst: (() => void) | null = null;
 
-  constructor(private canvas: HTMLCanvasElement) {
+  /** darken: 上がっているあいだ 空を暗くするか（でんどういりは 額縁の上に重なるので 暗くしない） */
+  constructor(private canvas: HTMLCanvasElement, private darken = true) {
     this.g = canvas.getContext('2d');
   }
 
@@ -179,7 +180,7 @@ export class Hanabi {
       s.y += s.vy * dt;
     }
 
-    const on = this.busy;
+    const on = this.busy && this.darken;
     this.dusk += ((on ? 1 : 0) - this.dusk) * Math.min(1, dt * (on ? 3 : 2));
 
     g.clearRect(0, 0, W, H);
