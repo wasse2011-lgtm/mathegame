@@ -120,9 +120,12 @@ function rankDist(choices, facts, blank) {
 }
 
 const strategyFloor = (choices, facts, blank) => Math.max(...rankDist(choices, facts, blank));
-// 余裕は 1pt。N = 60000 での標準誤差は 0.2pt ほどなので、まぐれでは超えない
+// 余裕は 1.5pt。小ステップは 20000 問しか引かないので、標準誤差が 0.35pt ほどある
+// （ワールド全体は 60000 問で 0.2pt）。1pt だと 2.9 SE しかなく、上限が「下限 + 余裕」で
+// 決まる面が 10 あるので、出題が ただしいままでも verify の 50回に1回ほどは ✗ が出ていた。
+// 1.5pt（4.3 SE）なら、まぐれで落ちるのは 1万回に1回ていど
 const strategyLimit = (choices, facts, blank) =>
-  Math.max(strategyFloor(choices, facts, blank) + 0.01, 1 / choices + 0.03);
+  Math.max(strategyFloor(choices, facts, blank) + 0.015, 1 / choices + 0.03);
 
 /** 位置だけで当てにいく手のうち、いちばん通るものの正答率を実測する */
 function measure(facts, choices, blank, n = N) {
