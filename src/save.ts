@@ -6,7 +6,7 @@
  * 星もコインも図鑑も混ざらない。枠は「名前が入っているか」で使用中を判断する。
  */
 
-import type { Tier } from './curriculum';
+import { WORLDS, bossStage, type Tier } from './curriculum';
 import { COIN_SCALE } from './rewards';
 import { DEFAULT_WEAPON } from './weapons';
 
@@ -156,6 +156,22 @@ export interface Profile {
   timer: SessionTimer | null;
   /** ふたりで ボス（iPad の 2人プレイ）の記録。この子が左（ホームで選ばれている子）で遊んだぶん */
   duo: DuoRecord;
+  /**
+   * えいゆうの ぞう。せかいID（"1"〜"8"）→ その せかいの ベリーハードの ボスを はじめて たおしたときの すがた。
+   * ホームの 広場に 金の像として ならぶ（hero.ts）。8つ そろうと「でんせつの えいゆう」
+   */
+  heroes: Record<string, HeroStatue>;
+}
+
+/** えいゆうの ぞう 1つぶん。あとで きせかえても かわらない */
+export interface HeroStatue {
+  /** たおした日（YYYY-MM-DD）。ぞうが できる前に たおしていた ぶん（あとから たてた像）は '' */
+  day: string;
+  skin: string;
+  hat: string;
+  acc: string;
+  color: string;
+  weapon: string;
 }
 
 /**
@@ -384,7 +400,45 @@ function freshProfile(): Profile {
     seen: '',
     timer: null,
     duo: freshDuo(),
+    heroes: {},
   };
+}
+
+/** いまの すがたを 像に する（ぞうは あとで きせかえても かわらない） */
+export function statueOf(p: Profile, day: string): HeroStatue {
+  return { day, skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
+}
+
+/**
+ * 読みこんだ えいゆうの ぞうを確かめる。
+ * ぞうが できる前に ベリーハードの ボスを たおしていた せかいにも、いまの すがたで 像を たてる
+ * （たおしたのに 広場が からっぽ、には しない。日付は わからないので ''）
+ */
+function readHeroes(v: unknown, p: Profile): Record<string, HeroStatue> {
+  const out: Record<string, HeroStatue> = {};
+  const o = v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+  const str = (x: unknown): string => (typeof x === 'string' ? x : '');
+  for (const w of WORLDS) {
+    const k = String(w.id);
+    const h = o[k];
+    if (h && typeof h === 'object') {
+      const x = h as Partial<Record<keyof HeroStatue, unknown>>;
+      out[k] = { day: str(x.day), skin: str(x.skin) || p.skin, hat: str(x.hat), acc: str(x.acc), color: str(x.color), weapon: str(x.weapon) };
+    } else if ((p.stars[starKey(w.id, bossStage(w), 2)] ?? 0) > 0) {
+      out[k] = statueOf(p, '');
+    }
+  }
+  return out;
+}
+
+/** えいゆうの ぞうの数（0〜8） */
+export function heroCount(p: Profile): number {
+  return WORLDS.filter((w) => p.heroes[String(w.id)]).length;
+}
+
+/** 8つの せかいを ぜんぶ すくった（でんせつの えいゆう。どの画面でも 金色に光る） */
+export function isLegend(p: Profile): boolean {
+  return heroCount(p) >= WORLDS.length;
 }
 
 /** ローカル時間の YYYY-MM-DD。UTC で切ると日付が1日ずれる */
@@ -697,6 +751,10 @@ function read(): SaveData {
         hanabi: Number.isFinite(p?.treat?.hanabi) ? Number(p?.treat?.hanabi) : 0,
       },
     }));
+    // えいゆうの ぞうは後から足した。★を読んだ あとで 確かめる（ぞうより前に たおした ぶんを ★から たてる）
+    players.forEach((p, i) => {
+      p.heroes = readHeroes(parsed.players?.[i]?.heroes, p);
+    });
     // 枠の数は増える方向にしか変えない。減らすと、増やしたあとで戻したときに
     // 3人目のきろくが黙って消える
     while (players.length < SLOTS) players.push(freshProfile());

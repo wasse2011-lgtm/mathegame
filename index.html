@@ -67,6 +67,8 @@
             <button class="hello" id="hello" type="button"></button>
             <p class="coin-badge"><span class="coin-dot"></span><b id="home-coins">0</b></p>
           </div>
+          <!-- 称号（ベリーハードの ボスを たおした せかいの えいゆう）。まだ 1つも なければ 出さない -->
+          <p class="hello-title" id="hello-title" hidden></p>
 
           <!-- のこり時間。おうちのかたが「1日に あそべる時間」を決めたときだけ出る。
                字が読めなくても、色のついた輪と帯が みじかくなるのが見える
@@ -224,6 +226,14 @@
 
           <p class="yard-hint" id="yard-hint">なかまを タップしてみて！</p>
         </div>
+
+        <!-- えいゆうの ぞう。せかいごとに ベリーハードの ボスを たおすと、そのときの すがたの 金の像が たつ。
+             台座は 8つ。ベリーハードが 1つでも ひらくまでは 出さない（遠すぎる目標を 見せない）。
+             押すと 広場の下の ひとことで 称号を言う（中身は main.ts） -->
+        <div class="statue-row" id="statue-row" hidden>
+          <p class="statue-label">えいゆうの ぞう <b id="statue-count">0</b>/8</p>
+          <div class="statue-list" id="statue-list"></div>
+        </div>
       </div>
 
       <!-- はなびを描く 1枚。ホームの いちばん上に重ねるが、さわれない -->
@@ -364,6 +374,28 @@
       </div>
 
       <div class="answers" id="answers"></div>
+
+      <!-- せかいを すくった えいゆう（ベリーハードの ボスを たおした あと。runner.ts が出し入れする）。
+           new-sky は 光の円の中だけ 見える 明るい空（canvas の外の、式や ボタンの うしろ）。
+           ホーくんの絵は ホームの ボタンの SVG を 写して入れる -->
+      <div class="hero-new-sky" id="hero-new-sky" aria-hidden="true" hidden></div>
+      <div class="hero-owl" id="hero-owl" hidden>
+        <div class="hero-owl-pic" id="hero-owl-pic" aria-hidden="true"></div>
+        <p class="hero-owl-say" id="hero-owl-say" aria-live="polite"></p>
+      </div>
+      <div class="hero-calls" id="hero-calls" aria-hidden="true"></div>
+      <div class="hero-over" id="hero-over" hidden>
+        <div class="hero-card" role="dialog" aria-labelledby="hero-head">
+          <p class="hero-head" id="hero-head">せかいを すくった えいゆう</p>
+          <div class="hero-stage" id="hero-stage"></div>
+          <p class="hero-name" id="hero-name"></p>
+          <p class="hero-card-title" id="hero-card-title"></p>
+          <div class="hero-row" id="hero-row" aria-hidden="true"></div>
+          <p class="hero-note" id="hero-note"></p>
+          <button class="btn btn-primary btn-xl hero-next" id="hero-next" type="button">つづける</button>
+        </div>
+      </div>
+      <canvas class="hanabi-sky" id="hero-sky" aria-hidden="true"></canvas>
     </section>
 
     <!-- ===== リザルト ===== -->
@@ -411,6 +443,8 @@
           <p class="replay-note" id="result-replay" hidden></p>
           <!-- ボスを はじめて たおして、右の地図（ハード・ベリーハード）が ひらいたときだけ -->
           <p class="unlock-note" id="result-unlock" hidden></p>
+          <!-- ベリーハードの ボスを はじめて たおして、えいゆうの ぞうが たったときだけ -->
+          <p class="unlock-note hero-unlock" id="result-hero" hidden></p>
           <p class="learned" id="result-learned" hidden></p>
 
           <!-- 「つづける」を押す前に、きょう あとどれだけ遊べるかを見せる -->

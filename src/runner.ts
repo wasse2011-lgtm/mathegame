@@ -38,9 +38,12 @@
 
 import { sfx, startDrone, stopDrone } from './audio';
 import { bossDef, drawBoss, drawShot, shotFor, type BossDef, type BossState, type Shot } from './boss';
+import { Hanabi } from './hanabi';
+import { LEGEND_TITLE, buildStatue, heroTitle } from './hero';
 import {
   BOSS_RUSH_RATE,
   BOSS_RUSH_TAIL,
+  WORLDS,
   answerTimeFor,
   blankFor,
   cherry,
@@ -59,11 +62,11 @@ import {
   COIN_COMBO, COIN_CORRECT, COIN_FINISH, COIN_FIRST_CLEAR, COIN_FIRST_PERFECT, COIN_MISS,
   COIN_PERFECT, COIN_WEAK, REPLAY_RATE, gainTotal, lumpRate, scaled, type CoinGain,
 } from './rewards';
-import { profile, save, setStageStars, persist } from './save';
+import { heroCount, isLegend, profile, save, setStageStars, persist, statueOf, today } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
-import { currentLook, drawChar, drawObstacle, type CharState } from './sprites';
+import { currentLook, drawChar, drawObstacle, roundRect, type CharState } from './sprites';
 import { cherryArt, frameArt } from './tenframe';
-import { themeFor, type ObstacleKind, type Theme } from './theme';
+import { mix, skyCss, themeFor, type ObstacleKind, type Theme } from './theme';
 import { TrailFx } from './trails';
 import {
   FIN_CHARGE, FIN_CUT_TOTAL, FIN_FLY, FIN_STOP, FIN_TOTAL,
@@ -168,6 +171,8 @@ export interface StageResult {
   firstKind: 'clear' | 'perfect' | 'both' | null;
   /** ★3 を取り終えたステージを もう一度あそんだ回 */
   replay: boolean;
+  /** ベリーハードの ボスを はじめて たおして、えいゆうの ぞうが たった */
+  heroNew: boolean;
 }
 
 export interface RevengeResult {
@@ -181,8 +186,9 @@ export interface RevengeResult {
  * 'wrap' はリベンジのしめくくり。帯を見せてからリザルトへ移る。
  * 'beam' は にがて たいじ の とどめ（ためて・撃って・はじけるまで）。
  * 'finish' は さいごの1問の フィニッシュ（えらんだ ぶきで しとめる）。
+ * 'hero' は ベリーハードの ボスを たおした あとの「せかいを すくった えいゆう」の演出。
  */
-type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'beam' | 'finish' | 'dead' | 'wrap' | 'over';
+type Phase = 'ask' | 'clear' | 'reveal' | 'stomp' | 'beam' | 'finish' | 'dead' | 'wrap' | 'hero' | 'over';
 
 /** よけた瞬間に広がる輪 */
 interface Ring {
@@ -262,6 +268,84 @@ const COMBO_CALLS: { at: number; text: string }[] = [
   { at: 12, text: 'てんさい！' },
   { at: 16, text: 'かみってる！' },
 ];
+
+// ------------------------------------------------------------------ せかいを すくった えいゆう
+
+/**
+ * ベリーハードの ボスを たおした あとの 演出の 時間割（秒。とどめの よいんの あとから）。
+ *
+ *   0 … とどめの まわりは スロー（HERO_SLOW）。ここは 踏みつけの あいだ
+ *   0 → HERO_WIPE … ボスから 光が 円で ひろがり、夜の むらさきの 世界が 昼の 明るい 世界に ぬりかわる。
+ *                   道に 花が さき、ボスは 黒い 力が ぬけて もとの 色に もどる
+ *   HERO_KNEEL … ボスが ひざまずいて「まいった… おまえこそ えいゆうだ」
+ *   HERO_OWL … ホーくんが とんできて「○○は △△の えいゆうだ！」
+ *   HERO_CALL … 「○○！」が 画面じゅうに 出て、はなびが 上がる
+ *   HERO_CARD … 称号と 金の 像の カード。像が 台座から せり上がる
+ * 2回目からは 世界が ぬりかわったら すぐ カード（HERO_SHORT_CARD）。どこを タップしても カードへ とぶ
+ */
+const HERO_SLOW = 0.38;
+const HERO_WIPE = 1.5;
+const HERO_PURE: [number, number] = [0.2, 1.0];
+const HERO_KNEEL = 1.8;
+const HERO_OWL = 3.1;
+const HERO_CALL = 4.1;
+const HERO_CALLS = 14;
+const HERO_CALL_GAP = 0.15;
+const HERO_CARD = 6.4;
+const HERO_SHORT_CARD = 1.6;
+/** カードが出てから「つづける」を出すまで（像が せり上がりきるまで） */
+const HERO_READY = 1.7;
+/** 花の色。ステージの 色の 意味（青＝もとの数・緑＝こたえ）と ぶつからない 明るい色 */
+const FLOWER_COLORS = ['#ff8fb1', '#ffd257', '#ffffff', '#c79bf0', '#ff9f43', '#ffb3c7'];
+/** 名まえを よぶ 字の色 */
+const CALL_COLORS = ['#ff6b8f', '#f2a100', '#2f9e44', '#1c7ed6', '#9c36b5', '#e8590c'];
+
+interface Flower {
+  x: number; y: number; r: number; color: string;
+  /** 光が とどいた時刻（演出の秒）。まだなら -1 */
+  born: number;
+  /** 手前の列（主人公より 前に描く） */
+  front: boolean;
+}
+
+/** ボスから ぬけて 空へ のぼっていく 光の つぶ */
+interface Mote {
+  x: number; y: number; vx: number; vy: number; life: number; max: number; r: number;
+}
+
+interface HeroShow {
+  t: number;
+  /** はじめて（ぜんぶ見せる）。false は 2回目から（世界が かわったら すぐ カード） */
+  full: boolean;
+  /** この 1つで 8つ そろった（でんせつの えいゆう） */
+  legend: boolean;
+  /** ぬりかわった あとの 明るい 世界（その せかいの ふつうの 昼） */
+  theme: Theme;
+  /** 光の 円の 中心（canvas の座標）と、画面ぜんぶを おおう 半径 */
+  cx: number;
+  cy: number;
+  maxR: number;
+  /** canvas の 左上が 画面（#screen-play）の どこにあるか。canvas の外の 空も 同じ 円で ぬる */
+  ox: number;
+  oy: number;
+  flowers: Flower[];
+  motes: Mote[];
+  /** ボスの 黒い 力が ぬけた（形が もとに もどった） */
+  pure: boolean;
+  /** 世界が ぬりかわりきった */
+  painted: boolean;
+  /** ボスが ひざまずいた 時刻（演出の秒）。まだなら -1 */
+  kneelAt: number;
+  calls: number;
+  /** タップで とばした（光が ひろがりきったら すぐ カード） */
+  skip: boolean;
+  card: boolean;
+  /** カードを出した 時刻（演出の秒） */
+  cardAt: number;
+  ready: boolean;
+  /** ボスの ふきだし */
+  say: { text: string; life: number };
+}
 
 export class Runner {
   private canvas = document.getElementById('world') as HTMLCanvasElement;
@@ -466,7 +550,24 @@ export class Runner {
   /** 踏みつけ・被弾のとき、プレイヤーが前後に動く量 */
   private pxOff = 0;
   private rings: Ring[] = [];
-  private cheer = { text: '', life: 0 };
+  /** big は とどめの「フィニッシュ！」（えいゆうの 演出）。画面の まんなかに 大きく出す */
+  private cheer = { text: '', life: 0, big: false };
+
+  // せかいを すくった えいゆう（ベリーハードの ボスを たおした あと）
+  /** とどめの まわりの スローの のこり（実時間の秒）。0 は ふつうの 速さ */
+  private slowLeft = 0;
+  /** せかいを すくう とどめ。踏みにいく 主人公が おりはじめたら スローにする */
+  private slowArm = false;
+  /** えいゆうの 演出。null は していない */
+  private hero: HeroShow | null = null;
+  /** 演出の あとに リザルトへ わたす 結果（★・コイン・像は 演出の 前に 保存してある） */
+  private heroResult: StageResult | null = null;
+  private elHeroSky = document.getElementById('hero-new-sky') as HTMLElement;
+  private elHeroOwl = document.getElementById('hero-owl') as HTMLElement;
+  private elHeroOwlSay = document.getElementById('hero-owl-say') as HTMLElement;
+  private elHeroCalls = document.getElementById('hero-calls') as HTMLElement;
+  private elHeroOver = document.getElementById('hero-over') as HTMLElement;
+  private heroSky = new Hanabi(document.getElementById('hero-sky') as HTMLCanvasElement, false);
 
   // 画面寸法（CSS ピクセル）
   private W = 320;
@@ -499,6 +600,16 @@ export class Runner {
       if (Math.hypot(x - this.petHit.x, y - this.petHit.y) > this.petHit.r) return;
       this.pullHint();
     });
+    // えいゆうの 演出。どこを さわっても カードへ とぶ。カードの「つづける」で リザルトへ
+    this.elPlay.addEventListener('pointerdown', () => this.skipHero());
+    document.getElementById('hero-next')?.addEventListener('click', () => {
+      sfx.tap();
+      this.leaveHero();
+    });
+    // ホーくんの絵は ホームの ボタンの中の SVG を 写して使う（同じ 絵を 2つ 書かない）
+    const owl = document.querySelector('#sensei svg');
+    const pic = document.getElementById('hero-owl-pic');
+    if (owl && pic) pic.appendChild(owl.cloneNode(true));
     window.addEventListener('resize', () => this.resize());
     if ('ResizeObserver' in window) {
       new ResizeObserver(() => this.resize()).observe(this.canvas.parentElement ?? this.canvas);
@@ -583,7 +694,10 @@ export class Runner {
     this.stomped = false;
     this.pxOff = 0;
     this.rings = [];
-    this.cheer = { text: '', life: 0 };
+    this.cheer = { text: '', life: 0, big: false };
+    this.slowLeft = 0;
+    this.slowArm = false;
+    this.clearHero();
 
     // つれているペットの力は、走り出すたびに読みなおす。
     // ベリーハードでは効かせない（時間のばしが「はやい」を打ち消してしまう）
@@ -663,6 +777,8 @@ export class Runner {
     this.hideHint();
     this.renderDock();
     stopDrone();
+    // えいゆうの 演出の とちゅうで やめた（時間切れ・裏から もどって やめる）。★・像は もう 保存してある
+    this.clearHero();
   }
 
   setPaused(p: boolean): void {
@@ -1290,7 +1406,7 @@ export class Runner {
         // にがてを初回で正解した＝倒した。ここは掛け声でいちばん強く返す。
         // にがて たいじ では、ビームが当たった瞬間に出すので ここでは鳴らさない
         if (this.isWeak && !this.hunt) {
-          this.cheer = { text: 'にがてを たおした！', life: 1.3 };
+          this.cheer = { text: 'にがてを たおした！', life: 1.3, big: false };
           this.burst(this.px, this.groundY - 22 * this.s, 14, '#e4675c');
           sfx.beat();
         }
@@ -1625,7 +1741,7 @@ export class Runner {
     this.burst(x, y, 12, '#ffffff');
     this.rings.push({ x, y, r: 14 * this.s, life: 0.55, max: 0.55, color: '#fff3c4' });
     this.rings.push({ x, y, r: 8 * this.s, life: 0.7, max: 0.7, color: '#ffb0a6' });
-    this.cheer = { text: 'たおした！', life: 1.4 };
+    this.cheer = { text: 'たおした！', life: 1.4, big: false };
     this.shake = 0.42;
     this.flash = 0.4;
     sfx.blast();
@@ -1705,7 +1821,7 @@ export class Runner {
     // 当たったコマで絵を止める。ここで一拍おかないと、ため・命中・余韻が
     // ひとかたまりになって、「じぶんの ぶきで たおした」ところだけが残らない
     this.finStop = FIN_STOP;
-    this.cheer = { text: 'たおした！', life: 1.5 };
+    this.cheer = { text: 'たおした！', life: 1.5, big: false };
     this.shake = 0.5;
     this.flash = 0.45;
     // ここで帯は出さない。いちばん見せたい「はじけるところ」を隠してしまう
@@ -1777,7 +1893,7 @@ export class Runner {
     const kind = this.shot?.kind ?? 'rock';
     this.rings.push({ x: this.playerX, y, r: 10 * this.s, life: 0.45, max: 0.45, color: '#ffffff' });
     this.burst(this.playerX, y, 14, kind === 'fire' ? '#ffb02e' : kind === 'beam' ? '#8fe3ff' : '#e0d6c2');
-    this.cheer = { text: CHEERS[(this.dodges - 1) % CHEERS.length], life: 1 };
+    this.cheer = { text: CHEERS[(this.dodges - 1) % CHEERS.length], life: 1, big: false };
     this.bossState.hit = 0.22;
     this.flash = 0.14;
     this.updateBossHp();
@@ -1793,6 +1909,12 @@ export class Runner {
   private beginStomp(): void {
     this.setPhase('stomp');
     this.hold = 2.6;
+    // せかいを すくう とどめ（はじめての ベリーハードの ボス）は、踏む ところを スローで 見せる。
+    // 「とつげき！」の帯は ここで しまう（スローの あいだ 帯が のこって ボスが 見えない）
+    if (this.heroWin() && !profile().heroes[String(this.world.id)]) {
+      this.slowArm = true;
+      this.banner = 0;
+    }
     this.stomped = false;
     this.bossState.mode = 'hit';
     this.bossV *= 0.3;
@@ -1816,7 +1938,7 @@ export class Runner {
       x: this.bossX, y: this.groundY - 8 * this.s,
       r: 12 * this.s, life: 0.6, max: 0.6, color: '#fff3c4',
     });
-    this.cheer = { text: 'たおした！', life: 1.6 };
+    this.cheer = { text: 'たおした！', life: 1.6, big: false };
     this.updateBossHp();
     sfx.stomp();
     sfx.legend();
@@ -1839,6 +1961,14 @@ export class Runner {
     this.cut = 0;
     this.finStop = FIN_STOP;
     this.payFinish();
+    if (this.slowLeft > 0) {
+      // 当たってから すこしだけ スローを のこし、白く光って「フィニッシュ！」。よいんは みじかくして 演出へ
+      this.slowLeft = 0.6;
+      this.flash = 0.9;
+      this.shake = 0.7;
+      this.cheer = { text: 'フィニッシュ！', life: 1.8, big: true };
+      this.hold = Math.min(this.hold, 1.3);
+    }
   }
 
   /**
@@ -2009,11 +2139,17 @@ export class Runner {
   }
 
   private finish(): void {
+    const r = this.settle();
+    this.stop();
+    this.onDone?.(r);
+  }
+
+  /** ★・コインを 計算して 保存し、リザルトに わたす 結果を作る（えいゆうの 演出は この あと） */
+  private settle(): StageResult {
     this.setPhase('over');
     this.isFinal = false;
     this.isWeak = false;
     this.updateTags();
-    this.stop();
 
     // やられたときは★もボーナスも付かない。ただし、そこまでに稼いだコインは
     // 取り上げない（全部消すと、もう一度ボスに挑む気がなくなる）
@@ -2042,7 +2178,7 @@ export class Runner {
     if (!this.failed && this.cfg.saveStars !== false) setStageStars(this.world.id, this.stage, stars, this.tier);
     persist();
 
-    this.onDone?.({
+    return {
       worldId: this.world.id,
       stage: this.stage,
       mode: this.mode,
@@ -2059,7 +2195,492 @@ export class Runner {
       revenge: this.revengeResult,
       firstKind,
       replay: this.prevStars >= 3,
-    });
+      heroNew: false,
+    };
+  }
+
+  // ---------------------------------------------------------------- せかいを すくった えいゆう
+
+  /** ベリーハードの ボスを たおした（せかいを すくった）。この あと えいゆうの 演出を してから リザルトへ */
+  private heroWin(): boolean {
+    return this.mode === 'stage' && this.boss && this.tier === 2 && !this.failed && this.cfg.saveStars !== false;
+  }
+
+  /**
+   * えいゆうの 演出を はじめる。★・コイン・像は ここで 先に 保存する
+   * （演出の とちゅうで 画面を とじても、時間切れで 打ち切られても のこる）
+   */
+  private beginHero(): void {
+    const p = profile();
+    const key = String(this.world.id);
+    const full = !p.heroes[key];
+    const r = this.settle();
+    if (full) {
+      // 像は いまの すがた（あとで きせかえても かわらない）
+      p.heroes[key] = statueOf(p, today());
+      persist();
+    }
+    r.heroNew = full;
+    this.heroResult = r;
+    this.setPhase('hero');
+    this.hold = 0;
+    this.slowLeft = 0;
+    this.slowArm = false;
+    this.fin = null;
+    this.finDim = 0;
+    this.banner = 0;
+    this.cut = -1;
+
+    const s = this.s;
+    const cx = this.bossX;
+    const cy = this.groundY - this.bossSize() * 0.5;
+    // canvas の外（式や ボタンの うしろの 空）も 同じ 円で ぬる。画面の座標での 中心と、すみまでの 長さ
+    const cr = this.canvas.getBoundingClientRect();
+    const pr = this.elPlay.getBoundingClientRect();
+    const ox = cr.left - pr.left;
+    const oy = cr.top - pr.top;
+    const sx = ox + cx;
+    const sy = oy + cy;
+    const maxR = Math.max(
+      Math.hypot(sx, sy), Math.hypot(pr.width - sx, sy),
+      Math.hypot(sx, pr.height - sy), Math.hypot(pr.width - sx, pr.height - sy),
+    ) + 20 * s;
+    const theme = themeFor(this.world.id, 1, false, 'day', 0);
+    this.hero = {
+      t: 0, full, legend: full && isLegend(p), theme, cx, cy, maxR, ox, oy,
+      flowers: this.makeFlowers(), motes: [],
+      pure: false, painted: false, kneelAt: -1, calls: 0, skip: false, card: false, cardAt: 0, ready: false,
+      say: { text: '', life: 0 },
+    };
+    this.elHeroSky.style.background = skyCss(theme);
+    this.setHeroClip(0);
+    this.elHeroSky.hidden = false;
+    this.elPlay.classList.add('hero');
+    // 主人公は ボスの上から 跳んで もとの 場所へ。ボスは 起き上がる
+    this.vy = this.jumpV * 0.7;
+    this.char.air = true;
+    this.bossSquashTo = 1;
+    this.bossState.mode = 'hit';
+    this.cheer.life = 0;
+    sfx.whistle();
+  }
+
+  /** 道ばたの 花。光が とどいたところから さく。奥の列は 主人公の うしろ、手前の列は 前 */
+  private makeFlowers(): Flower[] {
+    const s = this.s;
+    const out: Flower[] = [];
+    for (const front of [false, true]) {
+      let x = (front ? 14 : 6) * s;
+      while (x < this.W - 4 * s) {
+        out.push({
+          x: x + (Math.random() - 0.5) * 6 * s,
+          y: front ? this.H - 3 * s : this.groundY - 1 * s,
+          r: (front ? 3.4 : 2.6) * s * (0.85 + Math.random() * 0.3),
+          color: FLOWER_COLORS[Math.floor(Math.random() * FLOWER_COLORS.length)],
+          born: -1,
+          front,
+        });
+        x += (front ? 30 : 22) * s * (0.8 + Math.random() * 0.5);
+      }
+    }
+    return out;
+  }
+
+  /** いまの 光の 円の 半径（canvas と 画面で 同じ） */
+  private heroR(): number {
+    const h = this.hero;
+    if (!h) return 0;
+    const k = Math.min(1, Math.max(0, h.t / HERO_WIPE));
+    return h.maxR * (1 - (1 - k) * (1 - k));
+  }
+
+  private setHeroClip(r: number): void {
+    const h = this.hero;
+    const clip = h ? `circle(${Math.round(r)}px at ${Math.round(h.ox + h.cx)}px ${Math.round(h.oy + h.cy)}px)` : 'none';
+    this.elHeroSky.style.setProperty('clip-path', clip);
+    this.elHeroSky.style.setProperty('-webkit-clip-path', clip);
+  }
+
+  /** ボスの 色の もどりぐあい（0 = さいきょう の むらさき、1 = もとの 色） */
+  private heroPure(): number {
+    const h = this.hero;
+    if (!h) return 0;
+    return Math.min(1, Math.max(0, (h.t - HERO_PURE[0]) / (HERO_PURE[1] - HERO_PURE[0])));
+  }
+
+  private updateHero(dt: number): void {
+    const h = this.hero;
+    if (!h) return;
+    const before = h.t;
+    h.t += dt;
+    const at = (x: number): boolean => before < x && h.t >= x;
+    const s = this.s;
+
+    // 主人公は もとの 場所へ、ボスは もとの 立ち位置へ（踏みつけで 主人公の すぐ前まで 来ている）
+    this.pxOff += (0 - this.pxOff) * Math.min(1, dt * 4);
+    const home = this.bossHomeX() - 14 * s;
+    this.bossX += (home - this.bossX) * Math.min(1, dt * 3);
+    h.cx += (this.bossX - h.cx) * Math.min(1, dt * 3);
+
+    // 光の 円。canvas の外の 空も 同じ 半径で ぬる
+    if (!h.painted) {
+      const r = this.heroR();
+      this.setHeroClip(r);
+      for (const f of h.flowers) {
+        if (f.born < 0 && Math.hypot(f.x - h.cx, f.y - h.cy) <= r) f.born = h.t;
+      }
+      if (h.t >= HERO_WIPE) {
+        // ぬりかわりきった。ここから 景色そのものを 明るい 世界にする
+        h.painted = true;
+        this.theme = h.theme;
+        this.elPlay.style.background = skyCss(h.theme);
+        this.elPlay.classList.toggle('dark', h.theme.dark);
+        this.elHeroSky.hidden = true;
+        for (const f of h.flowers) if (f.born < 0) f.born = h.t;
+      }
+    }
+
+    // ボスから 黒い 力が 光の つぶに なって ぬけていく
+    const pure = this.heroPure();
+    if (pure > 0 && pure < 1 && Math.random() < 0.6) {
+      const size = this.bossSize();
+      h.motes.push({
+        x: this.bossX + (Math.random() - 0.5) * size * 0.8,
+        y: this.groundY - size * (0.4 + Math.random() * 0.6),
+        vx: (Math.random() - 0.5) * 24 * s,
+        vy: -(110 + Math.random() * 110) * s,
+        life: 0.9, max: 0.9, r: (1 + Math.random() * 1.2) * s,
+      });
+    }
+    if (!h.pure && pure >= 0.5) {
+      // 形が もとに もどる 瞬間は 白い 光で つつむ（角や トゲが へるのが ぱっと 変わって 見えないように）
+      h.pure = true;
+      this.flash = 0.4;
+      this.burst(this.bossX, this.groundY - this.bossSize() * 0.5, 18, '#ffffff');
+      this.burst(this.bossX, this.groundY - this.bossSize() * 0.5, 12, '#ffe08a');
+      sfx.sparkle();
+    }
+    for (let i = h.motes.length - 1; i >= 0; i--) {
+      const m = h.motes[i];
+      m.life -= dt;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      if (m.life <= 0) h.motes.splice(i, 1);
+    }
+    if (h.say.life > 0) h.say.life -= dt;
+
+    if (h.full && !h.skip) {
+      if (at(HERO_KNEEL)) {
+        this.heroKneel();
+        h.say = { text: 'まいった… おまえこそ えいゆうだ', life: 2.6 };
+        sfx.solved();
+      }
+      if (at(HERO_OWL)) this.showHeroOwl();
+      // 名まえを よばれて 2回 跳ねる
+      if (at(HERO_CALL) || at(HERO_CALL + 0.8)) {
+        this.vy = this.jumpV * 0.8;
+        this.char.air = true;
+        this.char.squash = 1.15;
+        sfx.jump();
+      }
+      while (h.calls < HERO_CALLS && h.t >= HERO_CALL + h.calls * HERO_CALL_GAP) {
+        this.heroCall(h.calls);
+        h.calls++;
+      }
+      if (at(HERO_CALL + 0.2) || at(HERO_CALL + 1.3)) this.launchHeroSky();
+    }
+    if (!h.card && h.t >= (h.full && !h.skip ? HERO_CARD : HERO_SHORT_CARD)) this.showHeroCard();
+    // はじめては 像が せり上がりきってから「つづける」
+    if (h.card && !h.ready && h.t >= h.cardAt + (h.full ? HERO_READY : 0)) {
+      h.ready = true;
+      this.elHeroOver.classList.add('ready');
+    }
+  }
+
+  /** ボスが ひざまずく（2回目から・とばしたときは カードと いっしょに） */
+  private heroKneel(): void {
+    const h = this.hero;
+    if (!h || h.kneelAt >= 0) return;
+    h.kneelAt = h.t;
+    this.bossState.mode = 'bow';
+    this.bossState.hit = 0;
+  }
+
+  /** ホーくんが とんできて、名まえと 称号を 言う */
+  private showHeroOwl(): void {
+    this.elHeroOwlSay.textContent = `${profile().name}は ${this.world.name}の えいゆうだ！`;
+    this.elHeroOwl.hidden = false;
+    sfx.voice('bird');
+  }
+
+  /** 「○○！」。画面の どこかに ぽんと 出て、のぼって 消える（CSS の アニメーション） */
+  private heroCall(i: number): void {
+    const el = document.createElement('span');
+    el.className = 'hero-call';
+    el.textContent = `${profile().name}！`;
+    // 左右・上下に ばらけるよう、順番で 場所の 列を かえる
+    const col = i % 3;
+    el.style.left = `${4 + col * 31 + Math.random() * 16}%`;
+    el.style.top = `${12 + ((i * 41) % 74) + Math.random() * 6}%`;
+    el.style.setProperty('--rot', `${Math.round((Math.random() - 0.5) * 24)}deg`);
+    el.style.setProperty('--c', CALL_COLORS[i % CALL_COLORS.length]);
+    // 画面の 大きさに あわせる（スマホで 字が はみ出さない）
+    el.style.fontSize = `calc(${(0.85 + Math.random() * 0.55).toFixed(2)} * clamp(1.5rem, 5.5vmin, 3rem))`;
+    el.addEventListener('animationend', () => el.remove());
+    this.elHeroCalls.appendChild(el);
+    if (i % 2 === 0) sfx.star(Math.min(2, Math.floor(i / 4)));
+  }
+
+  /** はなび。左右の はしから 3発ずつ */
+  private launchHeroSky(): void {
+    this.heroSky.launch(window.innerWidth * 0.15, window.innerHeight);
+    this.heroSky.launch(window.innerWidth * 0.85, window.innerHeight);
+  }
+
+  /** 称号と 金の像の カード */
+  private showHeroCard(): void {
+    const h = this.hero;
+    if (!h) return;
+    h.card = true;
+    h.cardAt = h.t;
+    this.heroKneel();
+    const p = profile();
+    const id = this.world.id;
+    const statue = p.heroes[String(id)] ?? null;
+    const over = this.elHeroOver;
+    over.classList.toggle('again', !h.full);
+    over.classList.toggle('legend', h.legend);
+    over.classList.remove('ready');
+    const head = over.querySelector('.hero-head');
+    if (head) head.textContent = h.full ? 'せかいを すくった えいゆう' : 'また せかいを まもった！';
+    const stage = document.getElementById('hero-stage');
+    if (stage) stage.replaceChildren(buildStatue(id, statue, true));
+    const name = document.getElementById('hero-name');
+    if (name) name.textContent = p.name;
+    const title = document.getElementById('hero-card-title');
+    if (title) title.textContent = heroTitle(id);
+    // 台座 8つ。いま たった ところを 光らせる（ホームの 広場と 同じ ならび）
+    const row = document.getElementById('hero-row');
+    if (row) {
+      row.replaceChildren(...WORLDS.map((w) => {
+        const el = buildStatue(w.id, p.heroes[String(w.id)] ?? null, false, true);
+        if (w.id === id) el.classList.add('now');
+        return el;
+      }));
+    }
+    const note = document.getElementById('hero-note');
+    if (note) {
+      const n = heroCount(p);
+      note.textContent = h.legend
+        ? `8つ ぜんぶ！ ${LEGEND_TITLE}に なった！ これからは いつでも きんいろに ひかるよ`
+        : h.full
+          ? `ホームの ひろばに ぞうが たったよ！（${n} / ${WORLDS.length}）`
+          : `えいゆうの ぞう ${n} / ${WORLDS.length}`;
+    }
+    over.hidden = false;
+    this.elHeroOwl.hidden = true;
+    if (h.full) {
+      sfx.fanfare();
+      if (!this.heroSky.busy) this.launchHeroSky();
+    } else {
+      sfx.clear();
+    }
+  }
+
+  /** どこかを タップした。演出を とばして カードへ（さわってすぐは とばさない。とどめの 指が のこっている） */
+  private skipHero(): void {
+    const h = this.hero;
+    if (!h || this.phase !== 'hero' || h.card || h.t < 0.4) return;
+    h.skip = true;
+    // 光は ひろがりきった ことに する（つぎの こまで 世界が ぬりかわり、その あと すぐ カード。
+    // カードの うしろが 夜の まま 残らないように）
+    h.t = Math.max(h.t, HERO_WIPE);
+    h.calls = HERO_CALLS;
+    h.say.life = 0;
+    this.elHeroCalls.replaceChildren();
+    this.elHeroOwl.hidden = true;
+  }
+
+  /** カードの「つづける」。リザルトへ */
+  private leaveHero(): void {
+    const h = this.hero;
+    const r = this.heroResult;
+    if (!h || !h.ready || !r) return;
+    this.stop();
+    this.onDone?.(r);
+  }
+
+  /** 演出の 部品を ぜんぶ しまう（走り出し・やめたとき・リザルトへ 移るとき） */
+  private clearHero(): void {
+    this.hero = null;
+    this.heroResult = null;
+    this.heroSky.stop();
+    this.elHeroSky.hidden = true;
+    this.elHeroOwl.hidden = true;
+    this.elHeroOver.hidden = true;
+    this.elHeroOver.classList.remove('ready', 'again', 'legend');
+    this.elHeroCalls.replaceChildren();
+    this.elPlay.classList.remove('hero');
+  }
+
+  /** ぬりかわる 世界。古い 景色の 上に、光の 円の 中だけ 明るい 景色を 描き、円の ふちを 光らせる */
+  private drawHeroWorld(): void {
+    const h = this.hero;
+    if (!h || h.painted) return;
+    const g = this.g;
+    const r = this.heroR();
+    if (r <= 0) return;
+    g.save();
+    g.beginPath();
+    g.arc(h.cx, h.cy, r, 0, Math.PI * 2);
+    g.clip();
+    drawScene(g, h.theme, this.view());
+    g.restore();
+    // 円の ふち。白い 光の 輪
+    g.save();
+    const w = 14 * this.s;
+    const grad = g.createRadialGradient(h.cx, h.cy, Math.max(0, r - w), h.cx, h.cy, r + w * 0.4);
+    grad.addColorStop(0, 'rgba(255,250,220,0)');
+    grad.addColorStop(0.7, 'rgba(255,250,220,.85)');
+    grad.addColorStop(1, 'rgba(255,250,220,0)');
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(h.cx, h.cy, r + w * 0.4, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
+  }
+
+  /** 道ばたの 花（front: 手前の列） */
+  private drawHeroFlowers(front: boolean): void {
+    const h = this.hero;
+    if (!h) return;
+    const g = this.g;
+    const s = this.s;
+    for (const f of h.flowers) {
+      if (f.front !== front || f.born < 0) continue;
+      // ぽんと ひらく（すこし 大きく なってから もどる）
+      const k = Math.min(1, (h.t - f.born) / 0.35);
+      const pop = k < 1 ? Math.sin(k * Math.PI * 0.5) * (1 + 0.25 * Math.sin(k * Math.PI)) : 1;
+      if (pop <= 0) continue;
+      const r = f.r * pop;
+      g.strokeStyle = '#4c9a3a';
+      g.lineWidth = Math.max(1, 1.2 * s);
+      g.beginPath();
+      g.moveTo(f.x, f.y);
+      g.lineTo(f.x, f.y - r * 1.6);
+      g.stroke();
+      const cy = f.y - r * 1.9;
+      g.fillStyle = f.color;
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + f.x;
+        g.beginPath();
+        g.arc(f.x + Math.cos(a) * r * 0.9, cy + Math.sin(a) * r * 0.9, r * 0.62, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = '#ffcf33';
+      g.beginPath();
+      g.arc(f.x, cy, r * 0.5, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+
+  /**
+   * えいゆうの 演出の ボス。黒い 力が ぬけて もとの 色に もどり、ひざまずく。
+   * 大きさは さいきょう の ときの まま（いきなり 小さくなると 別の ボスに 見える）
+   */
+  private drawHeroBoss(): void {
+    const h = this.hero;
+    if (!h) return;
+    const g = this.g;
+    const s = this.s;
+    const size = this.bossSize();
+    const k = this.heroPure();
+    const vh = this.bossDefn;
+    const base = bossDef(this.world.id, 0);
+    const def: BossDef = k <= 0 ? vh : {
+      ...(k < 0.5 ? vh : base),
+      body: mix(vh.body, base.body, k),
+      shade: mix(vh.shade, base.shade, k),
+      belly: mix(vh.belly, base.belly, k),
+      horn: mix(vh.horn, base.horn, k),
+    };
+    // ひざまずく。足もとを 中心に 前（左）へ 頭を下げて、からだを 低くする
+    const b = h.kneelAt >= 0 ? Math.min(1, (h.t - h.kneelAt) / 0.35) : 0;
+    const bow = -0.26 * (1 - (1 - b) * (1 - b));
+    g.fillStyle = 'rgba(40,60,50,.2)';
+    g.beginPath();
+    g.ellipse(this.bossX, this.groundY + 3 * s, size * 0.6, 6 * s, 0, 0, Math.PI * 2);
+    g.fill();
+    g.save();
+    g.translate(this.bossX, this.groundY);
+    g.rotate(bow);
+    g.translate(-this.bossX, -this.groundY);
+    drawBoss(g, this.bossX, this.groundY, size, def, { ...this.bossState, squash: this.bossState.squash * (1 - b * 0.16) });
+    g.restore();
+    // 光の つぶ（黒い 力が ぬけていく）。うすい むらさき から 白へ。かさねると 明るくなる 足し算で 描く
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    for (const m of h.motes) {
+      const life = m.life / m.max;
+      g.globalAlpha = Math.min(1, life * 1.4) * 0.9;
+      g.fillStyle = mix('#c9a6ff', '#fffbe6', 1 - life);
+      g.beginPath();
+      g.arc(m.x, m.y, m.r * 2.2, 0, Math.PI * 2);
+      g.globalAlpha *= 0.35;
+      g.fill();
+      g.globalAlpha = Math.min(1, life * 1.4) * 0.9;
+      g.beginPath();
+      g.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.restore();
+  }
+
+  /** ボスの ふきだし。ボスの 頭の 上（canvas の 上の はしで 切れない ところ） */
+  private drawHeroSay(): void {
+    const h = this.hero;
+    if (!h || h.say.life <= 0) return;
+    const g = this.g;
+    const s = this.s;
+    g.save();
+    g.globalAlpha = Math.min(1, h.say.life / 0.25);
+    // せまい 画面（スマホの たて）でも はみ出さない 大きさに ちぢめる
+    let font = 14 * s;
+    g.font = `900 ${Math.round(font)}px "Hiragino Maru Gothic ProN", system-ui, sans-serif`;
+    const room = this.W - 12 * s - 22 * s;
+    const tw = g.measureText(h.say.text).width;
+    if (tw > room) {
+      font *= room / tw;
+      g.font = `900 ${Math.round(font)}px "Hiragino Maru Gothic ProN", system-ui, sans-serif`;
+    }
+    const w = g.measureText(h.say.text).width + 22 * s;
+    const bh = Math.max(font * 1.9, 18 * s);
+    const cx = this.bossX - this.bossSize() * 0.3;
+    const bottom = Math.max(bh + 10 * s, this.groundY - this.bossSize() * 1.15);
+    const x = Math.min(Math.max(cx - w / 2, 6 * s), this.W - w - 6 * s);
+    const y = Math.max(3 * s, bottom - bh);
+    g.fillStyle = '#ffffff';
+    g.strokeStyle = 'rgba(40,30,60,.9)';
+    g.lineWidth = 2.5 * s;
+    roundRect(g, x, y, w, bh, bh / 2);
+    g.fill();
+    g.stroke();
+    g.beginPath();
+    g.moveTo(cx - 7 * s, y + bh - 1.5 * s);
+    g.lineTo(cx, y + bh + 9 * s);
+    g.lineTo(cx + 7 * s, y + bh - 1.5 * s);
+    g.closePath();
+    g.fill();
+    g.beginPath();
+    g.moveTo(cx - 7 * s, y + bh);
+    g.lineTo(cx, y + bh + 9 * s);
+    g.lineTo(cx + 7 * s, y + bh);
+    g.stroke();
+    g.fillStyle = '#5a2d82';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(h.say.text, x + w / 2, y + bh / 2 + s);
+    g.restore();
   }
 
   // ---------------------------------------------------------------- HUD
@@ -2159,6 +2780,16 @@ export class Runner {
   }
 
   private update(dt: number): void {
+    // えいゆうの 演出の とどめは スローにする（のこりは 実時間で へらす）。
+    // 跳び上がる ところは ふつうの 速さで、ボスへ おりはじめた ところから
+    if (this.slowArm && this.phase === 'stomp' && this.vy > 0) {
+      this.slowArm = false;
+      this.slowLeft = 9;
+    }
+    if (this.slowLeft > 0) {
+      this.slowLeft -= dt;
+      dt *= HERO_SLOW;
+    }
     // ヒットストップ。当たったコマのまま、世界だけを止める。
     // 光り・ゆれ・カットインはここでも進めるので、固まったようには見えない。
     // hold も止まるぶん、フィニッシュはこの秒数だけ長くなる
@@ -2171,7 +2802,8 @@ export class Runner {
     // にがて たいじ では走らない。位相を止めておかないと、動かない地面の上で
     // 足だけ動きつづけて「走っているのに進まない」絵になる。
     // フィニッシュも同じ。足を止めて向かい合う
-    this.char.t = this.hunt || this.phase === 'finish' ? 0 : this.t;
+    // えいゆうの 演出も 走らない（立ちどまって 世界が かわるのを 見る）
+    this.char.t = this.hunt || this.phase === 'finish' || this.phase === 'hero' ? 0 : this.t;
     if (this.char.hurt > 0) this.char.hurt -= dt;
     this.tickEffects(dt);
     this.char.squash += (1 - this.char.squash) * Math.min(1, dt * 9);
@@ -2201,7 +2833,7 @@ export class Runner {
     // にがて たいじ は立ち止まっている。地面まで流すと、動かない敵だけが
     // 取り残されて滑って見える。フィニッシュも同じで、そこだけ景色を止めて
     // 向かい合う（走りながら撃つと、何が起きたのか見えない）
-    const flow = !this.hunt && this.phase !== 'finish'
+    const flow = !this.hunt && this.phase !== 'finish' && this.phase !== 'hero'
       ? Math.min(Math.max(this.boss ? this.runSpeed : this.ob.v, this.runSpeed), this.runSpeed * 3)
       : 0;
     this.scroll += flow * dt;
@@ -2220,6 +2852,7 @@ export class Runner {
     // フィニッシュは phase で見ない。ボスの踏みつけ（phase は 'stomp'）でも
     // 同じ ぶきの光を出すので、あるかどうかだけで進める
     if (this.fin) this.updateFinish(dt);
+    if (this.hero) this.updateHero(dt);
 
     // つかれたペットが、画面の外へ歩いていくところ
     if (this.petExit > 0 && this.petExit < 1) {
@@ -2240,7 +2873,8 @@ export class Runner {
     if (this.hold > 0 && this.phase !== 'ask' && this.phase !== 'over') {
       this.hold -= dt;
       if (this.hold <= 0) {
-        if (this.phase === 'stomp' || this.phase === 'dead' || this.phase === 'wrap') this.finish();
+        if (this.phase === 'stomp' && this.heroWin()) this.beginHero();
+        else if (this.phase === 'stomp' || this.phase === 'dead' || this.phase === 'wrap') this.finish();
         else this.advance();
       }
     }
@@ -2307,6 +2941,11 @@ export class Runner {
     }
 
     drawScene(g, this.theme, this.view());
+    // えいゆうの 演出。光の 円の 中だけ 明るい 世界にして、道の 奥に 花を さかせる
+    if (this.hero) {
+      this.drawHeroWorld();
+      this.drawHeroFlowers(false);
+    }
 
     // フィニッシュの暗転。景色のあと、主人公と相手を描く前に敷く。
     // こうすると暗くなるのは うしろの世界だけで、向かい合っている2人と
@@ -2320,7 +2959,9 @@ export class Runner {
     g.ellipse(this.px, this.groundY + 3 * s, 17 * s * (1 - lift * 0.4), 5 * s, 0, 0, Math.PI * 2);
     g.fill();
 
-    if (this.boss) {
+    if (this.hero) {
+      this.drawHeroBoss();
+    } else if (this.boss) {
       this.drawBossScene();
     } else if (this.hunt) {
       // 倒したあとは描かない。撃ちぬかれた粒だけが残る
@@ -2346,6 +2987,7 @@ export class Runner {
     if (this.ride <= 0) this.drawFollower();
     // 宙に うかぶ あしあとは ペットの上。うしろに描くと ペットに かくれて見えない
     this.trail.draw(g, s, 'front');
+    if (this.hero) this.drawHeroFlowers(true);
     // ビームは主人公の手もとから出る。キャラより手前に描く
     if (this.phase === 'beam') this.drawBeam();
     // フィニッシュも同じ。手もとから出て、相手のところで はじける
@@ -2367,6 +3009,7 @@ export class Runner {
     this.drawFlyingCoins();
     this.drawFloats();
     if (this.cheer.life > 0) this.drawCheer();
+    if (this.hero) this.drawHeroSay();
 
     if (this.flash > 0) {
       g.fillStyle = `rgba(255,255,255,${this.flash * 0.5})`;
@@ -2554,6 +3197,28 @@ export class Runner {
     g.globalAlpha = Math.min(1, this.cheer.life * 2);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
+    if (this.cheer.big) {
+      // せかいを すくう とどめ。画面の まんなかに 大きく、ぽんと ふくらんで 出す
+      const age = 1.8 - this.cheer.life;
+      const pop = age < 0.25 ? 0.6 + (age / 0.25) * 0.6 : Math.max(1, 1.2 - (age - 0.25) * 1.5);
+      let size = 30 * s * pop;
+      g.font = `900 ${Math.round(size)}px "Hiragino Maru Gothic ProN", sans-serif`;
+      // 画面の はばに おさめる（左上の ぶきの 名まえ とも かさならない 高さに 置く）
+      const wide = g.measureText(this.cheer.text).width;
+      if (wide > this.W * 0.86) {
+        size *= (this.W * 0.86) / wide;
+        g.font = `900 ${Math.round(size)}px "Hiragino Maru Gothic ProN", sans-serif`;
+      }
+      const y = this.H * 0.44;
+      g.lineWidth = size * 0.2;
+      g.strokeStyle = '#5a2d82';
+      g.lineJoin = 'round';
+      g.strokeText(this.cheer.text, this.W / 2, y);
+      g.fillStyle = '#ffd84a';
+      g.fillText(this.cheer.text, this.W / 2, y);
+      g.restore();
+      return;
+    }
     g.font = `700 ${22 * s}px "Hiragino Maru Gothic ProN", sans-serif`;
     // 画面のはしで切れないところに寄せる。割合だけで寄せると、
     // 「にがてを たおした！」のような長い掛け声は左端が切れて読めない
