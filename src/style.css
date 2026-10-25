@@ -3683,7 +3683,8 @@ div.statue { cursor: default; }
   width: 176px; height: 34px; font-size: 1.2rem; border-radius: 8px 8px 12px 12px;
   border-top: 3px solid #fff4c4;
 }
-.hero-over.again .statue.big .statue-fig canvas, .hero-over.again .statue.big .statue-fig::after { animation: none; }
+/* 2回目からで すがたが 同じなら、像は もう たっているので せり上げない（たてなおしたときは せり上げる） */
+.hero-over.again:not(.renew) .statue.big .statue-fig canvas, .hero-over.again:not(.renew) .statue.big .statue-fig::after { animation: none; }
 @keyframes statue-rise { from { transform: translateY(102%); } to { transform: translateY(0); } }
 @keyframes statue-shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 

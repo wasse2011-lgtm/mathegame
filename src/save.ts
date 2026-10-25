@@ -157,15 +157,15 @@ export interface Profile {
   /** ふたりで ボス（iPad の 2人プレイ）の記録。この子が左（ホームで選ばれている子）で遊んだぶん */
   duo: DuoRecord;
   /**
-   * えいゆうの ぞう。せかいID（"1"〜"8"）→ その せかいの ベリーハードの ボスを はじめて たおしたときの すがた。
+   * えいゆうの ぞう。せかいID（"1"〜"8"）→ その せかいの ベリーハードの ボスを さいごに たおしたときの すがた。
    * ホームの 広場に 金の像として ならぶ（hero.ts）。8つ そろうと「でんせつの えいゆう」
    */
   heroes: Record<string, HeroStatue>;
 }
 
-/** えいゆうの ぞう 1つぶん。あとで きせかえても かわらない */
+/** えいゆうの ぞう 1つぶん。また たおすと その ときの すがたに たてなおす（きせかえただけでは かわらない） */
 export interface HeroStatue {
-  /** たおした日（YYYY-MM-DD）。ぞうが できる前に たおしていた ぶん（あとから たてた像）は '' */
+  /** さいごに たおした日（YYYY-MM-DD）。ぞうが できる前に たおしていた ぶん（あとから たてた像）は '' */
   day: string;
   skin: string;
   hat: string;
@@ -407,6 +407,11 @@ function freshProfile(): Profile {
 /** いまの すがたを 像に する（ぞうは あとで きせかえても かわらない） */
 export function statueOf(p: Profile, day: string): HeroStatue {
   return { day, skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
+}
+
+/** 2つの 像が 同じ すがたか（日付は 見ない） */
+export function sameStatue(a: HeroStatue, b: HeroStatue): boolean {
+  return a.skin === b.skin && a.hat === b.hat && a.acc === b.acc && a.color === b.color && a.weapon === b.weapon;
 }
 
 /**
