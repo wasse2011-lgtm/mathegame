@@ -3176,6 +3176,12 @@ body {
 .duo-partner small { font-size: .74rem; color: var(--ink-2); }
 .duo-partner[aria-checked="true"] { border-color: var(--amber); background: #fffaef; }
 .duo-partner[disabled] { opacity: .5; cursor: default; }
+/* いれかえ。列の ならびを すわる ところに 合わせる（きみの列が 右へ） */
+.duo-cols.swap .duo-col:first-child { order: 2; }
+.duo-pick-row { display: flex; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+.duo-swap, .duo-hall-btn { min-height: 52px; font-size: 1rem; padding: .4rem 1.1rem; }
+.duo-swap span { font-size: 1.3rem; line-height: 1; }
+.duo-hall-btn small { margin-left: .35rem; font-size: .85rem; color: var(--amber-dark); }
 .duo-msg { margin: 0; min-height: 1.2em; text-align: center; font-weight: 700; color: var(--bad-dark); }
 .duo-go { display: flex; align-items: center; justify-content: center; gap: .8rem; flex-wrap: wrap; }
 
@@ -3378,6 +3384,106 @@ body {
 .duo-end-lines .prize { color: #6a3fb5; font-weight: 700; }
 .duo-end-lines .unlock { color: var(--bad-dark); font-weight: 700; }
 .duo-end-btns { display: flex; gap: .8rem; justify-content: center; align-items: center; flex-wrap: wrap; }
+
+/* でんどういり（8体 ぜんぶ倒した）。上から 金色の光、まんなかに 額縁、下の 左右に「おしてね」 */
+.duo-over.duo-fame {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .9rem;
+  background: radial-gradient(ellipse at 50% 0%, rgba(255,220,120,.42), rgba(24,30,52,.74) 62%);
+}
+.fame-slot { width: 100%; display: flex; justify-content: center; }
+/* 額縁。ふちは 段階の 金属の色（どう・ぎん・きん）。角まるでも ふちに グラデーションが 出るよう、背景を 2まい重ねる */
+.fame-frame {
+  --metal: linear-gradient(135deg, #8c5524, #e6a46a 30%, #9c6230 55%, #f2c08e 80%, #8c5524);
+  position: relative; width: min(100%, 36rem); text-align: center;
+  padding: .9rem 1.4rem 1rem; border: 12px solid transparent; border-radius: 20px;
+  background: linear-gradient(180deg, #fffdf6, #fff3d6) padding-box, var(--metal) border-box;
+  box-shadow: inset 0 0 0 3px rgba(150,110,30,.28), 0 12px 40px rgba(0,0,0,.38);
+}
+.fame-frame.t1 { --metal: linear-gradient(135deg, #7d8a96, #f4f7fa 30%, #9aa6b2 55%, #ffffff 80%, #7d8a96); }
+.fame-frame.t2 { --metal: linear-gradient(135deg, #a87a0c, #ffe680 30%, #c8961a 55%, #fff4b8 80%, #a87a0c); }
+/* ベリーハードは ほのおが 額縁を かこむ */
+.fame-frame.t2 { box-shadow: inset 0 0 0 3px rgba(150,110,30,.28), 0 0 26px 8px rgba(255,110,40,.6), 0 12px 40px rgba(0,0,0,.38); }
+.fame-frame.t2::before, .fame-frame.t2::after {
+  content: '🔥'; position: absolute; top: -1.6rem; font-size: 2.1rem; line-height: 1; pointer-events: none;
+}
+.fame-frame.t2::before { left: -1.4rem; }
+.fame-frame.t2::after { right: -1.4rem; transform: scaleX(-1); }
+.fame-frame.big { animation: fame-in .45s cubic-bezier(.2,1.3,.4,1); }
+.fame-frame.big.t2::before, .fame-frame.big.t2::after { animation: fame-flame .5s ease-in-out infinite alternate; }
+.fame-frame.big.stamped { animation: fame-hit .28s ease-out .18s; }
+/* はなびで はずむ。ハンコの ゆれ（.big.stamped）より 強く 指す */
+.fame-frame.big.stamped.cheer { animation: fame-cheer .6s ease-out; }
+@keyframes fame-in { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes fame-hit { 0%, 100% { transform: translate(0, 0); } 30% { transform: translate(-4px, 3px); } 60% { transform: translate(3px, -2px); } }
+@keyframes fame-cheer { 0% { transform: scale(1); } 40% { transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes fame-flame { from { transform: translateY(0) scale(1); } to { transform: translateY(-3px) scale(1.12); } }
+.fame-frame.big.t2::after { animation-name: fame-flame-r; }
+@keyframes fame-flame-r { from { transform: scaleX(-1); } to { transform: scaleX(-1) translateY(-3px) scale(1.12); } }
+.fame-title { margin: 0; font-size: 2.1rem; font-weight: 900; color: #8a5a00; letter-spacing: .08em; text-shadow: 0 2px 0 #fff; }
+.fame-tier { margin: .1rem 0 .4rem; font-weight: 800; color: var(--tier, var(--ink-2)); }
+.fame-pair { display: flex; justify-content: center; align-items: center; gap: .8rem; }
+.fame-kid { margin: 0; display: flex; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; }
+.fame-kid canvas { border-radius: 50%; background: radial-gradient(circle, #fffbe6 0%, #ffe9a8 70%, rgba(255,233,168,0) 72%); }
+.fame-kid figcaption { font-size: 1.4rem; font-weight: 900; color: var(--ink); overflow-wrap: anywhere; }
+.fame-and { font-size: 1.8rem; font-weight: 900; color: #c89a2a; }
+.fame-meta { margin: .45rem 0 0; font-weight: 700; color: var(--ink-2); }
+/* ハンコ。右上に ななめに。big は .stamped で おす（大きく おちてきて とまる） */
+.fame-stamp {
+  position: absolute; top: .5rem; right: .7rem; width: 5rem; height: 5rem; border-radius: 50%;
+  display: grid; place-items: center; text-align: center; line-height: 1.15;
+  border: 4px solid #d23a2a; color: #d23a2a; background: rgba(255,255,255,.35);
+  font-weight: 900; font-size: 1rem; transform: rotate(-14deg); opacity: 0; pointer-events: none;
+}
+.fame-frame.stamped .fame-stamp { opacity: .9; }
+.fame-frame.big.stamped .fame-stamp { animation: fame-stamp .3s cubic-bezier(.2,1.4,.4,1); }
+@keyframes fame-stamp { from { transform: rotate(-14deg) scale(2.6); opacity: 0; } to { transform: rotate(-14deg) scale(1); opacity: .9; } }
+/* かざり棚の 小さい額縁 */
+.fame-frame.mini { width: 100%; padding: .45rem .55rem .55rem; border-width: 7px; border-radius: 14px; box-shadow: inset 0 0 0 2px rgba(150,110,30,.25), 0 4px 12px rgba(0,0,0,.18); }
+.fame-frame.mini.t2 { box-shadow: inset 0 0 0 2px rgba(150,110,30,.25), 0 0 12px 3px rgba(255,110,40,.5); }
+.fame-frame.mini.t2::before, .fame-frame.mini.t2::after { top: -.9rem; font-size: 1.2rem; }
+.fame-frame.mini.t2::before { left: -.7rem; }
+.fame-frame.mini.t2::after { right: -.7rem; }
+.fame-frame.mini .fame-title { font-size: 1rem; letter-spacing: .04em; }
+.fame-frame.mini .fame-tier { font-size: .78rem; margin: 0 0 .2rem; }
+.fame-frame.mini .fame-pair { gap: .35rem; }
+.fame-frame.mini .fame-kid figcaption { font-size: .85rem; }
+.fame-frame.mini .fame-and { font-size: 1rem; }
+.fame-frame.mini .fame-meta { font-size: .74rem; margin-top: .2rem; }
+/* 小さい額縁では 字に かからないよう 右下の かどに（ほのおは 上の かど） */
+.fame-frame.mini .fame-stamp { top: auto; bottom: -.7rem; right: -.7rem; width: 2.7rem; height: 2.7rem; border-width: 2px; font-size: .52rem; background: rgba(255,255,255,.85); }
+/* ふたりで おしてね。左右の はしに 1つずつ（それぞれの子の 手もと）。出るまでは 場所だけ とっておく */
+.fame-touch { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: .8rem; }
+.duo-fame:not(.touch) .fame-touch { visibility: hidden; }
+.fame-pad {
+  justify-self: start; display: flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 84px; width: min(100%, 14rem); padding: .4rem 1rem;
+  font-family: inherit; font-size: 1.3rem; font-weight: 900; color: var(--ink); cursor: pointer;
+  background: #fff; border: 4px solid #ffcf4d; border-bottom-width: 7px; border-radius: 22px;
+  transition: transform .08s ease, background-color .12s ease;
+}
+.fame-pad[data-pos="1"] { justify-self: end; }
+.fame-pad span { font-size: 2rem; line-height: 1; }
+.fame-pad b { overflow-wrap: anywhere; min-width: 0; }
+.fame-pad.on { background: #ffe17a; border-color: #f0a800; transform: scale(1.06); }
+/* CPU の ぶんは 相方が おすと 自分で おす */
+.fame-pad.cpu { pointer-events: none; }
+.fame-touch-say { margin: 0; text-align: center; color: #fff; font-weight: 900; font-size: 1.2rem; text-shadow: 0 2px 0 rgba(0,0,0,.45); }
+.duo-fame:not(.ready) .fame-next { visibility: hidden; }
+.fame-next { min-width: min(100%, 20rem); }
+/* はなびは 額縁の上に（さわれない） */
+.fame-sky { z-index: 7; }
+/* でんどう（かざり棚） */
+.duo-hall-sheet { max-width: 48rem; max-height: 100%; overflow-y: auto; }
+.duo-hall-empty { margin: 0; text-align: center; font-weight: 700; color: var(--ink-2); }
+.duo-hall-empty[hidden] { display: none; }
+.duo-hall-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(13.5rem, 1fr)); gap: 1rem .8rem; padding-top: .8rem; }
+.duo-hall-list:empty { display: none; }
+#duo-hall-close { align-self: center; min-width: 12rem; }
+@media (prefers-reduced-motion: reduce) {
+  .fame-frame.big, .fame-frame.big.stamped, .fame-frame.big.stamped.cheer, .fame-frame.big.stamped .fame-stamp,
+  .fame-frame.big.t2::before, .fame-frame.big.t2::after { animation: none; }
+  .fame-pad { transition: none; }
+}
 
 /* 縦にしているとき。2人の板が せまくなりすぎるので 横にしてもらう */
 .duo-rotate { display: none; }

@@ -188,6 +188,28 @@ export interface DuoLog {
   sec: number;
 }
 
+/** でんどういりの 額縁の 子（そのときの すがた）。ゲスト・CPU も入る */
+export interface DuoFameKid {
+  name: string;
+  skin: string;
+  hat: string;
+  acc: string;
+  color: string;
+  weapon: string;
+}
+
+/** でんどういり（8体 ぜんぶ倒した）1回ぶん。kids は 画面の 左・右 の順（すわっていた ところ） */
+export interface DuoFame {
+  tier: number;
+  day: string;
+  kids: [DuoFameKid, DuoFameKid];
+  /** ふたりで 正解した数 */
+  correct: number;
+}
+
+/** でんどうに のこす数（ふるい ものから けす） */
+export const DUO_FAME_KEEP = 20;
+
 export interface DuoRecord {
   /** むずかしさごとの、いちばん先まで倒したボスの数（0〜8） */
   best: [number, number, number];
@@ -199,6 +221,10 @@ export interface DuoRecord {
   log: DuoLog;
   /** さいごに遊んだ1回ぶん */
   last: (DuoLog & { tier: number; reached: number; day: string }) | null;
+  /** でんどういり。ふるい順（DUO_FAME_KEEP まで） */
+  fame: DuoFame[];
+  /** この子が 右に すわる（えらぶ画面の「いれかえ」）。つぎも おぼえておく */
+  swap: boolean;
 }
 
 export function freshDuoLog(): DuoLog {
@@ -206,7 +232,30 @@ export function freshDuoLog(): DuoLog {
 }
 
 function freshDuo(): DuoRecord {
-  return { best: [0, 0, 0], ms: 0, day: '', saves: {}, log: freshDuoLog(), last: null };
+  return { best: [0, 0, 0], ms: 0, day: '', saves: {}, log: freshDuoLog(), last: null, fame: [], swap: false };
+}
+
+function readFameKid(v: unknown): DuoFameKid {
+  const o = (v && typeof v === 'object' ? v : {}) as Partial<Record<keyof DuoFameKid, unknown>>;
+  const str = (x: unknown): string => (typeof x === 'string' ? x : '');
+  return { name: str(o.name), skin: str(o.skin), hat: str(o.hat), acc: str(o.acc), color: str(o.color), weapon: str(o.weapon) };
+}
+
+function readFame(v: unknown): DuoFame[] {
+  if (!Array.isArray(v)) return [];
+  const out: DuoFame[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Partial<DuoFame>;
+    const kids = Array.isArray(o.kids) ? o.kids : [];
+    out.push({
+      tier: typeof o.tier === 'number' ? Math.min(2, Math.max(0, Math.round(o.tier))) : 0,
+      day: typeof o.day === 'string' ? o.day : '',
+      kids: [readFameKid(kids[0]), readFameKid(kids[1])],
+      correct: typeof o.correct === 'number' && Number.isFinite(o.correct) ? Math.max(0, Math.round(o.correct)) : 0,
+    });
+  }
+  return out.slice(-DUO_FAME_KEEP);
 }
 
 /** 読みこんだ ふたりで ボス の記録を確かめる。形がおかしいところは既定値に落とす */
@@ -240,6 +289,8 @@ function readDuo(d: unknown): DuoRecord {
     saves,
     log,
     last: o.last && typeof o.last === 'object' ? (o.last as DuoRecord['last']) : null,
+    fame: readFame(o.fame),
+    swap: o.swap === true,
   };
 }
 

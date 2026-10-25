@@ -513,9 +513,10 @@
           <span class="tclock" data-tclock hidden></span>
         </header>
         <nav class="duo-tiers" id="duo-tiers" aria-label="むずかしさ"></nav>
-        <div class="duo-cols">
+        <!-- いれかえ（swap）のときは 2つの列を 入れかえて見せる（すわる ところと 同じ ならび） -->
+        <div class="duo-cols" id="duo-cols">
           <div class="duo-col">
-            <p class="duo-col-head">ひだり（きみ）</p>
+            <p class="duo-col-head" id="duo-me-head">ひだり（きみ）</p>
             <div class="duo-me">
               <canvas id="duo-left-face" aria-hidden="true"></canvas>
               <b id="duo-left-name"></b>
@@ -523,9 +524,13 @@
             <p class="duo-col-note">ほかの子に するなら ホームで えらびなおしてね</p>
           </div>
           <div class="duo-col">
-            <p class="duo-col-head">みぎ（なかま）</p>
+            <p class="duo-col-head" id="duo-mate-head">みぎ（なかま）</p>
             <div class="duo-partners" id="duo-partners" role="radiogroup" aria-label="なかま"></div>
           </div>
+        </div>
+        <div class="duo-pick-row">
+          <button class="btn duo-swap" id="duo-swap" type="button"><span aria-hidden="true">↔️</span> ひだりと みぎを いれかえる</button>
+          <button class="btn duo-hall-btn" id="duo-hall-btn" type="button"><span aria-hidden="true">🏆</span> でんどう<small id="duo-hall-count"></small></button>
         </div>
         <p class="duo-msg" id="duo-pick-msg"></p>
         <div class="duo-go" id="duo-go"></div>
@@ -578,6 +583,19 @@
           </div>
         </div>
 
+        <!-- でんどういり（8体 ぜんぶ倒した）。額縁は duo-fame.ts が作る。
+             「ふたりで おしてね」は 左右の はしに 1つずつ（それぞれの子の 手もと） -->
+        <div class="duo-over duo-fame" id="duo-fame" hidden>
+          <div class="fame-slot" id="duo-fame-slot"></div>
+          <div class="fame-touch" id="duo-fame-touch">
+            <button class="fame-pad" type="button" data-pos="0"><span aria-hidden="true">👆</span><b></b></button>
+            <p class="fame-touch-say">ふたりで いっしょに おしてね！</p>
+            <button class="fame-pad" type="button" data-pos="1"><span aria-hidden="true">👆</span><b></b></button>
+          </div>
+          <button class="btn btn-primary btn-xl fame-next" id="duo-fame-next" type="button">つづける ▶</button>
+          <canvas class="hanabi-sky fame-sky" id="duo-fame-sky" aria-hidden="true"></canvas>
+        </div>
+
         <!-- ふつうの ポーズ（と、アプリを裏に回したとき） -->
         <div class="duo-over" id="duo-pausebox" hidden>
           <div class="sheet">
@@ -585,6 +603,16 @@
             <button class="btn btn-primary btn-xl" id="duo-resume" type="button">つづける</button>
             <button class="btn btn-ghost" id="duo-quit" type="button">やめる</button>
           </div>
+        </div>
+      </div>
+
+      <!-- でんどう（でんどういりの 額縁の かざり棚）。えらぶ画面の 🏆 から -->
+      <div class="duo-over duo-hall" id="duo-hall" hidden>
+        <div class="sheet duo-hall-sheet">
+          <p class="sheet-head">🏆 でんどう</p>
+          <p class="duo-hall-empty" id="duo-hall-empty">8たい ぜんぶ たおすと、ふたりの すがたが ここに かざられるよ</p>
+          <div class="duo-hall-list" id="duo-hall-list"></div>
+          <button class="btn btn-primary" id="duo-hall-close" type="button">とじる</button>
         </div>
       </div>
 
