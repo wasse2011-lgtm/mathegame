@@ -180,8 +180,10 @@ export class Hanabi {
       s.y += s.vy * dt;
     }
 
-    const on = this.busy && this.darken;
-    this.dusk += ((on ? 1 : 0) - this.dusk) * Math.min(1, dt * (on ? 3 : 2));
+    // 空を暗くするのは darken のときだけ。上がっている あいだ 動かしつづけるのは どちらも同じ
+    const on = this.busy;
+    const dark = on && this.darken;
+    this.dusk += ((dark ? 1 : 0) - this.dusk) * Math.min(1, dt * (dark ? 3 : 2));
 
     g.clearRect(0, 0, W, H);
     if (this.dusk > 0.01) {

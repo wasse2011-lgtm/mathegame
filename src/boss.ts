@@ -11,7 +11,8 @@ import { mix } from './theme';
 
 export type ShotKind = 'rock' | 'beam' | 'fire';
 
-export type BossMode = 'idle' | 'wind' | 'roar' | 'charge' | 'hit' | 'down';
+/** bow は まいった顔（目を とじて 頭を下げる。ひとりの ベリーハードを たおした あとの えいゆうの 演出） */
+export type BossMode = 'idle' | 'wind' | 'roar' | 'charge' | 'hit' | 'down' | 'bow';
 
 export interface BossState {
   t: number;
@@ -345,6 +346,23 @@ function drawFace(
     }
     g.beginPath();
     g.arc(cx, top + h * 0.56, s * 0.13, Math.PI, 0);
+    g.stroke();
+    return;
+  }
+
+  if (st.mode === 'bow') {
+    // まいった顔。目を とじて、口は 小さく への字
+    g.strokeStyle = INK;
+    g.lineWidth = Math.max(2, s * 0.05);
+    g.lineCap = 'round';
+    for (const side of [-1, 1]) {
+      g.beginPath();
+      g.arc(cx + side * w * 0.19, ey - s * 0.03, s * 0.08, Math.PI * 0.15, Math.PI * 0.85);
+      g.stroke();
+    }
+    g.beginPath();
+    g.moveTo(cx - s * 0.08, top + h * 0.6);
+    g.quadraticCurveTo(cx, top + h * 0.55, cx + s * 0.08, top + h * 0.6);
     g.stroke();
     return;
   }

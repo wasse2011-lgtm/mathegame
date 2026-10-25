@@ -707,6 +707,11 @@ body {
   .logo { font-size: clamp(1.9rem, 5.2vw, 3.2rem); }
   .yard { margin-top: 0; }
   #home-char { height: 118px; }
+  /* えいゆうの ぞうは 2列の 下に 横いっぱいで ならべる（広場の 芝生の 上。像を 大きく見せる） */
+  .statue-row { grid-column: 1 / -1; grid-row: 5; margin-top: .4rem; }
+  .statue-list { gap: .5rem; }
+  .statue-list .statue-fig { width: 64px; height: 72px; }
+  .statue-list .statue-base { width: 66px; height: 22px; font-size: .85rem; }
 }
 /* スマホの横持ち。縦が 400px ほどしかないので、行のあいだを最後まで詰める */
 @media (orientation: landscape) and (min-width: 40rem) and (max-height: 30rem) {
@@ -728,6 +733,11 @@ body {
   #btn-start { min-height: 60px; }
   .yard { display: block; }
   #home-char { height: clamp(64px, 26vh, 104px); }
+  /* えいゆうの ぞうも ひくく（たてが みじかいので、像の列で スクロールが のびすぎないように） */
+  .statue-row { margin-top: 0; }
+  .statue-list { gap: .25rem; }
+  .statue-list .statue-fig { width: 36px; height: 40px; }
+  .statue-list .statue-base { width: 38px; height: 16px; font-size: .62rem; }
 }
 
 /* ---------------- きろく（セーブデータ） ---------------- */
@@ -3501,4 +3511,191 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .duo-side.attacked, .duo-side.rescue, .duo-side.dueling, .ds-hintbtn.nudge, .ds-dizzy, .dt-node.next, .duo-rotate-pic,
   .duo-rest-go.ready { animation: none; }
+}
+
+/* ---------------- せかいを すくった えいゆう（ベリーハードの ボスを たおした あと） ----------------
+   演出は runner.ts。canvas の外（式や ボタンの うしろ）も 光の円で 明るい空に ぬりかえるので、
+   その 1枚（.hero-new-sky）を 画面の うしろの色の すぐ上・中身の下に しく（isolation で 画面の中に とじる） */
+.screen-play { isolation: isolate; }
+.hero-new-sky { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.hero-new-sky[hidden] { display: none; }
+/* 演出の あいだは 式・答え・ヒント・体力の帯を 見えなくする（場所は のこして canvas の大きさを かえない） */
+.screen-play.hero .hud, .screen-play.hero .q-tags, .screen-play.hero .question, .screen-play.hero .hint,
+.screen-play.hero .boss-bar, .screen-play.hero .pet-dock, .screen-play.hero .answers { visibility: hidden; }
+
+/* ホーくん。左上から とんできて、名まえと 称号を 言う */
+.hero-owl {
+  position: absolute; z-index: 3; top: calc(var(--safe-t) + .6rem); left: calc(var(--safe-l) + .8rem); right: 1rem;
+  display: flex; align-items: center; gap: .6rem; pointer-events: none;
+  animation: hero-owl-in .7s cubic-bezier(.2,1.2,.4,1) both;
+}
+.hero-owl[hidden] { display: none; }
+.hero-owl-pic { flex: 0 0 auto; width: clamp(64px, 11vh, 96px); height: clamp(64px, 11vh, 96px); }
+.hero-owl .owl-wing.wl { animation: owl-flap-l .21s ease-in-out 6; }
+.hero-owl .owl-wing.wr { animation: owl-flap-r .21s ease-in-out 6; }
+.hero-owl-say {
+  position: relative; margin: 0; padding: .55rem 1rem; border-radius: 18px;
+  background: #fff; border: 3px solid var(--amber-dark); color: var(--ink);
+  font-weight: 900; font-size: clamp(1.15rem, 3.4vh, 1.7rem); line-height: 1.3;
+  box-shadow: 0 4px 0 rgba(0,0,0,.12); word-break: keep-all; overflow-wrap: anywhere;
+  animation: hero-say-in .35s .45s ease-out both;
+}
+.hero-owl-say::before {
+  content: ''; position: absolute; left: -12px; top: 50%; margin-top: -9px;
+  border: 9px solid transparent; border-right: 12px solid var(--amber-dark); border-left: 0;
+}
+@keyframes hero-owl-in {
+  from { transform: translate(-60%, -120%) rotate(-25deg); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes hero-say-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* 「○○！」。画面の どこかに ぽんと 出て、のぼって 消える */
+.hero-calls { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.hero-call {
+  position: absolute; white-space: nowrap; font-weight: 900; line-height: 1; color: #fff;
+  -webkit-text-stroke: 7px var(--c, #ff6b8f); paint-order: stroke fill;
+  text-shadow: 0 4px 0 rgba(0,0,0,.15);
+  animation: hero-call 1.5s ease-out forwards;
+}
+@keyframes hero-call {
+  0% { transform: translateY(0) rotate(var(--rot, 0deg)) scale(.3); opacity: 0; }
+  18% { transform: translateY(-6px) rotate(var(--rot, 0deg)) scale(1.18); opacity: 1; }
+  32% { transform: translateY(-10px) rotate(var(--rot, 0deg)) scale(1); opacity: 1; }
+  100% { transform: translateY(-70px) rotate(var(--rot, 0deg)) scale(1); opacity: 0; }
+}
+
+/* 称号と 金の像の カード */
+.hero-over {
+  /* 列の はばを 画面に しばる（中の 字の はばに おされて カードが 右へ はみ出さないように） */
+  position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; grid-template-columns: minmax(0, 1fr);
+  padding: calc(var(--safe-t) + .6rem) 1rem calc(var(--safe-b) + .6rem);
+  background: radial-gradient(circle at 50% 42%, rgba(255,244,200,.7), rgba(255,226,140,.25) 55%, rgba(60,40,0,.18));
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.hero-over[hidden] { display: none; }
+/* うしろで ゆっくり まわる 光の すじ */
+.hero-over::before {
+  content: ''; position: absolute; left: 50%; top: 42%; width: 170vmax; height: 170vmax; margin: -85vmax 0 0 -85vmax;
+  background: repeating-conic-gradient(rgba(255,236,150,.4) 0 7deg, rgba(255,236,150,0) 7deg 18deg);
+  animation: hero-rays 24s linear infinite; pointer-events: none; z-index: -1;
+}
+@keyframes hero-rays { to { transform: rotate(360deg); } }
+.hero-card {
+  position: relative; width: min(30rem, 100%);
+  display: grid; justify-items: center; gap: .35rem; text-align: center;
+  background: linear-gradient(180deg, #fffdf4, #fff0c8);
+  border: 4px solid #d9a52a; border-radius: 26px;
+  box-shadow: inset 0 0 0 3px rgba(255,255,255,.7), 0 0 30px 6px rgba(255,214,90,.55), 0 14px 40px rgba(0,0,0,.3);
+  padding: .9rem 1.1rem 1.1rem;
+  animation: hero-card-in .5s cubic-bezier(.2,1.3,.4,1) both;
+}
+@keyframes hero-card-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.hero-head {
+  margin: -1.9rem 0 .1rem; padding: .35rem 1.4rem; border-radius: 999px;
+  background: linear-gradient(180deg, #e8483c, #b8281f); color: #fff;
+  font-weight: 900; font-size: clamp(.95rem, min(3.2vh, 4.6vw), 1.55rem); letter-spacing: .04em; white-space: nowrap;
+  box-shadow: 0 3px 0 #8c1c14, 0 6px 14px rgba(0,0,0,.2);
+}
+.hero-over.again .hero-head { background: linear-gradient(180deg, #4aa3dd, #2f7fb5); box-shadow: 0 3px 0 #1f5f8c, 0 6px 14px rgba(0,0,0,.2); }
+.hero-stage { display: grid; place-items: end center; min-height: 0; }
+.hero-name { margin: 0; font-weight: 900; font-size: 1.5rem; color: var(--ink); }
+.hero-card-title {
+  margin: 0; font-weight: 900; font-size: clamp(1.15rem, 3.2vh, 1.6rem); color: #8a5a00;
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+.hero-over.legend .hero-card-title::after { content: '\A👑 でんせつの えいゆう'; white-space: pre; color: #b8281f; }
+.hero-row { display: flex; justify-content: center; gap: .3rem; flex-wrap: wrap; }
+.hero-note { margin: 0; font-weight: 700; font-size: .95rem; color: var(--ink-2); }
+.hero-over.legend .hero-note { color: #b8281f; }
+.hero-next { width: min(18rem, 100%); margin-top: .3rem; visibility: hidden; }
+.hero-over.ready .hero-next { visibility: visible; animation: hero-say-in .3s ease-out; }
+/* はばの せまい 画面（スマホの たて）。台座の 列を 1行に おさめる */
+@media (max-width: 30rem) {
+  .hero-row { gap: 3px; }
+  .hero-row .statue-fig { width: 32px; height: 36px; }
+  .hero-row .statue-base { width: 35px; font-size: .62rem; }
+}
+/* 縦が みじかい 画面（スマホの 横持ち）。像と 台座の 列を ちいさくして 1まいに おさめる */
+@media (max-height: 560px) {
+  .hero-card { gap: .2rem; padding: .7rem .9rem .8rem; }
+  .hero-row .statue-fig { width: 30px; height: 34px; }
+  .hero-row .statue-base { width: 32px; font-size: .6rem; }
+  .hero-stage .statue.big .statue-fig { width: 104px; height: 116px; }
+  .hero-stage .statue.big .statue-base { width: 124px; height: 26px; }
+}
+
+/* 像と 台座（ホームの 広場・カードの 列・カードの 大きい像） */
+.statue {
+  display: inline-grid; justify-items: center; align-content: end; gap: 0;
+  padding: 0; margin: 0; border: 0; background: none; font: inherit; color: inherit;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+div.statue { cursor: default; }
+.statue-fig { position: relative; width: 46px; height: 52px; display: grid; place-items: end center; }
+.statue-fig canvas { display: block; width: 100%; height: 100%; filter: drop-shadow(0 0 4px rgba(255,214,90,.7)); }
+.statue.empty .statue-fig { place-items: center; font-weight: 900; font-size: 1.2rem; color: rgba(255,255,255,.85); text-shadow: 0 2px 0 rgba(0,0,0,.15); }
+.statue-base {
+  width: 48px; height: 18px; border-radius: 5px 5px 7px 7px; display: grid; place-items: center;
+  font-size: .72rem; line-height: 1;
+  background: linear-gradient(180deg, #e9e4dc, #b3aa9d); box-shadow: inset 0 -3px 0 rgba(0,0,0,.14), 0 2px 0 rgba(0,0,0,.12);
+}
+.statue:not(.empty) .statue-base { background: linear-gradient(180deg, #fff1bf, #d5a945); box-shadow: inset 0 -3px 0 rgba(120,80,0,.25), 0 2px 0 rgba(0,0,0,.12); }
+.statue.empty .statue-base { opacity: .75; }
+.statue:active .statue-fig { transform: translateY(1px); }
+/* カードの列の いま たった像 */
+.statue.now .statue-base { box-shadow: 0 0 0 3px #ff9f43, 0 0 12px 4px rgba(255,159,67,.7); }
+.statue.now .statue-fig { animation: statue-now 1s ease-in-out infinite alternate; }
+@keyframes statue-now { from { transform: translateY(0); } to { transform: translateY(-4px); } }
+/* カードの 大きい像。台座の 中から せり上がって、きらりと 光る */
+.statue.big .statue-fig { width: 150px; height: 168px; overflow: hidden; }
+.statue.big .statue-fig canvas { filter: drop-shadow(0 0 10px rgba(255,214,90,.85)); animation: statue-rise 1.1s .25s cubic-bezier(.2,1.1,.4,1) both; }
+.statue.big .statue-fig::after {
+  content: ''; position: absolute; inset: -20% -60%; pointer-events: none;
+  background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.85) 50%, transparent 60%);
+  transform: translateX(-100%); animation: statue-shine 1s 1.35s ease-in-out both;
+}
+.statue.big .statue-base {
+  width: 176px; height: 34px; font-size: 1.2rem; border-radius: 8px 8px 12px 12px;
+  border-top: 3px solid #fff4c4;
+}
+.hero-over.again .statue.big .statue-fig canvas, .hero-over.again .statue.big .statue-fig::after { animation: none; }
+@keyframes statue-rise { from { transform: translateY(102%); } to { transform: translateY(0); } }
+@keyframes statue-shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+/* ホームの 広場の下の 像の列 */
+.statue-row { width: 100%; display: grid; justify-items: center; gap: .2rem; }
+.statue-row[hidden] { display: none; }
+.statue-label { margin: 0; font-size: .85rem; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.statue-label b { font-size: 1rem; }
+.statue-list { display: flex; justify-content: center; gap: 2px; flex-wrap: wrap; }
+@media (max-width: 30rem) {
+  .statue-list .statue-fig { width: 38px; height: 43px; }
+  .statue-list .statue-base { width: 40px; }
+}
+
+/* 名まえの下の 称号 */
+.hello-title {
+  margin: -.2rem 0 0; align-self: flex-start; padding: .2rem .8rem; border-radius: 999px;
+  font-size: .9rem; font-weight: 900; color: #6b4300;
+  background: linear-gradient(180deg, #fff3c4, #ffd666); box-shadow: 0 2px 0 rgba(180,120,0,.35);
+  word-break: keep-all; overflow-wrap: anywhere;
+}
+.hello-title[hidden] { display: none; }
+.hello-title.legend {
+  color: #5a3500; background: linear-gradient(110deg, #e8b730, #fff1a8 35%, #e8b730 55%, #fffbe0 75%, #e8b730);
+  background-size: 220% 100%; text-shadow: 0 1px 0 rgba(255,255,255,.7);
+  animation: hello-legend 3s linear infinite;
+}
+@keyframes hello-legend { from { background-position: 100% 0; } to { background-position: -120% 0; } }
+
+/* リザルトの「ぞうが たった」 */
+.hero-unlock { --tc: #c8961a; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-owl, .hero-owl-say, .hero-owl .owl-wing, .hero-call, .hero-over::before, .hero-card,
+  .statue.now .statue-fig, .statue.big .statue-fig canvas, .statue.big .statue-fig::after, .hello-title.legend,
+  .hero-over.ready .hero-next { animation: none; }
+  .statue.big .statue-fig::after { display: none; }
+  .hero-call { opacity: 0; }
 }

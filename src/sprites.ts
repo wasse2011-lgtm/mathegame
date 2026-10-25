@@ -1,7 +1,7 @@
 /** キャラと障害物の描画。画像は使わず、すべて Canvas で描く（読み込み待ちゼロ・拡大しても綺麗）。 */
 
 import { colorDef } from './items';
-import { profile, type SkinId } from './save';
+import { isLegend, profile, type SkinId } from './save';
 import type { ObstacleKind } from './theme';
 import { drawWeaponHeld } from './weapons';
 
@@ -106,12 +106,14 @@ export interface Look {
   color?: string;
   /** 手に持っている ぶき。さいごの1問の フィニッシュで使うもの */
   weapon?: string;
+  /** でんせつの えいゆう（8つの せかいの ベリーハードの ボスを ぜんぶ たおした）。うしろが 金色に光る */
+  legend?: boolean;
 }
 
 /** セーブされている、いまの見た目 */
 export function currentLook(): Look {
   const p = profile();
-  return { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
+  return { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon, legend: isLegend(p) };
 }
 
 export function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -1386,6 +1388,41 @@ function drawThiefFace(
   }
 }
 
+/**
+ * でんせつの えいゆうの 光。からだの うしろに 金の もやと、まわりを ゆっくり まわる きらきら 4つ。
+ * 走っている あいだも 目に うるさくない こさに とどめる
+ */
+function drawLegendGlow(g: CanvasRenderingContext2D, cx: number, cy: number, s: number, t: number): void {
+  g.save();
+  const pulse = 0.85 + Math.sin(t * 2.4) * 0.15;
+  const r = s * 0.95 * pulse;
+  const grad = g.createRadialGradient(cx, cy, s * 0.1, cx, cy, r);
+  grad.addColorStop(0, 'rgba(255,226,120,.6)');
+  grad.addColorStop(0.55, 'rgba(255,200,60,.28)');
+  grad.addColorStop(1, 'rgba(255,200,60,0)');
+  g.fillStyle = grad;
+  g.beginPath();
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#fff3b0';
+  for (let i = 0; i < 4; i++) {
+    const a = t * 0.9 + (i * Math.PI) / 2;
+    const tw = 0.5 + 0.5 * Math.sin(t * 5 + i * 1.7);
+    const k = s * (0.07 + tw * 0.06);
+    const px = cx + Math.cos(a) * s * 0.72;
+    const py = cy + Math.sin(a) * s * 0.62;
+    g.globalAlpha = 0.45 + tw * 0.5;
+    g.beginPath();
+    g.moveTo(px, py - k);
+    g.quadraticCurveTo(px, py, px + k, py);
+    g.quadraticCurveTo(px, py, px, py + k);
+    g.quadraticCurveTo(px, py, px - k, py);
+    g.quadraticCurveTo(px, py, px, py - k);
+    g.fill();
+  }
+  g.restore();
+}
+
 export function drawChar(
   g: CanvasRenderingContext2D,
   cx: number,
@@ -1407,6 +1444,7 @@ export function drawChar(
   const x = cx - s / 2;
   const y = footY - s;
 
+  if (look.legend) drawLegendGlow(g, cx, footY - s * 0.5, s, st.t);
   if (look.acc) drawAccBack(g, look.acc, x, y, s, st.t);
 
   // ビリビリねずみの いなずま しっぽ。からだの うしろから 右上へ ぎざぎざに のびる。

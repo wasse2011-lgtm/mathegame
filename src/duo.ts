@@ -81,7 +81,7 @@ import { drawPet, paintPetIcon } from './petart';
 import { NO_POWER, petOf, powerFor, type PetDef, type PetPower } from './pets';
 import { solvedParts, type Question, type StatReader } from './questions';
 import {
-  DUO_FAME_KEEP, persist, profile, save, slots, timeUp, today, type DuoFame, type DuoFameKid, type DuoLog, type DuoSuspend, type Profile,
+  DUO_FAME_KEEP, isLegend, persist, profile, save, slots, timeUp, today, type DuoFame, type DuoFameKid, type DuoLog, type DuoSuspend, type Profile,
 } from './save';
 import { drawScene, drawWeather, type SceneView } from './scenery';
 import { drawChar, paintSkinIcon, roundRect, type CharState, type Look } from './sprites';
@@ -635,7 +635,7 @@ export class DuoGame {
     const pet = p ? petOf(p) : null;
     const carried = ms > 0 ? ms : p?.duo.ms ?? 0;
     const look: Look = p
-      ? { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon }
+      ? { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon, legend: isLegend(p) }
       // ゲストは 初期の ねこを ぎんいろに。左の子と見分けがつくように
       : { skin: 'cat', color: 'color-silver', weapon: DEFAULT_WEAPON };
     return {
@@ -1889,7 +1889,7 @@ export class DuoGame {
       if (grantPrize(p, DUO_PRIZES[this.tier])) {
         prizes.push(p.name);
         // もらった記念品を その場で身につけた姿にする（うしろの舞台にも すぐ出る）
-        side.look = { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon };
+        side.look = { skin: p.skin, hat: p.hat, acc: p.acc, color: p.color, weapon: p.weapon, legend: isLegend(p) };
       }
     }
     // でんどういり。2人の きろくの子の 両方に のこす（すわっていた順。記念品を 身につけた すがたで）

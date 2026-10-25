@@ -27,6 +27,7 @@ import {
 } from './duo-menu';
 import { DUO_BOSS_COUNT } from './duo-rules';
 import { Hanabi } from './hanabi';
+import { LEGEND_TITLE, buildStatue, heroTitle, titleOf } from './hero';
 import { GACHA_COST, lockedItems } from './items';
 import { GRACE_SEC, minuteWord } from './limit';
 import { initMini, miniLeftToday, miniPlaying, renderMiniList, stopMini } from './minigame';
@@ -54,7 +55,9 @@ import {
   extendSession,
   extendToday,
   flushSave,
+  heroCount,
   isEmptySlot,
+  isLegend,
   limitsOn,
   overDailyLimit,
   persist,
@@ -71,6 +74,7 @@ import {
   storageWorks,
   timeUp,
   usedSlots,
+  type Profile,
 } from './save';
 import { SKINS, currentLook, drawChar, paintSkinIcon } from './sprites';
 import { mapLook, skyCss, themeFor, timeIdFor, type MapLook, type TimeId } from './theme';
@@ -844,6 +848,7 @@ function renderTitle(): void {
   $('home').hidden = needsSetup;
   $('title-sub').hidden = needsSetup;
   $('yard').hidden = needsSetup;
+  if (needsSetup) $('statue-row').hidden = true;
   $('start-main').textContent = needsSetup ? 'はじめる' : 'あそぶ';
   $('start-sub').hidden = true;
   if (!needsSetup) startHomeIdle();
@@ -880,6 +885,13 @@ function renderTitle(): void {
   hideSensei();
   $('hello').textContent = `${p.name} の ぼうけん`;
   $('hello').setAttribute('aria-label', `${p.name} の ぼうけん。きろくを えらぶ`);
+  // 称号（ベリーハードの ボスを たおした せかいの えいゆう）。8つ そろうと でんせつ
+  const title = titleOf(p);
+  const helloTitle = $('hello-title');
+  helloTitle.hidden = !title;
+  helloTitle.textContent = title;
+  helloTitle.classList.toggle('legend', isLegend(p));
+  renderStatues(p);
   $('home-coins').textContent = String(p.coins);
 
   // 1日の上限に達したら、遊ぶ導線だけ閉じる（図鑑ときせかえは見られる）
@@ -946,6 +958,29 @@ function renderTitle(): void {
 
   renderSpendBadges();
   renderHanabi();
+}
+
+/**
+ * えいゆうの ぞう（広場の下に 台座 8つ）。ベリーハードが 1つも ひらいていないうちは 出さない。
+ * 像を 押すと 広場の ひとことで 称号を言う。まだの 台座は どうすれば たつかを言う
+ */
+function renderStatues(p: Profile): void {
+  const row = $('statue-row');
+  const n = heroCount(p);
+  row.hidden = n === 0 && !WORLDS.some((w) => tierUnlocked(w, 2));
+  if (row.hidden) return;
+  $('statue-count').textContent = String(n);
+  $('statue-list').replaceChildren(...WORLDS.map((w) => {
+    const h = p.heroes[String(w.id)] ?? null;
+    const el = buildStatue(w.id, h);
+    el.addEventListener('click', () => {
+      sfx.tap();
+      sayInYard(h
+        ? `${heroTitle(w.id)}${h.day ? `（${h.day.replace(/-/g, '/')}）` : ''}`
+        : `${w.name}の ベリーハードの ボスを たおすと ぞうが たつよ`);
+    });
+    return el;
+  }));
 }
 
 /** いま「まわせる／割れる」入口にだけ合図を出す（両方なら両方） */
@@ -2505,6 +2540,15 @@ function renderResult(r: StageResult): void {
     const def = tierDef(opened);
     unlock.style.setProperty('--tc', def.color);
     unlock.textContent = `${def.icon} ${w.name}の ${def.name}が ひらいた！ マップの みぎへ すすめるよ`;
+  }
+
+  // ベリーハードの ボスを はじめて たおして、えいゆうの ぞうが たった
+  const heroNote = $('result-hero');
+  heroNote.hidden = !r.heroNew;
+  if (r.heroNew) {
+    heroNote.textContent = isLegend(profile())
+      ? `${LEGEND_TITLE}に なった！ ホームの ひろばを 見てね`
+      : `🏆 ${worldById(r.worldId).name}の えいゆう！ ホームの ひろばに ぞうが たったよ`;
   }
 
   // リベンジ（まちがえた式のやりなおし）。走った回だけ、1行だけ出す
