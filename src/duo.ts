@@ -16,7 +16,9 @@
  *    ふたりで おして はなび）。額縁は duo-fame.ts
  *
  * 入力は pointerdown で受ける。2人が ほぼ同時に押すので、指ごとに来る pointerdown のほうが確実
- * （click は 2本の指が同時に触れているとき 片方しか来ないことがある）。
+ * （click は ほかの指が 画面に ふれているあいだは来ない）。こたえ・おうえん・やすみの えらぶ・
+ * でんどういりの「おしてね」。のこりの ボタン（ヒント・‖ など）は click のままで、
+ * ほかの指と かさなった タップは multitouch.ts が click を出す。
  *
  * ★・図鑑・おぼえた は動かさない（記録は読むだけ）。となりの子が答えを言えるので、
  * 「おぼえた」の証拠としては 本編より弱い。
@@ -789,7 +791,15 @@ export class DuoGame {
       this.renderSide(side);
     });
     side.el.hintBtn.addEventListener('click', () => this.pullHint(side));
-    side.el.cheer.addEventListener('click', () => this.cheer(side));
+    // おうえんは 相方が こたえを押している さいちゅうに 連打する。こたえと同じく 指が ふれた時点で
+    // （click だと 相方の指が 画面に ふれているあいだは来ず、おうえんが効かなかった）
+    side.el.cheer.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.cheer(side);
+    });
+    side.el.cheer.addEventListener('click', (e) => {
+      if (e.detail === 0) this.cheer(side);
+    });
     // 板の どこを さわっても「さわった」に数える（てで あそんでいるか）
     root.addEventListener('pointerdown', () => {
       side.lastTouch = this.t;
