@@ -818,7 +818,8 @@ HUD の左にある小さな粒（`.pip`）が、いま何問目か・どれを�
 右の子と 右へ飛ぶ攻撃は 鏡にして描きます。数字と決まりは DOM に触らない `duo-rules.ts` に分けてあり、
 `npm run verify` の L で検査しています。
 
-こたえのボタンは `pointerdown` で受けます。2人が ほぼ同時に押すので、指ごとに来る `pointerdown` のほうが確実です。
+こたえのボタンと「おうえん」は `pointerdown` で受けます。2人が ほぼ同時に押すので、指ごとに来る `pointerdown` のほうが確実です
+（`click` は ほかの指が 画面に ふれているあいだは来ず、相方が こたえを押していると「おうえん」が効かなかった）。
 下の板（こたえ・ヒント）の高さは決めうちで、ヒントは板の下のはしに重ねます。板の高さが変わると 上の舞台が
 のびちぢみして、とんでいる攻撃の位置がずれるためです。
 
@@ -1826,6 +1827,7 @@ src/
   limit.ts            のこり時間の ことば（ふん／ぷん）・色・時計の おうぎ形・文字盤の分数・関門の問題。DOM に触らないので CI から検査できる
   save.ts             セーブデータ（localStorage）。きろく3枠。★の保存キー（starKey：ふつう／ハード／ベリーハード）
   audio.ts            効果音。音声ファイルは持たず Web Audio で合成
+  multitouch.ts       ほかの指が画面に触れていても押せるようにする（重なったタップにだけ click を出す）
   sprites.ts          キャラ19種（コラボふう3種を含む）・ぼうし・アクセ・いろ・障害物（12種＋にがて）の描画
   style.css           見た目と iOS 向けの調整
 public/
@@ -1843,6 +1845,10 @@ tools/build-single.mjs dist/ を 1枚の HTML にまとめる
 - `touch-action: manipulation` と `gesturestart` の抑止でダブルタップ拡大を止める
   （`user-scalable=no` は iOS Safari では無視されるため）
 - `position: fixed` + `overscroll-behavior: none` で引っぱって更新（バウンス）を止める
+- **ほかの指が画面に触れているあいだのタップには `click` が来ない**（`pointerdown`・`touchend` は来る）。
+  iPad を持つ親指が画面にかかっていると、どのボタンも効かなくなる。`multitouch.ts` が、ほかの指と重なった
+  短いタップ（1秒以内・16px 以内）だけ、指が離れたときに `click`（`detail: 1`）を出す。1本指のタップには何もしない。
+  ブラウザが自分でも `click` を出したときは、同じタップの2つめを捨てる
 - 音は最初のタップで unlock。消音スイッチが ON でも鳴るように
   Safari 16.4+ の `navigator.audioSession.type = 'playback'` を設定
 - **unlock は1回で終わりにしない。** 電話・ほかのアプリの音・アプリを裏に回すと

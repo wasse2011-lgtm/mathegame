@@ -32,6 +32,7 @@ import { GACHA_COST, lockedItems } from './items';
 import { GRACE_SEC, minuteWord } from './limit';
 import { initMini, miniLeftToday, miniPlaying, renderMiniList, stopMini } from './minigame';
 import { renderMiniMap } from './minimap';
+import { installMultiTouchClick } from './multitouch';
 import { initGate, initParent, openGate, renderParent } from './parent';
 import {
   PET_COUNT,
@@ -2957,6 +2958,9 @@ $('set-reset').addEventListener('click', () => {
 // iOS は最初のユーザー操作の中でしか音を鳴らせない。
 // しかも電話や開き直しで止まるので、1回で外さずに「どのタップでも起こす」を置く
 installAudioWake();
+
+// ほかの指が 画面に ふれていると click が来ない（iPad を持つ 親指・となりの子の指）。その タップを 拾う
+installMultiTouchClick();
 
 // user-scalable=no は iOS Safari では無視されるので、ピンチ／ダブルタップを個別に止める
 document.addEventListener('gesturestart', (e) => e.preventDefault());
